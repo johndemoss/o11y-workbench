@@ -8,30 +8,24 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/johndemoss/mocktracegen/internal/export"
 	"github.com/johndemoss/mocktracegen/internal/gen"
 	"github.com/johndemoss/mocktracegen/internal/region"
 )
 
+var cfgFile string
+
 func main() {
-	var (
-		seed        int64
-		traceCount  int
-		rate        int
-		topology    string
-		spanCount   int
-		maxDepth    int
-		serviceName string
+	cmd := newRootCmd()
+	if err := cmd.Execute(); err != nil {
+		log.Fatal(err)
+	}
+}
 
-		outputMode string
-		format     string
-		outputDir  string
-		endpoints  []string
-		insecure   bool
-	)
-
-	rootCmd := &cobra.Command{
+func newRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "mocktracegen",
 		Short: "Deterministic mock OTLP trace generator",
 		Long: `mocktracegen generates fake but structurally valid OpenTelemetry traces
@@ -40,39 +34,42 @@ load balancing across endpoints.
 
 Traces follow OpenTelemetry's protobuf wire format and can be fed into
 any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return initConfig()
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			topoType, err := gen.ParseTopology(topology)
+			topoType, err := gen.ParseTopology(viper.GetString("topology"))
 			if err != nil {
 				return err
 			}
 
-			region.SetEndpoints(endpoints)
+			region.SetEndpoints(viper.GetStringSlice("endpoint"))
 
 			cfg := gen.Config{
-				Seed:          seed,
-				TraceCount:    traceCount,
-				Rate:          rate,
-				Topology:      topoType,
-				SpanCount:     spanCount,
-				MaxDepth:      maxDepth,
-				ServiceName:   serviceName,
+				Seed:        viper.GetInt64("seed"),
+				TraceCount:  viper.GetInt("traces"),
+				Rate:        viper.GetInt("rate"),
+				Topology:    topoType,
+				SpanCount:   viper.GetInt("span-count"),
+				MaxDepth:    viper.GetInt("max-depth"),
+				ServiceName: viper.GetString("service-name"),
 			}
 
 			var exporter export.Exporter
 
-			switch outputMode {
+			switch viper.GetString("output") {
 			case "file":
-				fmtFmt, err := export.ParseFormat(format)
+				fmtFmt, err := export.ParseFormat(viper.GetString("format"))
 				if err != nil {
 					return fmt.Errorf("parse format: %w", err)
 				}
-				exporter = export.NewTraceFileExporter(outputDir, fmtFmt)
+				exporter = export.NewTraceFileExporter(viper.GetString("output-dir"), fmtFmt)
 
 			case "otlp":
 				exporters := make(map[region.Name]export.Exporter)
 				for _, reg := range region.All() {
 					ep := region.GetEndpoint(reg)
-					exp, err := export.NewOTLPExporter(ep, insecure, nil)
+					exp, err := export.NewOTLPExporter(ep, viper.GetBool("insecure"), nil)
 					if err != nil {
 						return fmt.Errorf("create OTLP exporter for %s: %w", reg, err)
 					}
@@ -81,7 +78,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				exporter = export.NewEndpointRouter(exporters)
 
 			default:
-				return fmt.Errorf("unknown output mode %q, expected: file, otlp", outputMode)
+				return fmt.Errorf("unknown output mode %q, expected: file, otlp", viper.GetString("output"))
 			}
 
 			generator := gen.NewGenerator(cfg)
@@ -101,25 +98,55 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 		},
 	}
 
-	rootCmd.Flags().Int64Var(&seed, "seed", 42, "RNG seed for deterministic trace generation")
-	rootCmd.Flags().IntVar(&traceCount, "traces", 1, "number of traces to generate")
-	rootCmd.Flags().IntVar(&rate, "rate", 0, "target traces per second (0 = unlimited)")
-	rootCmd.Flags().StringVar(&topology, "topology", "flat", "trace topology shape (flat, branching, split)")
-	rootCmd.Flags().IntVar(&spanCount, "span-count", 10, "target number of spans per trace")
-	rootCmd.Flags().IntVar(&maxDepth, "max-depth", 5, "maximum span depth in branching/split topologies")
-	rootCmd.Flags().StringVar(&serviceName, "service-name", "mock-service", "service name for resource attributes")
+	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path (YAML, JSON, or TOML)")
 
-	rootCmd.Flags().StringVar(&outputMode, "output", "file", "output mode (file, otlp)")
-	rootCmd.Flags().StringVar(&format, "format", "json", "output format for file mode (json, protobuf)")
-	rootCmd.Flags().StringVar(&outputDir, "output-dir", "./traces", "output directory for file mode")
-	rootCmd.Flags().StringArrayVar(&endpoints, "endpoint", nil, "collector endpoint address (repeatable, e.g. --endpoint localhost:4317 --endpoint collector:4317)")
-	rootCmd.Flags().BoolVar(&insecure, "insecure", true, "use insecure gRPC connection")
+	cmd.Flags().Int64("seed", 42, "RNG seed for deterministic trace generation")
+	cmd.Flags().Int("traces", 1, "number of traces to generate")
+	cmd.Flags().Int("rate", 0, "target traces per second (0 = unlimited)")
+	cmd.Flags().String("topology", "flat", "trace topology shape (flat, branching, split)")
+	cmd.Flags().Int("span-count", 10, "target number of spans per trace")
+	cmd.Flags().Int("max-depth", 5, "maximum span depth in branching/split topologies")
+	cmd.Flags().String("service-name", "mock-service", "service name for resource attributes")
 
-	rootCmd.AddCommand(regionsCmd())
+	cmd.Flags().String("output", "file", "output mode (file, otlp)")
+	cmd.Flags().String("format", "json", "output format for file mode (json, protobuf)")
+	cmd.Flags().String("output-dir", "./traces", "output directory for file mode")
+	cmd.Flags().StringSlice("endpoint", nil, "collector endpoint address (repeatable, e.g. --endpoint localhost:4317 --endpoint collector:4317)")
+	cmd.Flags().Bool("insecure", true, "use insecure gRPC connection")
 
-	if err := rootCmd.Execute(); err != nil {
-		log.Fatal(err)
+	// Precedence: CLI flag > env var > config file > built-in default.
+	for _, name := range []string{
+		"seed", "traces", "rate", "topology", "span-count", "max-depth",
+		"service-name", "output", "format", "output-dir", "endpoint", "insecure",
+	} {
+		if err := viper.BindPFlag(name, cmd.Flags().Lookup(name)); err != nil {
+			panic(fmt.Sprintf("bind flag %s: %v", name, err))
+		}
 	}
+
+	cmd.AddCommand(regionsCmd())
+
+	return cmd
+}
+
+func initConfig() error {
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.AddConfigPath(".")
+		viper.SetConfigName("mocktracegen")
+	}
+
+	viper.SetEnvPrefix("MOCKTRACEGEN")
+	viper.AutomaticEnv()
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return fmt.Errorf("read config file: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func regionsCmd() *cobra.Command {
