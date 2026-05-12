@@ -1054,23 +1054,28 @@ func TestGenerator_Scenario_ServiceNameAttribute(t *testing.T) {
 			if err := gen.NewGenerator(c).Run(context.Background(), exp); err != nil {
 				t.Fatalf("Run: %v", err)
 			}
-			all := collectAllSpans(exp.spans)
-			if len(all) == 0 {
-				t.Fatal("no spans generated")
+			if len(exp.spans) == 0 {
+				t.Fatal("no ResourceSpans exported")
 			}
-			for _, sp := range all {
-				hasServiceName := false
-				for _, attr := range sp.Attributes {
+			for _, rs := range exp.spans {
+				svcName := ""
+				for _, attr := range rs.GetResource().GetAttributes() {
 					if attr.Key == "service.name" {
-						hasServiceName = true
-						if attr.Value.GetStringValue() == "" {
-							t.Errorf("span %s has empty service.name", sp.Name)
-						}
+						svcName = attr.GetValue().GetStringValue()
 						break
 					}
 				}
-				if !hasServiceName {
-					t.Errorf("span %s missing service.name attribute", sp.Name)
+				if svcName == "" {
+					t.Error("ResourceSpans missing resource-level service.name")
+				}
+				for _, ss := range rs.GetScopeSpans() {
+					for _, sp := range ss.GetSpans() {
+						for _, attr := range sp.GetAttributes() {
+							if attr.Key == "service.name" {
+								t.Errorf("span %s should not have span-level service.name; put it on resource instead", sp.GetName())
+							}
+						}
+					}
 				}
 			}
 		})
