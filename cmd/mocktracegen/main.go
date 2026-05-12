@@ -38,21 +38,29 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 			return initConfig()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			topoType, err := gen.ParseTopology(viper.GetString("topology"))
-			if err != nil {
-				return err
-			}
+			scenario := viper.GetString("scenario")
 
 			region.SetEndpoints(viper.GetStringSlice("endpoint"))
 
+			var topoType gen.TopologyType
+			if scenario == "" {
+				var err error
+				topoType, err = gen.ParseTopology(viper.GetString("topology"))
+				if err != nil {
+					return err
+				}
+			}
+
 			cfg := gen.Config{
-				Seed:        viper.GetInt64("seed"),
-				TraceCount:  viper.GetInt("traces"),
-				Rate:        viper.GetInt("rate"),
-				Topology:    topoType,
-				SpanCount:   viper.GetInt("span-count"),
-				MaxDepth:    viper.GetInt("max-depth"),
-				ServiceName: viper.GetString("service-name"),
+				Seed:              viper.GetInt64("seed"),
+				TraceCount:        viper.GetInt("traces"),
+				Rate:              viper.GetInt("rate"),
+				Topology:          topoType,
+				SpanCount:         viper.GetInt("span-count"),
+				MaxDepth:          viper.GetInt("max-depth"),
+				ServiceName:       viper.GetString("service-name"),
+				Scenario:          scenario,
+				ScenarioSpanCount: viper.GetInt("scenario-span-count"),
 			}
 
 			var exporter export.Exporter
@@ -104,6 +112,8 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 	cmd.Flags().Int("traces", 1, "number of traces to generate")
 	cmd.Flags().Int("rate", 0, "target traces per second (0 = unlimited)")
 	cmd.Flags().String("topology", "flat", "trace topology shape (flat, branching, split)")
+	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven")
+	cmd.Flags().Int("scenario-span-count", 0, "per-service span budget for scenarios; 0 uses --span-count")
 	cmd.Flags().Int("span-count", 10, "target number of spans per trace")
 	cmd.Flags().Int("max-depth", 5, "maximum span depth in branching/split topologies")
 	cmd.Flags().String("service-name", "mock-service", "service name for resource attributes")
@@ -116,7 +126,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 
 	// Precedence: CLI flag > env var > config file > built-in default.
 	for _, name := range []string{
-		"seed", "traces", "rate", "topology", "span-count", "max-depth",
+		"seed", "traces", "rate", "topology", "scenario", "scenario-span-count", "span-count", "max-depth",
 		"service-name", "output", "format", "output-dir", "endpoint", "insecure",
 	} {
 		if err := viper.BindPFlag(name, cmd.Flags().Lookup(name)); err != nil {

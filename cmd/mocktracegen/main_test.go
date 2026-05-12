@@ -143,3 +143,25 @@ func TestNewRootCmd_HasConfigFlag(t *testing.T) {
 		t.Errorf("expected --config default to be empty, got %q", flag.DefValue)
 	}
 }
+
+func TestNewRootCmd_HasScenarioFlag(t *testing.T) {
+	cmd := newRootCmd()
+	flag := cmd.Flags().Lookup("scenario")
+	if flag == nil {
+		t.Fatal("expected --scenario flag to exist")
+	}
+	if flag.DefValue != "" {
+		t.Errorf("expected --scenario default to be empty, got %q", flag.DefValue)
+	}
+}
+
+func TestNewRootCmd_HasScenarioSpanCountFlag(t *testing.T) {
+	cmd := newRootCmd()
+	flag := cmd.Flags().Lookup("scenario-span-count")
+	if flag == nil {
+		t.Fatal("expected --scenario-span-count flag to exist")
+	}
+	if flag.DefValue != "0" {
+		t.Errorf("expected --scenario-span-count default to be 0, got %q", flag.DefValue)
+	}
+}

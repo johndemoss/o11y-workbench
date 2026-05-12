@@ -94,6 +94,14 @@ func (s *SeededRNG) Duration(max time.Duration) time.Duration {
 	return time.Duration(s.Int63n(int64(max)))
 }
 
+// DurationRange returns a random duration in [min, max). It panics if max <= 0.
+func (s *SeededRNG) DurationRange(min, max time.Duration) time.Duration {
+	if min >= max {
+		return min
+	}
+	return min + time.Duration(s.Int63n(int64(max-min)))
+}
+
 // Timestamp returns a random time in [base, base+maxOffset).
 // It panics if maxOffset <= 0.
 func (s *SeededRNG) Timestamp(base time.Time, maxOffset time.Duration) time.Time {

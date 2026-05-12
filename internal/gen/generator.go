@@ -14,15 +14,17 @@ import (
 )
 
 type Config struct {
-	Seed          int64
-	TraceCount    int
-	Rate          int // target traces/sec; 0 = unlimited
-	Topology      TopologyType
-	SpanCount     int
-	MaxDepth      int
-	ServiceName   string
-	BaseTime      time.Time
-	TraceDuration time.Duration
+	Seed              int64
+	TraceCount        int
+	Rate              int // target traces/sec; 0 = unlimited
+	Topology          TopologyType
+	SpanCount         int
+	MaxDepth          int
+	ServiceName       string
+	BaseTime          time.Time
+	TraceDuration     time.Duration
+	Scenario          string // named scenario; "" means use Topology
+	ScenarioSpanCount int    // per-service span budget for scenarios; 0 means use SpanCount
 }
 
 func DefaultConfig() Config {
@@ -91,12 +93,26 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 		topoRng := NewSeededRNG(g.config.Seed + int64(i))
 		idRng := NewIDRng()
 
-		topology := g.config.Topology
-		root := GenerateTopology(topology, topoRng, g.config.SpanCount, g.config.MaxDepth)
-
 		traceID := idRng.TraceID()
 
-		spans, _, _ := g.buildSpans(idRng, root, traceID, [8]byte{}, g.config.BaseTime)
+		spanCount := g.config.SpanCount
+		if g.config.Scenario != "" && g.config.ScenarioSpanCount > 0 {
+			spanCount = g.config.ScenarioSpanCount
+		}
+
+		var spans []*tracev1.Span
+
+		if g.config.Scenario != "" {
+			scenarioRoots, err := GenerateScenario(g.config.Scenario, topoRng, spanCount, g.config.MaxDepth)
+			if err != nil {
+				return err
+			}
+			spans = g.buildScenarioSpans(idRng, scenarioRoots, traceID, g.config.BaseTime)
+		} else {
+			topology := g.config.Topology
+			root := GenerateTopology(topology, topoRng, spanCount, g.config.MaxDepth)
+			spans, _, _ = g.buildSpans(idRng, root, traceID, [8]byte{}, g.config.BaseTime)
+		}
 
 		endpoints := region.All()
 		if len(endpoints) == 0 {
@@ -224,6 +240,105 @@ func (g *Generator) buildSpans(rng *SeededRNG, node *SpanNode, traceID [16]byte,
 	result = append(result, otlpSpan)
 	result = append(result, childList...)
 
+	return result, startTime, endTime
+}
+
+func (g *Generator) buildScenarioSpans(rng *SeededRNG, roots []*ScenarioSpanNode, traceID [16]byte, traceStart time.Time) []*tracev1.Span {
+	var all []*tracev1.Span
+	for i, root := range roots {
+		start := traceStart
+		if i > 0 {
+			start = traceStart.Add(g.config.TraceDuration / 2)
+		}
+		spans, _, _ := g.buildScenarioSubtree(rng, root, traceID, [8]byte{}, start)
+		all = append(all, spans...)
+	}
+	return all
+}
+
+func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode, traceID [16]byte, parentSpanID [8]byte, traceStart time.Time) ([]*tracev1.Span, time.Time, time.Time) {
+	if node == nil {
+		return nil, time.Time{}, time.Time{}
+	}
+
+	spanID := rng.SpanID()
+
+	var (
+		childList     []*tracev1.Span
+		earliestStart time.Time
+		latestEnd     time.Time
+	)
+
+	for _, child := range node.Children {
+		spans, cs, ce := g.buildScenarioSubtree(rng, child, traceID, spanID, traceStart)
+		childList = append(childList, spans...)
+		if earliestStart.IsZero() || cs.Before(earliestStart) {
+			earliestStart = cs
+		}
+		if ce.After(latestEnd) {
+			latestEnd = ce
+		}
+	}
+
+	var startTime, endTime time.Time
+
+	if len(node.Children) == 0 {
+		leafDur := g.config.TraceDuration / 2
+		if node.MaxDuration > 0 {
+			leafDur = rng.DurationRange(node.MinDuration, node.MaxDuration)
+		}
+		if leafDur < time.Millisecond {
+			leafDur = time.Millisecond
+		}
+		offset := rng.Duration(g.config.TraceDuration / 2)
+		startTime = traceStart.Add(offset)
+		endTime = startTime.Add(leafDur)
+	} else {
+		startTime = earliestStart
+		endTime = latestEnd
+	}
+
+	kind := node.Kind
+	if kind == tracev1.Span_SPAN_KIND_UNSPECIFIED {
+		kind = tracev1.Span_SPAN_KIND_INTERNAL
+	}
+
+	attrs := []*commonv1.KeyValue{
+		stringAttr("service.name", node.ServiceName),
+	}
+	attrs = append(attrs, node.Attributes...)
+
+	var parentSpanIDBytes []byte
+	if parentSpanID != [8]byte{} {
+		parentSpanIDBytes = parentSpanID[:]
+	}
+
+	otlpSpan := &tracev1.Span{
+		TraceId:           traceID[:],
+		SpanId:            spanID[:],
+		ParentSpanId:      parentSpanIDBytes,
+		Name:              node.Name,
+		Kind:              kind,
+		Attributes:        attrs,
+		StartTimeUnixNano: uint64(startTime.UnixNano()),
+		EndTimeUnixNano:   uint64(endTime.UnixNano()),
+		Flags:             1,
+	}
+
+	if node.IsError {
+		otlpSpan.Status = &tracev1.Status{
+			Code:    tracev1.Status_STATUS_CODE_ERROR,
+			Message: "simulated error",
+		}
+	} else {
+		otlpSpan.Status = &tracev1.Status{
+			Code: tracev1.Status_STATUS_CODE_OK,
+		}
+	}
+
+	result := make([]*tracev1.Span, 0, 1+len(childList))
+	result = append(result, otlpSpan)
+	result = append(result, childList...)
 	return result, startTime, endTime
 }
 

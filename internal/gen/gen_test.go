@@ -1033,5 +1033,170 @@ func TestGenerator_TopologyExported(t *testing.T) {
 	}
 }
 
+// ---------- Scenario generator tests ----------
+
+func TestGenerator_Scenario_ServiceNameAttribute(t *testing.T) {
+	scenarios := []string{"microservice", "monolith", "3-tier-web-app", "event-driven"}
+
+	for _, s := range scenarios {
+		t.Run(s, func(t *testing.T) {
+			c := gen.Config{
+				Seed:          42,
+				TraceCount:    2,
+				Scenario:      s,
+				SpanCount:     15,
+				MaxDepth:      5,
+				ServiceName:   "test-svc",
+				BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				TraceDuration: 5 * time.Second,
+			}
+			exp := &mockExporter{}
+			if err := gen.NewGenerator(c).Run(context.Background(), exp); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			all := collectAllSpans(exp.spans)
+			if len(all) == 0 {
+				t.Fatal("no spans generated")
+			}
+			for _, sp := range all {
+				hasServiceName := false
+				for _, attr := range sp.Attributes {
+					if attr.Key == "service.name" {
+						hasServiceName = true
+						if attr.Value.GetStringValue() == "" {
+							t.Errorf("span %s has empty service.name", sp.Name)
+						}
+						break
+					}
+				}
+				if !hasServiceName {
+					t.Errorf("span %s missing service.name attribute", sp.Name)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerator_Scenario_SpanKinds(t *testing.T) {
+	tests := []struct {
+		scenario  string
+		wantKinds []string
+	}{
+		{"microservice", []string{"GET /api/orders"}},
+		{"monolith", []string{"POST /checkout"}},
+		{"3-tier-web-app", []string{"GET /users"}},
+		{"event-driven", []string{"publish order.created", "consume order.created"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.scenario, func(t *testing.T) {
+			c := gen.Config{
+				Seed:          42,
+				TraceCount:    1,
+				Scenario:      tt.scenario,
+				SpanCount:     15,
+				MaxDepth:      5,
+				ServiceName:   "test-svc",
+				BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				TraceDuration: 5 * time.Second,
+			}
+			exp := &mockExporter{}
+			if err := gen.NewGenerator(c).Run(context.Background(), exp); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			all := collectAllSpans(exp.spans)
+			if len(all) == 0 {
+				t.Fatal("no spans generated")
+			}
+			for _, sp := range all {
+				if sp.Kind == tracev1.Span_SPAN_KIND_UNSPECIFIED {
+					t.Errorf("span %s has UNSPECIFIED kind", sp.Name)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerator_Scenario_Determinism(t *testing.T) {
+	for _, s := range []string{"microservice", "monolith", "3-tier-web-app", "event-driven"} {
+		t.Run(s, func(t *testing.T) {
+			base := gen.Config{
+				Seed:          42,
+				TraceCount:    2,
+				Scenario:      s,
+				SpanCount:     15,
+				MaxDepth:      5,
+				ServiceName:   "test-svc",
+				BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				TraceDuration: 5 * time.Second,
+			}
+
+			expA := &mockExporter{}
+			expB := &mockExporter{}
+			ctx := context.Background()
+
+			if err := gen.NewGenerator(base).Run(ctx, expA); err != nil {
+				t.Fatalf("Run A: %v", err)
+			}
+			if err := gen.NewGenerator(base).Run(ctx, expB); err != nil {
+				t.Fatalf("Run B: %v", err)
+			}
+
+			aSpans := collectAllSpans(expA.spans)
+			bSpans := collectAllSpans(expB.spans)
+
+			if len(aSpans) != len(bSpans) {
+				t.Fatalf("span count: A=%d, B=%d", len(aSpans), len(bSpans))
+			}
+			for i := range aSpans {
+				if aSpans[i].Name != bSpans[i].Name {
+					t.Errorf("span %d Name: A=%q, B=%q", i, aSpans[i].Name, bSpans[i].Name)
+				}
+				if aSpans[i].Kind != bSpans[i].Kind {
+					t.Errorf("span %d Kind: A=%d, B=%d", i, aSpans[i].Kind, bSpans[i].Kind)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerator_Scenario_RootTiming(t *testing.T) {
+	for _, s := range []string{"microservice", "monolith"} {
+		t.Run(s, func(t *testing.T) {
+			c := gen.Config{
+				Seed:          42,
+				TraceCount:    1,
+				Scenario:      s,
+				SpanCount:     15,
+				MaxDepth:      5,
+				ServiceName:   "test-svc",
+				BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				TraceDuration: 5 * time.Second,
+			}
+			exp := &mockExporter{}
+			if err := gen.NewGenerator(c).Run(context.Background(), exp); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			all := collectAllSpans(exp.spans)
+
+			var rootSpan *tracev1.Span
+			for _, sp := range all {
+				if len(sp.ParentSpanId) == 0 {
+					rootSpan = sp
+					break
+				}
+			}
+			if rootSpan == nil {
+				t.Fatal("no root span found")
+			}
+			rootStart := time.Unix(0, int64(rootSpan.StartTimeUnixNano))
+			rootEnd := time.Unix(0, int64(rootSpan.EndTimeUnixNano))
+			if rootEnd.Sub(rootStart) <= 0 {
+				t.Errorf("root span duration should be positive, got %v", rootEnd.Sub(rootStart))
+			}
+		})
+	}
+}
+
 // Ensure export.Exporter interface is satisfied by mockExporter
 var _ export.Exporter = (*mockExporter)(nil)
