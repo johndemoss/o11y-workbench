@@ -267,10 +267,11 @@ func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode,
 		childList     []*tracev1.Span
 		earliestStart time.Time
 		latestEnd     time.Time
+		nextStart     = traceStart
 	)
 
 	for _, child := range node.Children {
-		spans, cs, ce := g.buildScenarioSubtree(rng, child, traceID, spanID, traceStart)
+		spans, cs, ce := g.buildScenarioSubtree(rng, child, traceID, spanID, nextStart)
 		childList = append(childList, spans...)
 		if earliestStart.IsZero() || cs.Before(earliestStart) {
 			earliestStart = cs
@@ -278,21 +279,30 @@ func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode,
 		if ce.After(latestEnd) {
 			latestEnd = ce
 		}
+		if !ce.IsZero() {
+			nextStart = ce
+		}
 	}
 
 	var startTime, endTime time.Time
 
 	if len(node.Children) == 0 {
-		leafDur := g.config.TraceDuration / 2
+		dur := g.config.TraceDuration / 2
 		if node.MaxDuration > 0 {
-			leafDur = rng.DurationRange(node.MinDuration, node.MaxDuration)
+			dur = rng.DurationRange(node.MinDuration, node.MaxDuration)
 		}
-		if leafDur < time.Millisecond {
-			leafDur = time.Millisecond
+		if dur < time.Millisecond {
+			dur = time.Millisecond
 		}
-		offset := rng.Duration(g.config.TraceDuration / 2)
-		startTime = traceStart.Add(offset)
-		endTime = startTime.Add(leafDur)
+		jitter := dur / 10
+		if jitter > 5*time.Millisecond {
+			jitter = 5 * time.Millisecond
+		}
+		if jitter < time.Microsecond {
+			jitter = time.Microsecond
+		}
+		startTime = traceStart.Add(rng.Duration(jitter))
+		endTime = startTime.Add(dur)
 	} else {
 		startTime = earliestStart
 		endTime = latestEnd
