@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mocktracegen Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.5; }
+.app { max-width: 1400px; margin: 0 auto; padding: 24px; }
+header { margin-bottom: 32px; }
+header h1 { font-size: 24px; font-weight: 600; color: #f1f5f9; }
+header p { color: #94a3b8; font-size: 14px; margin-top: 4px; }
+section { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.field label { display: block; font-size: 12px; font-weight: 500; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.field input, .field select { width: 100%; padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 14px; font-family: "SF Mono", "Fira Code", monospace; }
+.field input:focus, .field select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.3); }
+.form-actions { display: flex; gap: 12px; align-items: center; margin-top: 20px; }
+.btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.btn-primary { background: #3b82f6; color: white; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { background: #475569; cursor: not-allowed; }
+.btn-secondary { background: #334155; color: #e2e8f0; }
+.btn-secondary:hover { background: #475569; }
+.run-list { display: flex; flex-direction: column; gap: 8px; }
+.run-card { display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; transition: border-color 0.15s; }
+.run-card:hover { border-color: #3b82f6; }
+.run-card .status { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.status-pending { background: #64748b; }
+.status-running { background: #3b82f6; animation: pulse 1s infinite; }
+.status-completed { background: #22c55e; }
+.status-failed { background: #ef4444; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.run-card .info { flex: 1; min-width: 0; }
+.run-card .info .id { font-size: 14px; font-weight: 500; }
+.run-card .info .meta { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.run-card .stats { display: flex; gap: 16px; font-size: 12px; color: #94a3b8; }
+
+.run-detail { }
+.run-detail .stat-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.run-detail .stat { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; text-align: center; }
+.run-detail .stat .value { font-size: 20px; font-weight: 600; color: #f1f5f9; }
+.run-detail .stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.run-detail pre { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 16px; overflow-x: auto; font-size: 12px; line-height: 1.6; max-height: 600px; overflow-y: auto; }
+.run-detail .error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 12px; border-radius: 6px; }
+.hidden { display: none; }
+.empty { text-align: center; padding: 40px 20px; color: #64748b; }
+.empty p { font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+<header>
+  <h1>mocktracegen</h1>
+  <p>Deterministic mock OTLP trace generator &mdash; web dashboard</p>
+</header>
+
+<section id="config-section">
+  <h2>Configuration</h2>
+  <div class="form-grid">
+    <div class="field">
+      <label>Seed</label>
+      <input type="number" id="seed" value="42">
+    </div>
+    <div class="field">
+      <label>Traces</label>
+      <input type="number" id="trace-count" value="1" min="1">
+    </div>
+    <div class="field">
+      <label>Rate (0 = unlimited)</label>
+      <input type="number" id="rate" value="0" min="0">
+    </div>
+    <div class="field">
+      <label>Scenario</label>
+      <select id="scenario">
+        <option value="">None (use topology)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Topology</label>
+      <select id="topology">
+        <option value="flat">Flat</option>
+        <option value="branching">Branching</option>
+        <option value="split">Split</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Span Count</label>
+      <input type="number" id="span-count" value="10" min="1">
+    </div>
+    <div class="field">
+      <label>Scenario Span Count</label>
+      <input type="number" id="scenario-span-count" value="0" min="0">
+    </div>
+    <div class="field">
+      <label>Max Depth</label>
+      <input type="number" id="max-depth" value="5" min="1">
+    </div>
+    <div class="field">
+      <label>Service Name</label>
+      <input type="text" id="service-name" value="mock-service">
+    </div>
+    <div class="field">
+      <label>Output</label>
+      <select id="output">
+        <option value="file">File</option>
+        <option value="otlp">OTLP</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Format</label>
+      <select id="format">
+        <option value="json">JSON</option>
+        <option value="protobuf">Protobuf</option>
+      </select>
+    </div>
+    <div class="field" style="grid-column: span 2;">
+      <label>Endpoints (comma-separated)</label>
+      <input type="text" id="endpoints" value="localhost:4317" placeholder="e.g. localhost:4317,collector:4317">
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+      <input type="checkbox" id="insecure" checked style="width:18px;height:18px">
+      <label for="insecure" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Insecure gRPC</label>
+    </div>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
+    <span id="run-status"></span>
+  </div>
+</section>
+
+<section id="runs-section">
+  <h2>Runs</h2>
+  <div id="run-list" class="run-list">
+    <div class="empty"><p>No runs yet. Configure and click Run to generate traces.</p></div>
+  </div>
+</section>
+
+<section id="detail-section" class="hidden">
+  <h2>Run Detail <span id="detail-id"></span></h2>
+  <div id="detail-content" class="run-detail"></div>
+</section>
+</div>
+
+<script>
+const API = '';
+
+async function api(path, opts) {
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+let scenarios = [];
+
+async function loadScenarios() {
+  try {
+    const data = await api('/api/scenarios');
+    scenarios = data.scenarios;
+    const sel = document.getElementById('scenario');
+    scenarios.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error('load scenarios:', e); }
+}
+
+function statusClass(status) {
+  return 'status-' + status;
+}
+
+function formatTime(t) {
+  if (!t) return '-';
+  return new Date(t).toLocaleTimeString();
+}
+
+function formatDuration(ns) {
+  if (!ns) return '-';
+  if (ns < 1000) return ns + 'ns';
+  if (ns < 1e6) return (ns / 1e3).toFixed(1) + '&#956;s';
+  if (ns < 1e9) return (ns / 1e6).toFixed(1) + 'ms';
+  return (ns / 1e9).toFixed(2) + 's';
+}
+
+let runs = {};
+let pollTimer = null;
+
+async function startRun() {
+  const runBtn = document.getElementById('run-btn');
+  runBtn.disabled = true;
+  document.getElementById('run-status').textContent = 'Starting...';
+
+  const body = {
+    seed: parseInt(document.getElementById('seed').value) || 42,
+    trace_count: parseInt(document.getElementById('trace-count').value) || 1,
+    rate: parseInt(document.getElementById('rate').value) || 0,
+    topology: document.getElementById('topology').value,
+    scenario: document.getElementById('scenario').value,
+    span_count: parseInt(document.getElementById('span-count').value) || 10,
+    scenario_span_count: parseInt(document.getElementById('scenario-span-count').value) || 0,
+    max_depth: parseInt(document.getElementById('max-depth').value) || 5,
+    service_name: document.getElementById('service-name').value || 'mock-service',
+    output: document.getElementById('output').value,
+    format: document.getElementById('format').value,
+    insecure: document.getElementById('insecure').checked,
+    endpoints: document.getElementById('endpoints').value.split(',').map(s => s.trim()).filter(s => s)
+  };
+
+  try {
+    const run = await api('/api/runs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    runs[run.id] = run;
+    if (!pollTimer) startPolling();
+  } catch(e) {
+    document.getElementById('run-status').textContent = 'Error: ' + e.message;
+  }
+  runBtn.disabled = false;
+}
+
+function startPolling() {
+  pollTimer = setInterval(async () => {
+    try {
+      const data = await api('/api/runs');
+      data.runs.forEach(r => { runs[r.id] = r; });
+      renderRunList();
+      // Show detail if viewing one
+      const detail = document.getElementById('detail-section');
+      if (!detail.classList.contains('hidden')) {
+        const id = detail.querySelector('#detail-id').textContent;
+        if (runs[id]) renderDetail(runs[id]);
+      }
+    } catch(e) { /* ignore polling errors */ }
+  }, 1000);
+}
+
+function renderRunList() {
+  const list = document.getElementById('run-list');
+  const entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="empty"><p>No runs yet.</p></div>';
+    return;
+  }
+  list.innerHTML = entries.map(r => {
+    const scenario = r.scenario || r.config?.Scenario || '';
+    const scenarioTag = scenario ? ' &middot; ' + scenario : '';
+    return `<div class="run-card" onclick="showDetail('${r.id}')">
+      <div class="status ${statusClass(r.status)}"></div>
+      <div class="info">
+        <div class="id">${r.id}${scenarioTag}</div>
+        <div class="meta">${formatTime(r.started_at)} &middot; ${r.config?.SpanCount || '?'} span budget &middot; ${r.config?.TraceCount || '?'} traces</div>
+      </div>
+      <div class="stats">
+        <span>${r.span_count || 0} spans</span>
+        <span>${formatDuration(r.duration_ns)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showDetail(id) {
+  const r = runs[id];
+  if (!r) return;
+  const section = document.getElementById('detail-section');
+  section.classList.remove('hidden');
+  document.getElementById('detail-id').textContent = r.id;
+  renderDetail(r);
+  section.scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderDetail(r) {
+  const el = document.getElementById('detail-content');
+
+  if (r.status === 'running') {
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div></div>';
+    return;
+  }
+
+  if (r.status === 'failed') {
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
+    </div>
+    <div class="error">${r.error || 'Unknown error'}</div>`;
+    return;
+  }
+
+  let spanCountTotal = 0;
+  let traceCount = 0;
+  if (r.trace_data) {
+    try {
+      const td = typeof r.trace_data === 'string' ? JSON.parse(r.trace_data) : r.trace_data;
+      if (td.resource_spans) {
+        traceCount = td.resource_spans.length;
+        td.resource_spans.forEach(rs => {
+          if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+            if (ss.spans) spanCountTotal += ss.spans.length;
+          });
+        });
+      }
+    } catch(e) { /* use r.span_count */ }
+  }
+
+  el.innerHTML = `<div class="stat-row">
+    <div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>
+    <div class="stat"><div class="value">${spanCountTotal || r.span_count || 0}</div><div class="label">Total Spans</div></div>
+    <div class="stat"><div class="value">${traceCount || r.trace_count || 0}</div><div class="label">Traces</div></div>
+    <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
+    <div class="stat"><div class="value">${r.config?.Seed || '-'}</div><div class="label">Seed</div></div>
+    <div class="stat"><div class="value">${r.scenario || r.config?.Scenario || r.config?.Topology || '-'}</div><div class="label">Scenario/Topology</div></div>
+  </div>`;
+
+  if (r.trace_data) {
+    const pretty = typeof r.trace_data === 'string' ? r.trace_data : JSON.stringify(r.trace_data, null, 2);
+    el.innerHTML += '<h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#94a3b8">Trace Data</h3>';
+    el.innerHTML += '<pre>' + escapeHtml(pretty) + '</pre>';
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+loadScenarios();
+renderRunList();
+</script>
+</body>
+</html>
