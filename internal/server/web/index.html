@@ -96,6 +96,16 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-source-data .stats span { color: #94a3b8; font-size: 11px; }
 .ottl-source-data .stats strong { color: #e2e8f0; font-weight: 600; }
 .ottl-source-data pre { margin: 0; padding: 12px; background: #0f172a; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre; }
+.ottl-inline-diff { margin: 0; padding: 0; background: #0f172a; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 500px; overflow-y: auto; line-height: 1.6; }
+.ottl-inline-diff .diff-line { display: flex; padding: 0 12px; white-space: pre; }
+.ottl-inline-diff .diff-line .ln { display: inline-block; width: 40px; text-align: right; color: #475569; margin-right: 16px; user-select: none; flex-shrink: 0; }
+.ottl-inline-diff .diff-line.added { background: rgba(34, 197, 94, 0.12); }
+.ottl-inline-diff .diff-line.added .ln { color: #22c55e; }
+.ottl-inline-diff .diff-line.removed { background: rgba(239, 68, 68, 0.12); }
+.ottl-inline-diff .diff-line.removed .ln { color: #ef4444; }
+.ottl-inline-diff .diff-line .marker { display: inline-block; width: 16px; color: #64748b; user-select: none; flex-shrink: 0; }
+.ottl-inline-diff .diff-line.added .marker { color: #22c55e; }
+.ottl-inline-diff .diff-line.removed .marker { color: #ef4444; }
 </style>
 </head>
 <body>
@@ -474,6 +484,7 @@ function renderTransformResult(transformed, statementsParsed) {
     + '<div class="ottl-tabs">'
     + '<button class="ottl-tab active" data-tab="transformed" onclick="switchOttlTab(\'transformed\')">Transformed</button>'
     + (lastTransform.original ? '<button class="ottl-tab" data-tab="diff" onclick="switchOttlTab(\'diff\')">Diff</button>' : '')
+    + (lastTransform.original ? '<button class="ottl-tab" data-tab="fulldiff" onclick="switchOttlTab(\'fulldiff\')">Full Diff</button>' : '')
     + '</div>'
     + '<div id="ottl-tab-content"><pre>' + escapeHtml(formatted) + '</pre></div>'
     + '<div class="ottl-save-area">'
@@ -496,6 +507,8 @@ function switchOttlTab(tab) {
   } else if (tab === 'diff' && lastTransform.original) {
     const diff = computeDiff(lastTransform.original, lastTransform.transformed);
     content.innerHTML = renderDiffTable(diff);
+  } else if (tab === 'fulldiff' && lastTransform.original) {
+    content.innerHTML = renderInlineDiff(lastTransform.original, lastTransform.transformed);
   }
 }
 
@@ -581,7 +594,6 @@ function renderDiffTable(diff) {
 function formatAttrValue(v) {
   if (v === null || v === undefined) return '';
   if (typeof v === 'object') {
-    // OTLP AnyValue wrapper - extract the actual value
     for (const key of ['stringValue', 'intValue', 'doubleValue', 'boolValue', 'arrayValue', 'kvlistValue']) {
       if (key in v) {
         const inner = v[key];
@@ -591,6 +603,93 @@ function formatAttrValue(v) {
     return JSON.stringify(v);
   }
   return String(v);
+}
+
+// --- Full inline diff (unified diff of full JSON) ---
+
+function computeInlineDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  if (!orig || !trans) return [];
+
+  const origLines = JSON.stringify(orig, null, 2).split('\n');
+  const transLines = JSON.stringify(trans, null, 2).split('\n');
+
+  // Simple unified diff: walk both line arrays, matching lines forward.
+  // When lines differ, scan ahead in both arrays to find the next match.
+  const hunks = [];
+  let oi = 0, ti = 0;
+  while (oi < origLines.length && ti < transLines.length) {
+    if (origLines[oi] === transLines[ti]) {
+      hunks.push({ type: 'same', text: origLines[oi] });
+      oi++; ti++;
+      continue;
+    }
+    // Lines differ — look ahead in orig and trans for the next match.
+    let found = false;
+    const lookAhead = Math.min(10, Math.max(origLines.length - oi, transLines.length - ti));
+    for (let ahead = 1; ahead <= lookAhead; ahead++) {
+      // Check if orig[oi + ahead] matches trans[ti]
+      if (oi + ahead < origLines.length && origLines[oi + ahead] === transLines[ti]) {
+        // orig has extra lines
+        for (let r = 0; r < ahead; r++) hunks.push({ type: 'removed', text: origLines[oi + r] });
+        oi += ahead;
+        found = true;
+        break;
+      }
+      // Check if orig[oi] matches trans[ti + ahead]
+      if (ti + ahead < transLines.length && origLines[oi] === transLines[ti + ahead]) {
+        // trans has extra lines
+        for (let a = 0; a < ahead; a++) hunks.push({ type: 'added', text: transLines[ti + a] });
+        ti += ahead;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      // No match found within lookAhead — mark as changed
+      if (origLines[oi] !== undefined) hunks.push({ type: 'removed', text: origLines[oi] });
+      if (transLines[ti] !== undefined) hunks.push({ type: 'added', text: transLines[ti] });
+      oi++; ti++;
+    }
+  }
+  // Remaining lines
+  while (oi < origLines.length) hunks.push({ type: 'removed', text: origLines[oi++] });
+  while (ti < transLines.length) hunks.push({ type: 'added', text: transLines[ti++] });
+  return hunks;
+}
+
+function renderInlineDiff(originalData, transformedData) {
+  const hunks = computeInlineDiff(originalData, transformedData);
+  if (hunks.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found.</div>';
+  }
+  let html = '<div class="ottl-inline-diff">';
+  let origLine = 0, transLine = 0;
+  for (const hunk of hunks) {
+    const type = hunk.type;
+    const cls = type === 'added' ? ' added' : type === 'removed' ? ' removed' : '';
+    let marker = ' ';
+    let lineNum = '';
+    if (type === 'added') {
+      marker = '+';
+      transLine++;
+      lineNum = '<span class="ln"></span><span class="ln" style="color:#22c55e">' + transLine + '</span>';
+    } else if (type === 'removed') {
+      marker = '-';
+      origLine++;
+      lineNum = '<span class="ln" style="color:#ef4444">' + origLine + '</span><span class="ln"></span>';
+    } else {
+      origLine++;
+      transLine++;
+      lineNum = '<span class="ln">' + origLine + '</span><span class="ln">' + transLine + '</span>';
+    }
+    html += '<div class="diff-line' + cls + '">' + lineNum + '<span class="marker">' + marker + '</span><span>' + escapeHtml(hunk.text) + '</span></div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 async function saveTransformedRun() {
