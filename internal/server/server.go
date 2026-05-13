@@ -43,7 +43,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/runs", s.handleListRuns)
 	s.mux.HandleFunc("GET /api/runs/{id}", s.handleGetRun)
 	s.mux.HandleFunc("POST /api/runs/import", s.handleImportRun)
-	s.mux.HandleFunc("DELETE /api/runs/{id}", s.handleDeleteRun)
+	s.mux.HandleFunc("POST /api/runs/{id}/stop", s.handleStopRun)
 	s.mux.HandleFunc("POST /api/ottl/validate", s.handleOTTLValidate)
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
@@ -222,16 +222,15 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, run)
 }
 
-func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run := s.store.Get(id)
 	if run == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + id})
 		return
 	}
-	s.store.CancelRun(id)
-	s.store.Delete(id)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
+	s.store.StopRun(id)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "id": id})
 }
 
 func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {

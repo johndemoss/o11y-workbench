@@ -24,6 +24,7 @@ const (
 	RunStatusRunning   RunStatus = "running"
 	RunStatusCompleted RunStatus = "completed"
 	RunStatusFailed    RunStatus = "failed"
+	RunStatusStopped   RunStatus = "stopped"
 )
 
 type Run struct {
@@ -46,7 +47,7 @@ type Run struct {
 	cancel               context.CancelFunc // not exported, not json
 }
 
-func (r *Run) Cancel() {
+func (r *Run) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.cancel != nil {
@@ -54,8 +55,8 @@ func (r *Run) Cancel() {
 		r.cancel = nil
 	}
 	if r.Status == RunStatusPending || r.Status == RunStatusRunning {
-		r.Status = RunStatusFailed
-		r.Error = "cancelled"
+		r.Status = RunStatusStopped
+		r.Error = "stopped"
 		now := time.Now()
 		r.CompletedAt = &now
 	}
@@ -188,11 +189,11 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 	return run, nil
 }
 
-func (s *RunStore) CancelRun(id string) {
+func (s *RunStore) StopRun(id string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if r, ok := s.runs[id]; ok {
-		r.Cancel()
+		r.Stop()
 	}
 }
 
@@ -246,6 +247,11 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 
 	if err != nil {
 		if err == context.Canceled {
+			// If already stopped via Stop(), preserve that status.
+			if run.Status == RunStatusStopped {
+				run.mu.Unlock()
+				return
+			}
 			run.Error = "cancelled"
 		} else {
 			run.Error = err.Error()

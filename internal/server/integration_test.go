@@ -71,24 +71,26 @@ func TestIntegration_RunLifecycle(t *testing.T) {
 		t.Error("expected some traces completed")
 	}
 
-	store.CancelRun(runZero.ID)
+	store.StopRun(runZero.ID)
 	time.Sleep(100 * time.Millisecond)
-	snapCancelled := store.Get(runZero.ID)
-	if snapCancelled == nil {
-		t.Fatal("cancelled run not found in store")
+	snapStopped := store.Get(runZero.ID)
+	if snapStopped == nil {
+		t.Fatal("stopped run not found in store")
 	}
-	t.Logf("After cancel - status: %s, error: %s", snapCancelled.Status, snapCancelled.Error)
-	if snapCancelled.Status != RunStatusFailed || snapCancelled.Error != "cancelled" {
-		t.Errorf("expected failed/cancelled, got %s/%s", snapCancelled.Status, snapCancelled.Error)
+	t.Logf("After stop - status: %s, error: %s", snapStopped.Status, snapStopped.Error)
+	if snapStopped.Status != RunStatusStopped || snapStopped.Error != "stopped" {
+		t.Errorf("expected stopped/stopped, got %s/%s", snapStopped.Status, snapStopped.Error)
 	}
 
-	// Test 3: Delete a run
-	store.Delete(runZero.ID)
-	deletedSnap := store.Get(runZero.ID)
-	if deletedSnap != nil {
-		t.Error("run should be deleted")
+	// Test 3: Stopped run persists in store
+	persisted := store.Get(runZero.ID)
+	if persisted == nil {
+		t.Fatal("stopped run should persist in store")
 	}
-	t.Log("Delete OK")
+	if persisted.Status != RunStatusStopped {
+		t.Errorf("expected stopped status, got %s", persisted.Status)
+	}
+	t.Log("Persistence OK")
 }
 
 func TestIntegration_UserScenarios(t *testing.T) {

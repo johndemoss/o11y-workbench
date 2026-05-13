@@ -32,6 +32,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .status-running { background: #3b82f6; animation: pulse 1s infinite; }
 .status-completed { background: #22c55e; }
 .status-failed { background: #ef4444; }
+.status-stopped { background: #f59e0b; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .run-card .info { flex: 1; min-width: 0; }
 .run-card .info .id { font-size: 14px; font-weight: 500; }
@@ -316,7 +317,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </section>
 
 <section id="runs-section">
-  <h2>Runs</h2>
+  <h2>Jobs</h2>
   <div id="run-list" class="run-list">
     <div class="empty"><p>No runs yet. Configure and click Run to generate traces.</p></div>
   </div>
@@ -1152,17 +1153,12 @@ async function saveFilteredRun() {
   }
 }
 
-async function cancelRun(id) {
+async function stopRun(id) {
   try {
-    await api('/api/runs/' + id, { method: 'DELETE' });
-    delete runs[id];
+    await api('/api/runs/' + id + '/stop', { method: 'POST' });
     renderRunList();
-    const section = document.getElementById('detail-section');
-    if (!section.classList.contains('hidden') && section.querySelector('#detail-id').textContent === id) {
-      section.classList.add('hidden');
-    }
   } catch(e) {
-    console.error('cancel run:', e);
+    console.error('stop run:', e);
   }
 }
 
@@ -1202,7 +1198,7 @@ function renderRunList() {
   const list = document.getElementById('run-list');
   const entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
   if (entries.length === 0) {
-    list.innerHTML = '<div class="empty"><p>No runs yet.</p></div>';
+    list.innerHTML = '<div class="empty"><p>No jobs yet. Configure and click Run to generate traces.</p></div>';
     return;
   }
   list.innerHTML = entries.map(r => {
@@ -1261,7 +1257,7 @@ function renderDetail(r) {
       <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
     </div>
     <div style="margin-top:12px">
-      <button class="btn btn-secondary" onclick="cancelRun('${r.id}')">Cancel Run</button>
+      <button class="btn btn-secondary" onclick="stopRun('${r.id}')">Stop</button>
     </div>`;
     return;
   }
@@ -1272,6 +1268,16 @@ function renderDetail(r) {
       <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
     </div>
     <div class="error">${r.error || 'Unknown error'}</div>`;
+    return;
+  }
+
+  if (r.status === 'stopped') {
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
+      <div class="stat"><div class="value">${r.trace_count_completed || 0}</div><div class="label">Traces Generated</div></div>
+      <div class="stat"><div class="value">${r.span_count || 0}</div><div class="label">Spans</div></div>
+    </div>`;
     return;
   }
 
