@@ -43,6 +43,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/runs/{id}", s.handleDeleteRun)
 	s.mux.HandleFunc("POST /api/ottl/validate", s.handleOTTLValidate)
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
+	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -249,6 +250,56 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		Valid:            true,
 		TransformedData:  &transformed,
 		StatementsParsed: len(req.Statements),
+	})
+}
+
+func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunID      string         `json:"run_id"`
+		Conditions []string       `json:"conditions"`
+		Mode       ottl.FilterMode `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if req.RunID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
+		return
+	}
+	if len(req.Conditions) == 0 {
+		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"no conditions provided"}})
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = ottl.FilterModeInclude
+	}
+
+	run := s.store.Get(req.RunID)
+	if run == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + req.RunID})
+		return
+	}
+	if run.TraceData == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with data can be filtered"})
+		return
+	}
+
+	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, req.Conditions, req.Mode)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
+			Valid:  false,
+			Errors: []string{err.Error()},
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ottl.FilterResult{
+		Valid:             true,
+		FilteredData:      &filtered,
+		ConditionsParsed:  len(req.Conditions),
+		TotalSpanCount:    total,
+		FilteredSpanCount: kept,
 	})
 }
 

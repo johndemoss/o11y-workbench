@@ -64,6 +64,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-tab:hover { color: #e2e8f0; }
 .ottl-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
 .ottl-diff-summary { display: flex; gap: 24px; padding: 12px 16px; background: #0f172a; border-radius: 6px; margin: 8px 0; }
+.ottl-filter-summary { display: flex; gap: 32px; padding: 12px 16px; background: #0f172a; border-radius: 6px; margin: 8px 0; }
 .ottl-diff-stat { text-align: center; min-width: 60px; }
 .ottl-diff-stat .count { font-size: 20px; font-weight: 700; }
 .ottl-diff-stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
@@ -197,6 +198,32 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   </div>
 </section>
 
+<section id="ottl-filter-section">
+  <h2>OTTL Filter <span style="font-size:12px;font-weight:400;color:#94a3b8;text-transform:none;letter-spacing:0">— Keep or remove spans by OTTL conditions</span></h2>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Write OTTL boolean conditions (ORed together). Spans matching the conditions are kept or removed based on the mode.</p>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <textarea id="ottl-filter-input" rows="4" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL conditions, one per line&#10;&#10;name == &quot;GET /api/users&quot;&#10;attributes[&quot;http.status_code&quot;] == 200&#10;attributes[&quot;error&quot;] == true"></textarea>
+    <div class="form-actions">
+      <button class="btn btn-primary" id="ottl-filter-btn" onclick="ottlFilter()">Filter</button>
+      <span id="ottl-filter-status"></span>
+    </div>
+    <div style="display:flex;gap:24px;align-items:center;padding:4px 0">
+      <div style="display:flex;gap:12px;align-items:center">
+        <label for="ottl-filter-run-select" style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Target Run</label>
+        <select id="ottl-filter-run-select" style="padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;min-width:250px">
+          <option value="">Select a completed run...</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center">
+        <label style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em">Mode</label>
+        <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="ottl-filter-mode" value="include" checked onchange="updateFilterMode()"><span>Include</span></label>
+        <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="ottl-filter-mode" value="exclude" onchange="updateFilterMode()"><span>Exclude</span></label>
+      </div>
+    </div>
+    <div id="ottl-filter-result" class="hidden" style="margin-top:4px"></div>
+  </div>
+</section>
+
 <section id="runs-section">
   <h2>Runs</h2>
   <div id="run-list" class="run-list">
@@ -309,6 +336,7 @@ async function importTraces() {
     runs[run.id] = run;
     renderRunList();
     updateOttlRunSelector();
+    updateOttlFilterRunSelector();
     status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
     fileInput.value = '';
   } catch(e) {
@@ -563,6 +591,7 @@ async function saveTransformedRun() {
     runs[run.id] = run;
     renderRunList();
     updateOttlRunSelector();
+    updateOttlFilterRunSelector();
     statusEl.innerHTML = '<span style="color:#22c55e">Saved as <a href="#" onclick="showDetail(\'' + run.id + '\');return false" style="color:#3b82f6;text-decoration:underline">' + run.id + '</a></span>';
   } catch(e) {
     statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
@@ -607,6 +636,129 @@ function ottlClear() {
   lastTransform = { original: null, transformed: null, activeTab: 'transformed' };
 }
 
+// --- Filter state ---
+let lastFilterResult = { filtered: null, total: 0, kept: 0 };
+
+function updateFilterMode() {
+  const mode = document.querySelector('input[name="ottl-filter-mode"]:checked');
+  return mode ? mode.value : 'include';
+}
+
+function updateOttlFilterRunSelector() {
+  const select = document.getElementById('ottl-filter-run-select');
+  const currentVal = select.value;
+  while (select.options.length > 1) {
+    select.remove(1);
+  }
+  const entries = Object.values(runs).filter(r => r.status === 'completed' && r.span_count > 0);
+  entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  entries.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
+    opt.textContent = label + ' \u2014 ' + (r.span_count || 0) + ' spans';
+    select.appendChild(opt);
+  });
+  if (currentVal) {
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === currentVal) {
+        select.selectedIndex = i;
+        break;
+      }
+    }
+  }
+}
+
+async function ottlFilter() {
+  const input = document.getElementById('ottl-filter-input');
+  const btn = document.getElementById('ottl-filter-btn');
+  const status = document.getElementById('ottl-filter-status');
+  const result = document.getElementById('ottl-filter-result');
+  const runSelect = document.getElementById('ottl-filter-run-select');
+  const runId = runSelect.value;
+  if (!runId) {
+    result.innerHTML = '<div class="ottl-error">Select a target run first</div>';
+    result.classList.remove('hidden');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Filtering...';
+  result.classList.add('hidden');
+  const lines = input.value.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+  if (lines.length === 0) {
+    result.innerHTML = '<div class="ottl-error">No conditions to evaluate</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  const mode = updateFilterMode();
+  try {
+    const data = await api('/api/ottl/filter', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, conditions: lines, mode: mode })
+    });
+    if (data.valid && data.filtered_data) {
+      lastFilterResult.filtered = data.filtered_data;
+      lastFilterResult.total = data.total_span_count;
+      lastFilterResult.kept = data.filtered_span_count;
+      renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode);
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      result.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    result.classList.remove('hidden');
+    status.textContent = '';
+  } catch(e) {
+    result.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function renderFilterResult(filtered, conditionsParsed, total, kept, mode) {
+  const result = document.getElementById('ottl-filter-result');
+  const removed = total - kept;
+  const formatted = JSON.stringify(filtered, null, 2);
+  const modeLabel = mode === 'include' ? 'Kept' : 'Removed';
+  const modeColor = mode === 'include' ? '#22c55e' : '#ef4444';
+  result.innerHTML = '<div class="ottl-transform-result">'
+    + '<div class="header"><span class="badge">' + conditionsParsed + ' condition(s)</span>Filter ' + mode + 'd</div>'
+    + '<div class="ottl-filter-summary">'
+    + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + kept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+    + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + removed + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+    + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + total + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+    + '</div>'
+    + '<pre>' + escapeHtml(formatted) + '</pre>'
+    + '<div class="ottl-save-area">'
+    + '<button class="btn btn-primary" onclick="saveFilteredRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
+    + '<span class="ottl-save-status" id="ottl-filter-save-status"></span>'
+    + '</div></div>';
+}
+
+async function saveFilteredRun() {
+  if (!lastFilterResult.filtered) return;
+  const statusEl = document.getElementById('ottl-filter-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '#94a3b8';
+  try {
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(lastFilterResult.filtered)
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    updateOttlFilterRunSelector();
+    statusEl.innerHTML = '<span style="color:#22c55e">Saved as <a href="#" onclick="showDetail(\'' + run.id + '\');return false" style="color:#3b82f6;text-decoration:underline">' + run.id + '</a></span>';
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
 async function cancelRun(id) {
   try {
     await api('/api/runs/' + id, { method: 'DELETE' });
@@ -628,6 +780,7 @@ function startPolling() {
       data.runs.forEach(r => { runs[r.id] = r; });
       renderRunList();
       updateOttlRunSelector();
+      updateOttlFilterRunSelector();
       // Show detail if viewing one
       const detail = document.getElementById('detail-section');
       if (!detail.classList.contains('hidden')) {
