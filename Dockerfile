@@ -3,11 +3,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /mocktracegen-web ./cmd/mocktracegen-web/
+RUN CGO_ENABLED=0 go build -o /mocktelemetrygen-web ./cmd/mocktelemetrygen-web/
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /mocktracegen-web /mocktracegen-web
+COPY --from=builder /mocktelemetrygen-web /mocktelemetrygen-web
 EXPOSE 8080
-ENTRYPOINT ["/mocktracegen-web"]
+ENTRYPOINT ["/mocktelemetrygen-web"]
 CMD ["--addr", ":8080"]

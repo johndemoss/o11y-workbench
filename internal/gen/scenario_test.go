@@ -3,7 +3,7 @@ package gen_test
 import (
 	"testing"
 
-	"github.com/johndemoss/mocktracegen/internal/gen"
+	"github.com/johndemoss/mocktelemetrygen/internal/gen"
 )
 
 func TestGenerateScenario_Microservice(t *testing.T) {

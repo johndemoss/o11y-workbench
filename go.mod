@@ -1,4 +1,4 @@
-module github.com/johndemoss/mocktracegen
+module github.com/johndemoss/mocktelemetrygen
 
 go 1.26.3
 

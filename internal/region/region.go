@@ -111,14 +111,14 @@ func stringAttr(key, value string) *commonv1.KeyValue {
 
 // ResourceAttributes returns resource attributes for a region.
 func ResourceAttributes(name Name, serviceName string) []*commonv1.KeyValue {
-	instanceID := fmt.Sprintf("mocktracegen-%s", name)
+	instanceID := fmt.Sprintf("mocktelemetrygen-%s", name)
 
 	return []*commonv1.KeyValue{
 		stringAttr("service.name", serviceName),
 		stringAttr("service.instance.id", instanceID),
 		stringAttr("cloud.region", string(name)),
-		stringAttr("cloud.provider", "mocktracegen"),
-		stringAttr("telemetry.sdk.name", "mocktracegen"),
+		stringAttr("cloud.provider", "mocktelemetrygen"),
+		stringAttr("telemetry.sdk.name", "mocktelemetrygen"),
 		stringAttr("telemetry.sdk.language", "go"),
 	}
 }

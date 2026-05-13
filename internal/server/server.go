@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johndemoss/mocktracegen/internal/gen"
-	"github.com/johndemoss/mocktracegen/internal/region"
+	"github.com/johndemoss/mocktelemetrygen/internal/gen"
+	"github.com/johndemoss/mocktelemetrygen/internal/region"
 )
 
 //go:embed web
@@ -63,7 +63,7 @@ func (s *Server) registerRoutes() {
 func (s *Server) Store() *RunStore { return s.store }
 
 func (s *Server) ListenAndServe() error {
-	log.Printf("Starting mocktracegen web dashboard on %s", s.addr)
+	log.Printf("Starting mocktelemetrygen web dashboard on %s", s.addr)
 	return http.ListenAndServe(s.addr, s.mux)
 }
 

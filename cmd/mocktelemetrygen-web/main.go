@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/johndemoss/mocktracegen/internal/gen"
-	"github.com/johndemoss/mocktracegen/internal/server"
+	"github.com/johndemoss/mocktelemetrygen/internal/gen"
+	"github.com/johndemoss/mocktelemetrygen/internal/server"
 )
 
 func main() {

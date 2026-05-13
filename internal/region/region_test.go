@@ -3,7 +3,7 @@ package region_test
 import (
 	"testing"
 
-	"github.com/johndemoss/mocktracegen/internal/region"
+	"github.com/johndemoss/mocktelemetrygen/internal/region"
 )
 
 func TestAll_ReturnsThree(t *testing.T) {

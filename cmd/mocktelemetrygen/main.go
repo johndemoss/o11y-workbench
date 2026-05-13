@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/johndemoss/mocktracegen/internal/export"
-	"github.com/johndemoss/mocktracegen/internal/gen"
-	"github.com/johndemoss/mocktracegen/internal/region"
+	"github.com/johndemoss/mocktelemetrygen/internal/export"
+	"github.com/johndemoss/mocktelemetrygen/internal/gen"
+	"github.com/johndemoss/mocktelemetrygen/internal/region"
 )
 
 var cfgFile string
@@ -26,9 +26,9 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "mocktracegen",
+		Use:   "mocktelemetrygen",
 		Short: "Deterministic mock OTLP trace generator",
-		Long: `mocktracegen generates fake but structurally valid OpenTelemetry traces
+		Long: `mocktelemetrygen generates fake but structurally valid OpenTelemetry traces
 for testing distributed system scenarios, specifically trace-ID-aware
 load balancing across endpoints.
 
@@ -144,10 +144,10 @@ func initConfig() error {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		viper.AddConfigPath(".")
-		viper.SetConfigName("mocktracegen")
+		viper.SetConfigName("mocktelemetrygen")
 	}
 
-	viper.SetEnvPrefix("MOCKTRACEGEN")
+	viper.SetEnvPrefix("MOCKTELEMETRYGEN")
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {

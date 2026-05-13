@@ -93,7 +93,7 @@ func TestConfigEnvVar(t *testing.T) {
 	resetCfg()
 	t.Cleanup(resetCfg)
 
-	const envKey = "MOCKTRACEGEN_SEED"
+	const envKey = "MOCKTELEMETRYGEN_SEED"
 	old := os.Getenv(envKey)
 	os.Setenv(envKey, "77")
 	t.Cleanup(func() { os.Setenv(envKey, old) })
@@ -111,7 +111,7 @@ func TestConfigEnvVarOverridesConfigFile(t *testing.T) {
 	resetCfg()
 	t.Cleanup(resetCfg)
 
-	const envKey = "MOCKTRACEGEN_TRACES"
+	const envKey = "MOCKTELEMETRYGEN_TRACES"
 	old := os.Getenv(envKey)
 	os.Setenv(envKey, "100")
 	t.Cleanup(func() { os.Setenv(envKey, old) })
