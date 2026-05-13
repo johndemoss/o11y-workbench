@@ -196,7 +196,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     </div>
     <div class="field">
       <label>Traces</label>
-      <input type="number" id="trace-count" value="1" min="1">
+      <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite">
     </div>
     <div class="field">
       <label>Rate (0 = unlimited)</label>
@@ -458,7 +458,7 @@ async function startRun() {
 
   const body = {
     seed: parseInt(document.getElementById('seed').value) || 42,
-    trace_count: parseInt(document.getElementById('trace-count').value) || 1,
+    trace_count: (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })(),
     rate: parseInt(document.getElementById('rate').value) || 0,
     topology: document.getElementById('topology').value,
     scenario: document.getElementById('scenario').value,
@@ -1214,7 +1214,8 @@ function renderRunList() {
       metaParts.push('imported');
     } else {
       if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
-      if (r.config?.TraceCount) metaParts.push(r.config.TraceCount + ' traces');
+      var tc = r.config?.TraceCount;
+      if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
     }
     return `<div class="run-card" onclick="showDetail('${r.id}')">
       <div class="status ${statusClass(r.status)}"></div>
