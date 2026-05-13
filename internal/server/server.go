@@ -60,6 +60,9 @@ func (s *Server) registerRoutes() {
 			path = "index.html"
 		}
 		if _, err := fs.Stat(sub, path); err == nil {
+			if path == "index.html" {
+				w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -235,18 +238,27 @@ func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Statements []string `json:"statements"`
+		Config     string   `json:"config"`
+		Statements []string `json:"statements"` // backward compat
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 		return
 	}
-	if len(req.Statements) == 0 {
-		writeJSON(w, http.StatusBadRequest, ottl.ValidateResult{Valid: false, Errors: []string{"no statements provided"}})
-		return
+
+	var statements []string
+	if req.Config != "" {
+		var err error
+		statements, err = ottl.ParseTransformStatements(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+	} else {
+		statements = req.Statements
 	}
 
-	result := ottl.ValidateStatements(req.Statements)
+	result := ottl.ValidateStatements(statements)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest
@@ -257,7 +269,8 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RunID      string   `json:"run_id"`
-		Statements []string `json:"statements"`
+		Config     string   `json:"config"`
+		Statements []string `json:"statements"` // backward compat
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -267,9 +280,17 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
 		return
 	}
-	if len(req.Statements) == 0 {
-		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{"no statements provided"}})
-		return
+
+	var statements []string
+	if req.Config != "" {
+		var err error
+		statements, err = ottl.ParseTransformStatements(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+	} else {
+		statements = req.Statements
 	}
 
 	run := s.store.Get(req.RunID)
@@ -282,7 +303,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transformed, err := ottl.TransformRunData(*run.TraceData, req.Statements)
+	transformed, err := ottl.TransformRunData(*run.TraceData, statements)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 			Valid:  false,
@@ -294,15 +315,16 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ottl.TransformResult{
 		Valid:            true,
 		TransformedData:  &transformed,
-		StatementsParsed: len(req.Statements),
+		StatementsParsed: len(statements),
 	})
 }
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RunID      string         `json:"run_id"`
-		Conditions []string       `json:"conditions"`
+		Config     string         `json:"config"`
 		Mode       ottl.FilterMode `json:"mode"`
+		Conditions []string       `json:"conditions"` // backward compat
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -312,12 +334,20 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
 		return
 	}
-	if len(req.Conditions) == 0 {
-		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"no conditions provided"}})
-		return
-	}
 	if req.Mode == "" {
 		req.Mode = ottl.FilterModeInclude
+	}
+
+	var conditions []string
+	if req.Config != "" {
+		var err error
+		conditions, err = ottl.ParseFilterConditions(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+	} else {
+		conditions = req.Conditions
 	}
 
 	run := s.store.Get(req.RunID)
@@ -330,7 +360,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, req.Conditions, req.Mode)
+	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conditions, req.Mode)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 			Valid:  false,
@@ -342,7 +372,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ottl.FilterResult{
 		Valid:             true,
 		FilteredData:      &filtered,
-		ConditionsParsed:  len(req.Conditions),
+		ConditionsParsed:  len(conditions),
 		TotalSpanCount:    total,
 		FilteredSpanCount: kept,
 	})
@@ -350,18 +380,27 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Conditions []string `json:"conditions"`
+		Config     string   `json:"config"`
+		Conditions []string `json:"conditions"` // backward compat
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 		return
 	}
-	if len(req.Conditions) == 0 {
-		writeJSON(w, http.StatusBadRequest, ottl.ValidateResult{Valid: false, Errors: []string{"no conditions provided"}})
-		return
+
+	var conditions []string
+	if req.Config != "" {
+		var err error
+		conditions, err = ottl.ParseFilterConditions(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+	} else {
+		conditions = req.Conditions
 	}
 
-	result := ottl.ValidateFilterConditionsParse(req.Conditions)
+	result := ottl.ValidateFilterConditionsParse(conditions)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest
