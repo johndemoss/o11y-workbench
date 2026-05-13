@@ -22,6 +22,7 @@ type RunStatus string
 const (
 	RunStatusPending   RunStatus = "pending"
 	RunStatusRunning   RunStatus = "running"
+	RunStatusPaused    RunStatus = "paused"
 	RunStatusCompleted RunStatus = "completed"
 	RunStatusFailed    RunStatus = "failed"
 	RunStatusStopped   RunStatus = "stopped"
@@ -45,6 +46,28 @@ type Run struct {
 	Insecure             bool             `json:"insecure"`
 	Output               string           `json:"output"`
 	cancel               context.CancelFunc // not exported, not json
+	pauseCh              chan struct{}      // nil when running; non-nil live channel when paused; not exported
+}
+
+func (r *Run) Pause() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Status != RunStatusRunning {
+		return
+	}
+	r.Status = RunStatusPaused
+	r.pauseCh = make(chan struct{})
+}
+
+func (r *Run) Resume() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Status != RunStatusPaused {
+		return
+	}
+	r.Status = RunStatusRunning
+	close(r.pauseCh)
+	r.pauseCh = nil
 }
 
 func (r *Run) Stop() {
@@ -54,7 +77,7 @@ func (r *Run) Stop() {
 		r.cancel()
 		r.cancel = nil
 	}
-	if r.Status == RunStatusPending || r.Status == RunStatusRunning {
+	if r.Status == RunStatusPending || r.Status == RunStatusRunning || r.Status == RunStatusPaused {
 		r.Status = RunStatusStopped
 		r.Error = "stopped"
 		now := time.Now()
@@ -197,6 +220,22 @@ func (s *RunStore) StopRun(id string) {
 	}
 }
 
+func (s *RunStore) PauseRun(id string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if r, ok := s.runs[id]; ok {
+		r.Pause()
+	}
+}
+
+func (s *RunStore) ResumeRun(id string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if r, ok := s.runs[id]; ok {
+		r.Resume()
+	}
+}
+
 func (s *RunStore) Delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -237,7 +276,29 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	g.OnProgress = func(completed, total int) {
 		run.mu.Lock()
 		run.TraceCountCompleted = completed
+		// Count spans from buffer after each trace so the dashboard
+		// shows a live span count for running / stopped jobs.
+		buf.mu.Lock()
+		spanTotal := 0
+		for _, rs := range buf.spans {
+			for _, ss := range rs.ScopeSpans {
+				spanTotal += len(ss.Spans)
+			}
+		}
+		run.SpanCount = spanTotal
+		buf.mu.Unlock()
 		run.mu.Unlock()
+
+		// Pause check — block between traces until resumed or stopped.
+		run.mu.Lock()
+		ch := run.pauseCh
+		run.mu.Unlock()
+		if ch != nil {
+			select {
+			case <-ch:
+			case <-genCtx.Done():
+			}
+		}
 	}
 	err := g.Run(genCtx, exp)
 	elapsed := time.Since(start).Nanoseconds()
@@ -249,6 +310,15 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		if err == context.Canceled {
 			// If already stopped via Stop(), preserve that status.
 			if run.Status == RunStatusStopped {
+				// Count spans from buffer before returning so stopped
+				// (infinite) runs show a meaningful span count.
+				total := 0
+				for _, rs := range buf.spans {
+					for _, ss := range rs.ScopeSpans {
+						total += len(ss.Spans)
+					}
+				}
+				run.SpanCount = total
 				run.mu.Unlock()
 				return
 			}

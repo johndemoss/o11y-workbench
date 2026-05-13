@@ -44,6 +44,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/runs/{id}", s.handleGetRun)
 	s.mux.HandleFunc("POST /api/runs/import", s.handleImportRun)
 	s.mux.HandleFunc("POST /api/runs/{id}/stop", s.handleStopRun)
+	s.mux.HandleFunc("POST /api/runs/{id}/pause", s.handlePauseRun)
+	s.mux.HandleFunc("POST /api/runs/{id}/resume", s.handleResumeRun)
 	s.mux.HandleFunc("POST /api/ottl/validate", s.handleOTTLValidate)
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
@@ -234,6 +236,28 @@ func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.StopRun(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "id": id})
+}
+
+func (s *Server) handlePauseRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run := s.store.Get(id)
+	if run == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + id})
+		return
+	}
+	s.store.PauseRun(id)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "paused", "id": id})
+}
+
+func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run := s.store.Get(id)
+	if run == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + id})
+		return
+	}
+	s.store.ResumeRun(id)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
 }
 
 func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
