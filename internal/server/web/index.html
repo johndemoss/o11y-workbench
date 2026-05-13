@@ -48,6 +48,10 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .hidden { display: none; }
 .empty { text-align: center; padding: 40px 20px; color: #64748b; }
 .empty p { font-size: 14px; }
+.ottl-success { background: #052e16; border: 1px solid #166534; color: #86efac; padding: 12px; border-radius: 6px; font-size: 13px; }
+.ottl-error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 12px; border-radius: 6px; font-size: 13px; white-space: pre-wrap; }
+.ottl-error-item { padding: 4px 0; border-bottom: 1px solid rgba(153,27,27,0.3); }
+.ottl-error-item:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
@@ -138,6 +142,20 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     <input type="file" id="import-file" accept=".json,.ndjson" style="flex:1;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:14px">
     <button class="btn btn-primary" id="import-btn" onclick="importTraces()">Import</button>
     <span id="import-status"></span>
+  </div>
+</section>
+
+<section id="ottl-section">
+  <h2>OTTL Playground</h2>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Test OpenTelemetry Transformation Language statements. Enter OTTL statements below to validate syntax, function names, and argument types.</p>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <textarea id="ottl-input" rows="6" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL statements, one per line&#10;&#10;set(span.attributes[&quot;env&quot;], &quot;prod&quot;)&#10;delete_key(span.attributes, &quot;secret&quot;)&#10;set(span.attributes[&quot;matched&quot;], &quot;yes&quot;) where IsMatch(span.name, &quot;api.*&quot;)"></textarea>
+    <div class="form-actions">
+      <button class="btn btn-primary" id="ottl-validate-btn" onclick="ottlValidate()">Validate</button>
+      <span id="ottl-status"></span>
+      <button class="btn btn-secondary" id="ottl-clear-btn" onclick="ottlClear()">Clear</button>
+    </div>
+    <div id="ottl-result" class="hidden" style="margin-top:4px"></div>
   </div>
 </section>
 
@@ -258,6 +276,50 @@ async function importTraces() {
     status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
   }
   btn.disabled = false;
+}
+
+async function ottlValidate() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-validate-btn');
+  const status = document.getElementById('ottl-status');
+  const result = document.getElementById('ottl-result');
+  btn.disabled = true;
+  status.textContent = 'Validating...';
+  result.classList.add('hidden');
+  const lines = input.value.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+  if (lines.length === 0) {
+    result.innerHTML = '<div class="ottl-error">No statements to validate</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ statements: lines })
+    });
+    if (data.valid) {
+      result.innerHTML = '<div class="ottl-success">All ' + data.statements_parsed + ' statement(s) valid.</div>';
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      result.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    result.classList.remove('hidden');
+    status.textContent = '';
+  } catch(e) {
+    result.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function ottlClear() {
+  document.getElementById('ottl-input').value = '';
+  document.getElementById('ottl-result').classList.add('hidden');
+  document.getElementById('ottl-status').textContent = '';
 }
 
 async function cancelRun(id) {

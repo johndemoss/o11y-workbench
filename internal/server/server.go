@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/johndemoss/mocktelemetrygen/internal/gen"
+	"github.com/johndemoss/mocktelemetrygen/internal/ottl"
 	"github.com/johndemoss/mocktelemetrygen/internal/region"
 )
 
@@ -40,6 +41,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/runs/{id}", s.handleGetRun)
 	s.mux.HandleFunc("POST /api/runs/import", s.handleImportRun)
 	s.mux.HandleFunc("DELETE /api/runs/{id}", s.handleDeleteRun)
+	s.mux.HandleFunc("POST /api/ottl/validate", s.handleOTTLValidate)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -182,6 +184,27 @@ func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	s.store.CancelRun(id)
 	s.store.Delete(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
+}
+
+func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Statements []string `json:"statements"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if len(req.Statements) == 0 {
+		writeJSON(w, http.StatusBadRequest, ottl.ValidateResult{Valid: false, Errors: []string{"no statements provided"}})
+		return
+	}
+
+	result := ottl.ValidateStatements(req.Statements)
+	status := http.StatusOK
+	if !result.Valid {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, result)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
