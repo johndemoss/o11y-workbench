@@ -106,6 +106,78 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-inline-diff .diff-line .marker { display: inline-block; width: 16px; color: #64748b; user-select: none; flex-shrink: 0; }
 .ottl-inline-diff .diff-line.added .marker { color: #22c55e; }
 .ottl-inline-diff .diff-line.removed .marker { color: #ef4444; }
+
+/* --- Modals --- */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: modal-in 0.15s ease-out;
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.modal-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.modal-close:hover { color: #e2e8f0; }
+.modal-body .field { margin-bottom: 12px; }
+.modal-body .field input[type="file"] {
+  width: 100%;
+  padding: 8px 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+.modal-body .field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.modal-body .form-actions { margin-top: 12px; }
+.modal-body .desc {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-bottom: 12px;
+}
 </style>
 </head>
 <body>
@@ -186,16 +258,9 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   <div class="form-actions">
     <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
     <span id="run-status"></span>
-  </div>
-</section>
-
-<section id="import-section">
-  <h2>Import OTLP JSON</h2>
-  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Upload a JSON file exported by the OpenTelemetry Collector file exporter. Supports single JSON, JSON arrays, and NDJSON formats.</p>
-  <div class="form-actions">
-    <input type="file" id="import-file" accept=".json,.ndjson" style="flex:1;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:14px">
-    <button class="btn btn-primary" id="import-btn" onclick="importTraces()">Import</button>
-    <span id="import-status"></span>
+    <span style="flex:1"></span>
+    <button class="btn btn-secondary" onclick="openImportModal()">Import OTLP JSON</button>
+    <button class="btn btn-secondary" onclick="openScenarioModal()">Upload Scenarios</button>
   </div>
 </section>
 
@@ -227,8 +292,10 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   <div style="display:flex;flex-direction:column;gap:8px">
     <textarea id="ottl-filter-input" rows="4" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL conditions, one per line&#10;&#10;name == &quot;GET /api/users&quot;&#10;attributes[&quot;http.status_code&quot;] == 200&#10;attributes[&quot;error&quot;] == true"></textarea>
     <div class="form-actions">
-      <button class="btn btn-primary" id="ottl-filter-btn" onclick="ottlFilter()">Filter</button>
+      <button class="btn btn-primary" id="ottl-filter-validate-btn" onclick="ottlFilterValidate()">Validate</button>
+      <button class="btn btn-primary" id="ottl-filter-btn" onclick="ottlFilter()" disabled>Filter</button>
       <span id="ottl-filter-status"></span>
+      <button class="btn btn-secondary" id="ottl-filter-clear-btn" onclick="ottlFilterClear()">Clear</button>
     </div>
     <div style="display:flex;gap:24px;align-items:center;padding:4px 0">
       <div style="display:flex;gap:12px;align-items:center">
@@ -261,6 +328,50 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </section>
 </div>
 
+<!-- Import OTLP JSON Modal -->
+<div class="modal-overlay" id="import-modal-overlay" onclick="closeImportModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Import OTLP JSON</h3>
+      <button class="modal-close" onclick="closeImportModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="desc">Upload a JSON file exported by the OpenTelemetry Collector file exporter. Supports single JSON, JSON arrays, and NDJSON formats.</p>
+      <div class="field">
+        <label for="import-file">Select File</label>
+        <input type="file" id="import-file" accept=".json,.ndjson">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="import-btn" onclick="importTraces()">Import</button>
+        <span id="import-status"></span>
+        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Scenarios Modal -->
+<div class="modal-overlay" id="scenario-modal-overlay" onclick="closeScenarioModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Upload Scenarios</h3>
+      <button class="modal-close" onclick="closeScenarioModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="desc">Upload a YAML or JSON file with user-defined scenario definitions. After registration, scenarios appear in the dropdown above.</p>
+      <div class="field">
+        <label for="scenario-file-input">Select File</label>
+        <input type="file" id="scenario-file-input" accept=".yaml,.yml,.json">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="scenario-upload-btn" onclick="uploadScenarios()">Upload</button>
+        <span id="scenario-upload-status"></span>
+        <button class="btn btn-secondary" onclick="closeScenarioModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 
@@ -272,6 +383,38 @@ async function api(path, opts) {
 }
 
 let scenarios = [];
+
+// --- Modal toggles ---
+function openModal(overlayId) {
+  document.getElementById(overlayId).classList.add('open');
+}
+function closeModal(overlayId) {
+  document.getElementById(overlayId).classList.remove('open');
+}
+function openImportModal() {
+  document.getElementById('import-file').value = '';
+  document.getElementById('import-status').textContent = '';
+  openModal('import-modal-overlay');
+}
+function closeImportModal(e) {
+  if (e && e.target !== e.currentTarget) return; // only close when overlay itself is clicked
+  closeModal('import-modal-overlay');
+}
+function openScenarioModal() {
+  document.getElementById('scenario-file-input').value = '';
+  document.getElementById('scenario-upload-status').textContent = '';
+  openModal('scenario-modal-overlay');
+}
+function closeScenarioModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  closeModal('scenario-modal-overlay');
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeModal('import-modal-overlay');
+    closeModal('scenario-modal-overlay');
+  }
+});
 
 async function loadScenarios() {
   try {
@@ -364,7 +507,35 @@ async function importTraces() {
     updateOttlRunSelector();
     updateOttlFilterRunSelector();
     status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
-    fileInput.value = '';
+    setTimeout(() => closeImportModal(), 800);
+  } catch(e) {
+    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
+async function uploadScenarios() {
+  const fileInput = document.getElementById('scenario-file-input');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('scenario-upload-btn');
+  const status = document.getElementById('scenario-upload-status');
+  btn.disabled = true;
+  status.textContent = 'Uploading...';
+  try {
+    const text = await file.text();
+    const ct = file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? 'application/x-yaml' : 'application/json';
+    const data = await api('/api/scenarios', {
+      method: 'POST',
+      headers: {'Content-Type': ct},
+      body: text
+    });
+    status.innerHTML = '<span style="color:#22c55e">Registered: ' + (data.registered || []).join(', ') + '</span>';
+    setTimeout(() => closeScenarioModal(), 800);
+    // Reload scenario dropdown
+    const sel = document.getElementById('scenario');
+    while (sel.options.length > 1) sel.remove(1);
+    await loadScenarios();
   } catch(e) {
     status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
   }
@@ -844,6 +1015,51 @@ function toggleSourceData(headerEl) {
   const isOpen = body.classList.toggle('open');
   arrow.classList.toggle('expanded', isOpen);
   container.dataset.open = isOpen ? 'true' : 'false';
+}
+
+function ottlFilterClear() {
+  document.getElementById('ottl-filter-input').value = '';
+  document.getElementById('ottl-filter-result').classList.add('hidden');
+  document.getElementById('ottl-filter-status').textContent = '';
+  lastFilterResult = { filtered: null, total: 0, kept: 0 };
+}
+
+async function ottlFilterValidate() {
+  const input = document.getElementById('ottl-filter-input');
+  const btn = document.getElementById('ottl-filter-validate-btn');
+  const status = document.getElementById('ottl-filter-status');
+  const result = document.getElementById('ottl-filter-result');
+  btn.disabled = true;
+  status.textContent = 'Validating...';
+  result.classList.add('hidden');
+  const lines = input.value.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+  if (lines.length === 0) {
+    result.innerHTML = '<div class="ottl-error">No conditions to validate</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/filter-validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ conditions: lines })
+    });
+    if (data.valid) {
+      result.innerHTML = '<div class="ottl-success">All ' + data.statements_parsed + ' condition(s) valid.</div>';
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      result.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    result.classList.remove('hidden');
+    status.textContent = '';
+  } catch(e) {
+    result.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+  }
+  btn.disabled = false;
 }
 
 async function ottlFilter() {
