@@ -22,12 +22,15 @@ import (
 
 // TransformRunData parses and executes OTTL transform statements against trace
 // data stored in a completed run. It returns the transformed trace data as
-// OTLP JSON, suitable for re-storing or displaying.
-//
-// The input traceData must be a JSON-serialized ExportTraceServiceRequest
-// (protojson format). Each OTTL statement is executed against every span in
-// the trace data.
+// OTLP JSON. Each OTTL statement is executed against every span.
 func TransformRunData(traceData json.RawMessage, statements []string) (json.RawMessage, error) {
+	return TransformRunDataSelected(traceData, statements, nil)
+}
+
+// TransformRunDataSelected is like TransformRunData but only transforms spans
+// at the given flat indexes. spanIndexes nil or empty means all spans.
+// The flat index walks ResourceSpans(i) → ScopeSpans(j) → Spans(k) depth-first.
+func TransformRunDataSelected(traceData json.RawMessage, statements []string, spanIndexes []int) (json.RawMessage, error) {
 	if len(statements) == 0 {
 		return nil, fmt.Errorf("no statements provided")
 	}
@@ -74,9 +77,21 @@ func TransformRunData(traceData json.RawMessage, statements []string) (json.RawM
 
 	seq := ottlspan.NewStatementSequence(parsedStmts, settings)
 
-	// Step 5: execute statements against every span in the trace data.
+	// Step 5: build a set of selected flat indexes.
+	selected := make(map[int]bool)
+	if len(spanIndexes) > 0 {
+		for _, idx := range spanIndexes {
+			if idx >= 0 {
+				selected[idx] = true
+			}
+		}
+	}
+	allSpans := len(selected) == 0
+
+	// Step 6: execute statements against selected spans.
 	ctx := context.Background()
 	rss := traces.ResourceSpans()
+	flatIdx := 0
 	for i := 0; i < rss.Len(); i++ {
 		rs := rss.At(i)
 		sss := rs.ScopeSpans()
@@ -84,18 +99,21 @@ func TransformRunData(traceData json.RawMessage, statements []string) (json.RawM
 			ss := sss.At(j)
 			spans := ss.Spans()
 			for k := 0; k < spans.Len(); k++ {
-				span := spans.At(k)
-				tCtx := ottlspan.NewTransformContextPtr(rs, ss, span)
-				if err := seq.Execute(ctx, tCtx); err != nil {
+				if allSpans || selected[flatIdx] {
+					span := spans.At(k)
+					tCtx := ottlspan.NewTransformContextPtr(rs, ss, span)
+					if err := seq.Execute(ctx, tCtx); err != nil {
+						tCtx.Close()
+						return nil, fmt.Errorf("execute on span %d/%d/%d: %w", i, j, k, err)
+					}
 					tCtx.Close()
-					return nil, fmt.Errorf("execute on span %d/%d/%d: %w", i, j, k, err)
 				}
-				tCtx.Close()
+				flatIdx++
 			}
 		}
 	}
 
-	// Step 6: convert modified pdata Traces back to OTLP protobuf JSON.
+	// Step 7: convert modified pdata Traces back to OTLP protobuf JSON.
 	var marshaler ptrace.ProtoMarshaler
 	outBytes, err := marshaler.MarshalTraces(traces)
 	if err != nil {
@@ -122,6 +140,9 @@ func TransformRunData(traceData json.RawMessage, statements []string) (json.RawM
 type TransformResult struct {
 	Valid            bool             `json:"valid"`
 	Errors           []string         `json:"errors,omitempty"`
+	OriginalData     *json.RawMessage `json:"original_data,omitempty"`
 	TransformedData  *json.RawMessage `json:"transformed_data,omitempty"`
 	StatementsParsed int              `json:"statements_parsed,omitempty"`
+	SpanCount        int              `json:"span_count,omitempty"`
+	TransformedCount int              `json:"transformed_count,omitempty"`
 }
