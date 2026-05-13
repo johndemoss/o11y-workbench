@@ -42,6 +42,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/runs/import", s.handleImportRun)
 	s.mux.HandleFunc("DELETE /api/runs/{id}", s.handleDeleteRun)
 	s.mux.HandleFunc("POST /api/ottl/validate", s.handleOTTLValidate)
+	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -205,6 +206,50 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusBadRequest
 	}
 	writeJSON(w, status, result)
+}
+
+func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunID      string   `json:"run_id"`
+		Statements []string `json:"statements"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if req.RunID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
+		return
+	}
+	if len(req.Statements) == 0 {
+		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{"no statements provided"}})
+		return
+	}
+
+	run := s.store.Get(req.RunID)
+	if run == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + req.RunID})
+		return
+	}
+	if run.TraceData == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with data can be transformed"})
+		return
+	}
+
+	transformed, err := ottl.TransformRunData(*run.TraceData, req.Statements)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+			Valid:  false,
+			Errors: []string{err.Error()},
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ottl.TransformResult{
+		Valid:            true,
+		TransformedData:  &transformed,
+		StatementsParsed: len(req.Statements),
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

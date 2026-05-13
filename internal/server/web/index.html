@@ -52,6 +52,13 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 12px; border-radius: 6px; font-size: 13px; white-space: pre-wrap; }
 .ottl-error-item { padding: 4px 0; border-bottom: 1px solid rgba(153,27,27,0.3); }
 .ottl-error-item:last-child { border-bottom: none; }
+.ottl-transform-result { margin-top: 8px; border: 1px solid #334155; border-radius: 6px; overflow: hidden; }
+.ottl-transform-result .header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #1e293b; border-bottom: 1px solid #334155; font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+.ottl-transform-result .header .badge { background: #22c55e; color: #052e16; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.ottl-transform-result pre { margin: 0; padding: 12px; background: #0f172a; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; }
+.ottl-transform-result pre::-webkit-scrollbar { width: 6px; height: 6px; }
+.ottl-transform-result pre::-webkit-scrollbar-track { background: #1e293b; }
+.ottl-transform-result pre::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -147,13 +154,20 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 
 <section id="ottl-section">
   <h2>OTTL Playground</h2>
-  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Test OpenTelemetry Transformation Language statements. Enter OTTL statements below to validate syntax, function names, and argument types.</p>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Test OpenTelemetry Transformation Language statements. Validate syntax or execute transforms against completed runs.</p>
   <div style="display:flex;flex-direction:column;gap:8px">
-    <textarea id="ottl-input" rows="6" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL statements, one per line&#10;&#10;set(span.attributes[&quot;env&quot;], &quot;prod&quot;)&#10;delete_key(span.attributes, &quot;secret&quot;)&#10;set(span.attributes[&quot;matched&quot;], &quot;yes&quot;) where IsMatch(span.name, &quot;api.*&quot;)"></textarea>
+    <textarea id="ottl-input" rows="6" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL statements, one per line&#10;&#10;set(attributes[&quot;env&quot;], &quot;prod&quot;)&#10;delete_key(attributes, &quot;secret&quot;)&#10;set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;api.*&quot;"></textarea>
     <div class="form-actions">
       <button class="btn btn-primary" id="ottl-validate-btn" onclick="ottlValidate()">Validate</button>
+      <button class="btn btn-primary" id="ottl-transform-btn" onclick="ottlTransform()" disabled>Transform</button>
       <span id="ottl-status"></span>
       <button class="btn btn-secondary" id="ottl-clear-btn" onclick="ottlClear()">Clear</button>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;padding:4px 0">
+      <label for="ottl-run-select" style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Target Run</label>
+      <select id="ottl-run-select" style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;max-width:400px">
+        <option value="">Select a completed run...</option>
+      </select>
     </div>
     <div id="ottl-result" class="hidden" style="margin-top:4px"></div>
   </div>
@@ -270,6 +284,7 @@ async function importTraces() {
     });
     runs[run.id] = run;
     renderRunList();
+    updateOttlRunSelector();
     status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
     fileInput.value = '';
   } catch(e) {
@@ -316,6 +331,85 @@ async function ottlValidate() {
   btn.disabled = false;
 }
 
+async function ottlTransform() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-transform-btn');
+  const status = document.getElementById('ottl-status');
+  const result = document.getElementById('ottl-result');
+  const runSelect = document.getElementById('ottl-run-select');
+  const runId = runSelect.value;
+  if (!runId) {
+    result.innerHTML = '<div class="ottl-error">Select a target run first</div>';
+    result.classList.remove('hidden');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Transforming...';
+  result.classList.add('hidden');
+  const lines = input.value.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+  if (lines.length === 0) {
+    result.innerHTML = '<div class="ottl-error">No statements to execute</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/transform', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, statements: lines })
+    });
+    if (data.valid && data.transformed_data) {
+      const formatted = JSON.stringify(data.transformed_data, null, 2);
+      result.innerHTML = '<div class="ottl-transform-result">'
+        + '<div class="header"><span class="badge">' + data.statements_parsed + ' statements</span>Transform succeeded</div>'
+        + '<pre>' + escapeHtml(formatted) + '</pre></div>';
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      result.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    result.classList.remove('hidden');
+    status.textContent = '';
+  } catch(e) {
+    result.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    result.classList.remove('hidden');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function updateOttlRunSelector() {
+  const select = document.getElementById('ottl-run-select');
+  const currentVal = select.value;
+  const transformBtn = document.getElementById('ottl-transform-btn');
+  // Remove all options except the placeholder
+  while (select.options.length > 1) {
+    select.remove(1);
+  }
+  const entries = Object.values(runs).filter(r => r.status === 'completed' && r.span_count > 0);
+  entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  let hasData = false;
+  entries.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
+    opt.textContent = label + ' — ' + (r.span_count || 0) + ' spans';
+    select.appendChild(opt);
+    hasData = true;
+  });
+  transformBtn.disabled = !hasData;
+  if (currentVal) {
+    // Re-select the previously selected run if it still exists
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === currentVal) {
+        select.selectedIndex = i;
+        break;
+      }
+    }
+  }
+}
+
 function ottlClear() {
   document.getElementById('ottl-input').value = '';
   document.getElementById('ottl-result').classList.add('hidden');
@@ -342,6 +436,7 @@ function startPolling() {
       const data = await api('/api/runs');
       data.runs.forEach(r => { runs[r.id] = r; });
       renderRunList();
+      updateOttlRunSelector();
       // Show detail if viewing one
       const detail = document.getElementById('detail-section');
       if (!detail.classList.contains('hidden')) {
