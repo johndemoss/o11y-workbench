@@ -26,6 +26,10 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .btn-primary:disabled { background: #475569; cursor: not-allowed; }
 .btn-secondary { background: #334155; color: #e2e8f0; }
 .btn-secondary:hover { background: #475569; }
+.btn-danger { background: #dc2626; color: white; padding: 4px 10px; font-size: 12px; border: none; border-radius: 4px; font-weight: 500; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
+.btn-danger:hover { background: #b91c1c; }
+.btn-pause { background: #8b5cf6; color: white; padding: 4px 10px; font-size: 12px; border: none; border-radius: 4px; font-weight: 500; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
+.btn-pause:hover { background: #7c3aed; }
 .run-list { display: flex; flex-direction: column; gap: 8px; }
 .run-card { display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; transition: border-color 0.15s; }
 .run-card:hover { border-color: #3b82f6; }
@@ -35,6 +39,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .status-completed { background: #22c55e; }
 .status-failed { background: #ef4444; }
 .status-stopped { background: #f59e0b; }
+.status-paused { background: #8b5cf6; animation: pulse 1s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .run-card .info { flex: 1; min-width: 0; }
 .run-card .info .id { font-size: 14px; font-weight: 500; }
@@ -361,7 +366,12 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </section>
 
 <section id="runs-section">
-  <h2>Jobs</h2>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <h2 style="margin-bottom:0;">Jobs</h2>
+    <button id="pause-all-btn" class="btn-pause" onclick="pauseAllRuns()" style="display:none">Pause All</button>
+    <button id="resume-all-btn" class="btn-pause" onclick="resumeAllRuns()" style="display:none">Resume All</button>
+    <button id="stop-all-btn" class="btn-danger" onclick="stopAllRuns()" style="display:none">Stop All Running</button>
+  </div>
   <div id="run-list" class="run-list">
     <div class="empty"><p>No runs yet. Configure and click Run to generate traces.</p></div>
   </div>
@@ -1328,6 +1338,66 @@ async function stopRun(id) {
   }
 }
 
+async function pauseRun(id) {
+  try {
+    await api('/api/runs/' + id + '/pause', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('pause run:', e);
+  }
+}
+
+async function resumeRun(id) {
+  try {
+    await api('/api/runs/' + id + '/resume', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('resume run:', e);
+  }
+}
+
+async function stopAllRuns() {
+  const active = Object.values(runs).filter(r => r.status === 'running' || r.status === 'pending' || r.status === 'paused');
+  if (active.length === 0) return;
+  const btn = document.getElementById('stop-all-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await Promise.all(active.map(r => api('/api/runs/' + r.id + '/stop', { method: 'POST' })));
+  } catch(e) {
+    console.error('stop all runs:', e);
+  }
+  if (btn) btn.disabled = false;
+  renderRunList();
+}
+
+async function pauseAllRuns() {
+  const active = Object.values(runs).filter(r => r.status === 'running');
+  if (active.length === 0) return;
+  const btn = document.getElementById('pause-all-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await Promise.all(active.map(r => api('/api/runs/' + r.id + '/pause', { method: 'POST' })));
+  } catch(e) {
+    console.error('pause all runs:', e);
+  }
+  if (btn) btn.disabled = false;
+  renderRunList();
+}
+
+async function resumeAllRuns() {
+  const active = Object.values(runs).filter(r => r.status === 'paused');
+  if (active.length === 0) return;
+  const btn = document.getElementById('resume-all-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await Promise.all(active.map(r => api('/api/runs/' + r.id + '/resume', { method: 'POST' })));
+  } catch(e) {
+    console.error('resume all runs:', e);
+  }
+  if (btn) btn.disabled = false;
+  renderRunList();
+}
+
 function startPolling() {
   const announcedCompleted = new Set();
   pollTimer = setInterval(async () => {
@@ -1388,8 +1458,20 @@ function renderRunList() {
         <span>${r.span_count || 0} spans</span>
         <span>${formatDuration(r.duration_ns)}</span>
       </div>
+      ${r.status === 'running' ? `<button class="btn-pause" onclick="event.stopPropagation();pauseRun('${r.id}')">Pause</button>` : ''}
+      ${r.status === 'paused' ? `<button class="btn-pause" onclick="event.stopPropagation();resumeRun('${r.id}')">Resume</button>` : ''}
+      ${r.status === 'running' || r.status === 'pending' || r.status === 'paused' ? `<button class="btn-danger" onclick="event.stopPropagation();stopRun('${r.id}')">Stop</button>` : ''}
     </div>`;
   }).join('');
+  const pauseAllBtn = document.getElementById('pause-all-btn');
+  const resumeAllBtn = document.getElementById('resume-all-btn');
+  const stopAllBtn = document.getElementById('stop-all-btn');
+  const hasRunning = entries.some(r => r.status === 'running');
+  const hasPaused = entries.some(r => r.status === 'paused');
+  const hasActive = hasRunning || hasPaused || entries.some(r => r.status === 'pending');
+  if (pauseAllBtn) pauseAllBtn.style.display = hasRunning ? '' : 'none';
+  if (resumeAllBtn) resumeAllBtn.style.display = hasPaused ? '' : 'none';
+  if (stopAllBtn) stopAllBtn.style.display = hasActive ? '' : 'none';
 }
 
 function showDetail(id) {
@@ -1422,7 +1504,24 @@ function renderDetail(r) {
       <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
     </div>
     <div style="margin-top:12px">
-      <button class="btn btn-secondary" onclick="stopRun('${r.id}')">Stop</button>
+      <button class="btn btn-secondary" onclick="pauseRun('${r.id}')">Pause</button>
+      <button class="btn btn-secondary" onclick="stopRun('${r.id}')" style="margin-left:8px">Stop</button>
+    </div>`;
+    return;
+  }
+
+  if (r.status === 'paused') {
+    const done = r.trace_count_completed || 0;
+    const total = r.trace_count;
+    const totalDisplay = total === 0 ? '&infin;' : total;
+    const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" onclick="resumeRun('${r.id}')">Resume</button>
+      <button class="btn btn-secondary" onclick="stopRun('${r.id}')" style="margin-left:8px">Stop</button>
     </div>`;
     return;
   }
