@@ -131,6 +131,16 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   </div>
 </section>
 
+<section id="import-section">
+  <h2>Import OTLP JSON</h2>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Upload a JSON file exported by the OpenTelemetry Collector file exporter. Supports single JSON, JSON arrays, and NDJSON formats.</p>
+  <div class="form-actions">
+    <input type="file" id="import-file" accept=".json,.ndjson" style="flex:1;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:14px">
+    <button class="btn btn-primary" id="import-btn" onclick="importTraces()">Import</button>
+    <span id="import-status"></span>
+  </div>
+</section>
+
 <section id="runs-section">
   <h2>Runs</h2>
   <div id="run-list" class="run-list">
@@ -225,6 +235,45 @@ async function startRun() {
   runBtn.disabled = false;
 }
 
+async function importTraces() {
+  const fileInput = document.getElementById('import-file');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('import-btn');
+  const status = document.getElementById('import-status');
+  btn.disabled = true;
+  status.textContent = 'Importing...';
+  try {
+    const text = await file.text();
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: text
+    });
+    runs[run.id] = run;
+    renderRunList();
+    status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
+    fileInput.value = '';
+  } catch(e) {
+    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
+async function cancelRun(id) {
+  try {
+    await api('/api/runs/' + id, { method: 'DELETE' });
+    delete runs[id];
+    renderRunList();
+    const section = document.getElementById('detail-section');
+    if (!section.classList.contains('hidden') && section.querySelector('#detail-id').textContent === id) {
+      section.classList.add('hidden');
+    }
+  } catch(e) {
+    console.error('cancel run:', e);
+  }
+}
+
 function startPolling() {
   pollTimer = setInterval(async () => {
     try {
@@ -235,11 +284,14 @@ function startPolling() {
       const detail = document.getElementById('detail-section');
       if (!detail.classList.contains('hidden')) {
         const id = detail.querySelector('#detail-id').textContent;
-        if (runs[id]) renderDetail(runs[id]);
+        const r = runs[id];
+        if (r) renderDetail(r);
       }
     } catch(e) { /* ignore polling errors */ }
   }, 1000);
 }
+
+let lastDetailKey = '';
 
 function renderRunList() {
   const list = document.getElementById('run-list');
@@ -251,11 +303,19 @@ function renderRunList() {
   list.innerHTML = entries.map(r => {
     const scenario = r.scenario || r.config?.Scenario || '';
     const scenarioTag = scenario ? ' &middot; ' + scenario : '';
+    const isImported = r.output === 'import';
+    const metaParts = [formatTime(r.started_at)];
+    if (isImported) {
+      metaParts.push('imported');
+    } else {
+      if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
+      if (r.config?.TraceCount) metaParts.push(r.config.TraceCount + ' traces');
+    }
     return `<div class="run-card" onclick="showDetail('${r.id}')">
       <div class="status ${statusClass(r.status)}"></div>
       <div class="info">
         <div class="id">${r.id}${scenarioTag}</div>
-        <div class="meta">${formatTime(r.started_at)} &middot; ${r.config?.SpanCount || '?'} span budget &middot; ${r.config?.TraceCount || '?'} traces</div>
+        <div class="meta">${metaParts.join(' &middot; ')}</div>
       </div>
       <div class="stats">
         <span>${r.span_count || 0} spans</span>
@@ -271,15 +331,32 @@ function showDetail(id) {
   const section = document.getElementById('detail-section');
   section.classList.remove('hidden');
   document.getElementById('detail-id').textContent = r.id;
+  lastDetailKey = '';
   renderDetail(r);
   section.scrollIntoView({ behavior: 'smooth' });
 }
 
 function renderDetail(r) {
+  // Build a key from the run's mutable fields. If unchanged since last
+  // render, skip DOM replacement to preserve scroll position in <pre>.
+  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + (typeof r.trace_data === 'string' ? r.trace_data.substring(0, 100) : '');
+  if (key === lastDetailKey) return;
+  lastDetailKey = key;
+
   const el = document.getElementById('detail-content');
 
   if (r.status === 'running') {
-    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div></div>';
+    const done = r.trace_count_completed || 0;
+    const total = r.trace_count;
+    const totalDisplay = total === 0 ? '&infin;' : total;
+    const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" onclick="cancelRun('${r.id}')">Cancel Run</button>
+    </div>`;
     return;
   }
 
@@ -308,13 +385,14 @@ function renderDetail(r) {
     } catch(e) { /* use r.span_count */ }
   }
 
+  const isImported = r.output === 'import';
   el.innerHTML = `<div class="stat-row">
     <div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>
     <div class="stat"><div class="value">${spanCountTotal || r.span_count || 0}</div><div class="label">Total Spans</div></div>
     <div class="stat"><div class="value">${traceCount || r.trace_count || 0}</div><div class="label">Traces</div></div>
     <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
-    <div class="stat"><div class="value">${r.config?.Seed || '-'}</div><div class="label">Seed</div></div>
-    <div class="stat"><div class="value">${r.scenario || r.config?.Scenario || r.config?.Topology || '-'}</div><div class="label">Scenario/Topology</div></div>
+    <div class="stat"><div class="value">${isImported ? '-' : (r.config?.Seed || '-')}</div><div class="label">Seed</div></div>
+    <div class="stat"><div class="value">${isImported ? 'Imported' : (r.scenario || r.config?.Scenario || r.config?.Topology || '-')}</div><div class="label">Scenario/Topology</div></div>
   </div>`;
 
   if (r.trace_data) {

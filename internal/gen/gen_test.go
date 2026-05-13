@@ -911,7 +911,6 @@ func TestGenerator_ContextCancellation(t *testing.T) {
 	// Only on subsequent iterations does ctx.Done() trigger
 	// To truly test, use cancel after a brief delay — but that's racy.
 	// Instead test with TraceCount=1 where no cancellation point is hit after work:
-	ctx2 := context.Background()
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
@@ -921,7 +920,7 @@ func TestGenerator_ContextCancellation(t *testing.T) {
 		t.Logf("Context cancelled during run (expected in some cases): %v", err)
 	}
 
-	// Now test with TraceCount=0 — should return nil immediately
+	// Now test with TraceCount=0 — infinite loop until context cancellation
 	cZero := gen.Config{
 		Seed:          42,
 		TraceCount:    0,
@@ -935,8 +934,13 @@ func TestGenerator_ContextCancellation(t *testing.T) {
 
 	gZero := gen.NewGenerator(cZero)
 	expZero := &mockExporter{}
-	if err := gZero.Run(ctx2, expZero); err != nil {
-		t.Fatalf("TraceCount=0 should return nil, got: %v", err)
+	ctxZero, cancelZero := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancelZero()
+	}()
+	if err := gZero.Run(ctxZero, expZero); err != context.Canceled {
+		t.Fatalf("TraceCount=0 should return context.Canceled, got: %v", err)
 	}
 }
 

@@ -27,21 +27,38 @@ const (
 )
 
 type Run struct {
-	mu          sync.Mutex
-	ID          string           `json:"id"`
-	Status      RunStatus        `json:"status"`
-	Config      gen.Config       `json:"config"`
-	StartedAt   time.Time        `json:"started_at"`
-	CompletedAt *time.Time       `json:"completed_at,omitempty"`
-	DurationNs  int64            `json:"duration_ns"`
-	SpanCount   int              `json:"span_count"`
-	TraceCount  int              `json:"trace_count"`
-	Scenario    string           `json:"scenario,omitempty"`
-	Error       string           `json:"error,omitempty"`
-	TraceData   *json.RawMessage `json:"trace_data,omitempty"`
-	Endpoints   []string         `json:"endpoints"`
-	Insecure    bool             `json:"insecure"`
-	Output      string           `json:"output"`
+	mu                   sync.Mutex
+	ID                   string           `json:"id"`
+	Status               RunStatus        `json:"status"`
+	Config               gen.Config       `json:"config"`
+	StartedAt            time.Time        `json:"started_at"`
+	CompletedAt          *time.Time       `json:"completed_at,omitempty"`
+	DurationNs           int64            `json:"duration_ns"`
+	SpanCount            int              `json:"span_count"`
+	TraceCount           int              `json:"trace_count"`
+	TraceCountCompleted  int              `json:"trace_count_completed"`
+	Scenario             string           `json:"scenario,omitempty"`
+	Error                string           `json:"error,omitempty"`
+	TraceData            *json.RawMessage `json:"trace_data,omitempty"`
+	Endpoints            []string         `json:"endpoints"`
+	Insecure             bool             `json:"insecure"`
+	Output               string           `json:"output"`
+	cancel               context.CancelFunc // not exported, not json
+}
+
+func (r *Run) Cancel() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cancel != nil {
+		r.cancel()
+		r.cancel = nil
+	}
+	if r.Status == RunStatusPending || r.Status == RunStatusRunning {
+		r.Status = RunStatusFailed
+		r.Error = "cancelled"
+		now := time.Now()
+		r.CompletedAt = &now
+	}
 }
 
 func (r *Run) snapshot() *Run {
@@ -51,7 +68,8 @@ func (r *Run) snapshot() *Run {
 		ID: r.ID, Status: r.Status, Config: r.Config,
 		StartedAt: r.StartedAt, CompletedAt: r.CompletedAt,
 		DurationNs: r.DurationNs, SpanCount: r.SpanCount,
-		TraceCount: r.TraceCount, Scenario: r.Scenario, Error: r.Error,
+		TraceCount: r.TraceCount, TraceCountCompleted: r.TraceCountCompleted,
+		Scenario: r.Scenario, Error: r.Error,
 		Endpoints: append([]string(nil), r.Endpoints...),
 		Insecure:  r.Insecure, Output: r.Output,
 	}
@@ -119,11 +137,11 @@ func (s *RunStore) Add(r *Run) {
 func (s *RunStore) Get(id string) *Run {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	r := s.runs[id]
-	if r == nil {
+	raw, ok := s.runs[id]
+	if !ok {
 		return nil
 	}
-	return r.snapshot()
+	return raw.snapshot()
 }
 
 func (s *RunStore) List() []*Run {
@@ -162,20 +180,35 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 		Endpoints: epCopy, Insecure: insecure, Output: output,
 	}
 	store.Add(run)
-	go executeRun(run, store, cfg)
+	genCtx, cancel := context.WithCancel(context.Background())
+	run.mu.Lock()
+	run.cancel = cancel
+	run.mu.Unlock()
+	go executeRun(run, store, cfg, genCtx)
 	return run, nil
 }
 
-func executeRun(run *Run, store *RunStore, cfg gen.Config) {
+func (s *RunStore) CancelRun(id string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if r, ok := s.runs[id]; ok {
+		r.Cancel()
+	}
+}
+
+func (s *RunStore) Delete(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.runs, id)
+}
+
+func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Context) {
 	run.mu.Lock()
 	run.Status = RunStatusRunning
 	run.mu.Unlock()
 
 	start := time.Now()
-
 	buf := &bufferExporter{}
-	genCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	exp := export.Exporter(buf)
 	if run.Output == "otlp" {
@@ -199,15 +232,25 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config) {
 		exp = multiExporter{buf, router}
 	}
 
-	err := gen.NewGenerator(cfg).Run(genCtx, exp)
+	g := gen.NewGenerator(cfg)
+	g.OnProgress = func(completed, total int) {
+		run.mu.Lock()
+		run.TraceCountCompleted = completed
+		run.mu.Unlock()
+	}
+	err := g.Run(genCtx, exp)
 	elapsed := time.Since(start).Nanoseconds()
 
 	run.mu.Lock()
 	run.DurationNs = elapsed
 
 	if err != nil {
+		if err == context.Canceled {
+			run.Error = "cancelled"
+		} else {
+			run.Error = err.Error()
+		}
 		run.Status = RunStatusFailed
-		run.Error = err.Error()
 		now := time.Now()
 		run.CompletedAt = &now
 		run.mu.Unlock()

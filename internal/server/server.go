@@ -38,6 +38,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/runs", s.handleStartRun)
 	s.mux.HandleFunc("GET /api/runs", s.handleListRuns)
 	s.mux.HandleFunc("GET /api/runs/{id}", s.handleGetRun)
+	s.mux.HandleFunc("POST /api/runs/import", s.handleImportRun)
+	s.mux.HandleFunc("DELETE /api/runs/{id}", s.handleDeleteRun)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -58,14 +60,20 @@ func (s *Server) registerRoutes() {
 	})
 }
 
+func (s *Server) Store() *RunStore { return s.store }
+
 func (s *Server) ListenAndServe() error {
 	log.Printf("Starting mocktracegen web dashboard on %s", s.addr)
 	return http.ListenAndServe(s.addr, s.mux)
 }
 
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
+	builtIn := []string{"microservice", "monolith", "3-tier-web-app", "event-driven"}
+	userDefined := gen.ListUserScenarios()
+	all := append([]string{}, builtIn...)
+	all = append(all, userDefined...)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"scenarios": []string{"microservice", "monolith", "3-tier-web-app", "event-driven"},
+		"scenarios": all,
 	})
 }
 
@@ -162,6 +170,18 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+func (s *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run := s.store.Get(id)
+	if run == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + id})
+		return
+	}
+	s.store.CancelRun(id)
+	s.store.Delete(id)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

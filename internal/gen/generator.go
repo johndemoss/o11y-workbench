@@ -42,7 +42,8 @@ func DefaultConfig() Config {
 }
 
 type Generator struct {
-	config Config
+	config     Config
+	OnProgress func(completed, total int)
 }
 
 func NewGenerator(config Config) *Generator {
@@ -77,7 +78,7 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 		defer ticker.Stop()
 	}
 
-	for i := 0; i < g.config.TraceCount; i++ {
+	for i := 0; g.config.TraceCount == 0 || i < g.config.TraceCount; i++ {
 		if ticker != nil {
 			select {
 			case <-ticker.C:
@@ -104,7 +105,7 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 		var spansByService map[string][]*tracev1.Span
 
 		if g.config.Scenario != "" {
-			scenarioRoots, err := GenerateScenario(g.config.Scenario, topoRng, spanCount, g.config.MaxDepth)
+			scenarioRoots, err := getScenario(g.config.Scenario, topoRng, spanCount, g.config.MaxDepth)
 			if err != nil {
 				return err
 			}
@@ -171,6 +172,9 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 					}
 				}
 			}
+		}
+		if g.OnProgress != nil {
+			g.OnProgress(i+1, g.config.TraceCount)
 		}
 	}
 
