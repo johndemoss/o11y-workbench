@@ -1,0 +1,7 @@
+
+# Build artifacts
+/mocktracegen
+/mocktracegen-web
+/mocktelemetrygen
+/mocktelemetrygen-web
+

@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mocktelemetrygen Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.5; }
+.app { max-width: 1400px; margin: 0 auto; padding: 24px; }
+header { margin-bottom: 32px; }
+header h1 { font-size: 24px; font-weight: 600; color: #f1f5f9; }
+header p { color: #94a3b8; font-size: 14px; margin-top: 4px; }
+section { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.field label { display: block; font-size: 12px; font-weight: 500; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.field input, .field select { width: 100%; padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 14px; font-family: "SF Mono", "Fira Code", monospace; }
+.field input:focus, .field select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.3); }
+.form-actions { display: flex; gap: 12px; align-items: center; margin-top: 20px; }
+.btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.btn-primary { background: #3b82f6; color: white; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { background: #475569; cursor: not-allowed; }
+.btn-secondary { background: #334155; color: #e2e8f0; }
+.btn-secondary:hover { background: #475569; }
+.run-list { display: flex; flex-direction: column; gap: 8px; }
+.run-card { display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; transition: border-color 0.15s; }
+.run-card:hover { border-color: #3b82f6; }
+.run-card .status { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.status-pending { background: #64748b; }
+.status-running { background: #3b82f6; animation: pulse 1s infinite; }
+.status-completed { background: #22c55e; }
+.status-failed { background: #ef4444; }
+.status-stopped { background: #f59e0b; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.run-card .info { flex: 1; min-width: 0; }
+.run-card .info .id { font-size: 14px; font-weight: 500; }
+.run-card .info .meta { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.run-card .stats { display: flex; gap: 16px; font-size: 12px; color: #94a3b8; }
+
+.run-detail { }
+.run-detail .stat-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.run-detail .stat { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; text-align: center; }
+.run-detail .stat .value { font-size: 20px; font-weight: 600; color: #f1f5f9; }
+.run-detail .stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.run-detail pre { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 16px; overflow-x: auto; font-size: 12px; line-height: 1.6; max-height: 600px; overflow-y: auto; }
+.run-detail .error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 12px; border-radius: 6px; }
+.hidden { display: none; }
+.empty { text-align: center; padding: 40px 20px; color: #64748b; }
+.empty p { font-size: 14px; }
+.ottl-success { background: #052e16; border: 1px solid #166534; color: #86efac; padding: 12px; border-radius: 6px; font-size: 13px; }
+.ottl-error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 12px; border-radius: 6px; font-size: 13px; white-space: pre-wrap; }
+.ottl-error-item { padding: 4px 0; border-bottom: 1px solid rgba(153,27,27,0.3); }
+.ottl-error-item:last-child { border-bottom: none; }
+.ottl-transform-result { margin-top: 8px; border: 1px solid #334155; border-radius: 6px; overflow: hidden; }
+.ottl-transform-result .header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #1e293b; border-bottom: 1px solid #334155; font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+.ottl-transform-result .header .badge { background: #22c55e; color: #052e16; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.ottl-transform-result pre { margin: 0; padding: 12px; background: #0f172a; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; }
+.ottl-transform-result pre::-webkit-scrollbar { width: 6px; height: 6px; }
+.ottl-transform-result pre::-webkit-scrollbar-track { background: #1e293b; }
+.ottl-transform-result pre::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+.ottl-tabs { display: flex; gap: 0; border-bottom: 1px solid #334155; background: #1e293b; }
+.ottl-tab { padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.15s; }
+.ottl-tab:hover { color: #e2e8f0; }
+.ottl-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+.ottl-diff-summary { display: flex; gap: 24px; padding: 12px 16px; background: #0f172a; border-radius: 6px; margin: 8px 0; }
+.ottl-filter-summary { display: flex; gap: 32px; padding: 12px 16px; background: #0f172a; border-radius: 6px; margin: 8px 0; }
+.ottl-diff-stat { text-align: center; min-width: 60px; }
+.ottl-diff-stat .count { font-size: 20px; font-weight: 700; }
+.ottl-diff-stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.ottl-diff-added .count { color: #22c55e; }
+.ottl-diff-removed .count { color: #ef4444; }
+.ottl-diff-modified .count { color: #f59e0b; }
+.ottl-diff-unchanged .count { color: #64748b; }
+.ottl-diff-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; margin-top: 8px; }
+.ottl-diff-table th { text-align: left; padding: 8px 12px; background: #1e293b; color: #94a3b8; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #334155; }
+.ottl-diff-table td { padding: 6px 12px; border-bottom: 1px solid #1e293b; vertical-align: top; }
+.ottl-diff-table .added { background: rgba(34, 197, 94, 0.08); }
+.ottl-diff-table .removed { background: rgba(239, 68, 68, 0.08); }
+.ottl-diff-table .modified { background: rgba(245, 158, 11, 0.08); }
+.ottl-diff-table .span-header td { padding: 8px 12px; border-top: 1px solid #334155; background: #0f172a; font-weight: 600; font-size: 13px; }
+.ottl-diff-table .span-header:first-child td { border-top: none; }
+.ottl-diff-table .val-old { color: #ef4444; text-decoration: line-through; }
+.ottl-diff-table .val-new { color: #22c55e; }
+.ottl-save-area { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #0f172a; border-radius: 6px; margin-top: 8px; }
+.ottl-save-status { font-size: 12px; }
+.ottl-source-data { margin-top: 8px; border: 1px solid #334155; border-radius: 6px; overflow: hidden; font-size: 12px; }
+.ottl-source-data .header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1e293b; cursor: pointer; user-select: none; }
+.ottl-source-data .header:hover { background: #263348; }
+.ottl-source-data .header .arrow { display: inline-block; width: 12px; color: #64748b; transition: transform 0.15s; }
+.ottl-source-data .header .arrow.expanded { transform: rotate(90deg); }
+.ottl-source-data .header .summary { color: #94a3b8; font-size: 11px; }
+.ottl-source-data .body { display: none; }
+.ottl-source-data .body.open { display: block; }
+.ottl-source-data .stats { display: flex; gap: 20px; padding: 8px 12px; background: #0f172a; border-bottom: 1px solid #334155; }
+.ottl-source-data .stats span { color: #94a3b8; font-size: 11px; }
+.ottl-source-data .stats strong { color: #e2e8f0; font-weight: 600; }
+.ottl-source-data pre { margin: 0; padding: 12px; background: #0f172a; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre; }
+.ottl-inline-diff { margin: 0; padding: 0; background: #0f172a; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 500px; overflow-y: auto; line-height: 1.6; }
+.ottl-inline-diff .diff-line { display: flex; padding: 0 12px; white-space: pre; }
+.ottl-inline-diff .diff-line .ln { display: inline-block; width: 40px; text-align: right; color: #475569; margin-right: 16px; user-select: none; flex-shrink: 0; }
+.ottl-inline-diff .diff-line.added { background: rgba(34, 197, 94, 0.12); }
+.ottl-inline-diff .diff-line.added .ln { color: #22c55e; }
+.ottl-inline-diff .diff-line.removed { background: rgba(239, 68, 68, 0.12); }
+.ottl-inline-diff .diff-line.removed .ln { color: #ef4444; }
+.ottl-inline-diff .diff-line .marker { display: inline-block; width: 16px; color: #64748b; user-select: none; flex-shrink: 0; }
+.ottl-inline-diff .diff-line.added .marker { color: #22c55e; }
+.ottl-inline-diff .diff-line.removed .marker { color: #ef4444; }
+
+/* --- Modals --- */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: modal-in 0.15s ease-out;
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.modal-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.modal-close:hover { color: #e2e8f0; }
+.modal-body .field { margin-bottom: 12px; }
+.modal-body .field input[type="file"] {
+  width: 100%;
+  padding: 8px 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+.modal-body .field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.modal-body .form-actions { margin-top: 12px; }
+.modal-body .desc {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-bottom: 12px;
+}
+
+/* === OTTL Playground Option 2 === */
+.ottl-playground-tabs { display:flex; gap:0; border-bottom:1px solid #334155; margin-bottom:12px; background:#1e293b; border-radius:6px 6px 0 0; }
+.ottl-playground-tab { padding:10px 24px; background:transparent; border:none; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
+.ottl-playground-tab:hover { color:#94a3b8; background:#0f172a; }
+.ottl-playground-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; background:#0f172a; }
+.ottl-editor-container { display:flex; gap:0; border:1px solid #334155; border-radius:6px; overflow:hidden; }
+.ottl-line-numbers { width:48px; flex-shrink:0; padding:12px 8px; text-align:right; color:#475569; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; background:#0f172a; border-right:1px solid #334155; user-select:none; overflow:hidden; padding-top:13px; }
+.ottl-line-numbers span { display:block; }
+.ottl-textarea { flex:1; border:none !important; border-radius:0 !important; resize:vertical; min-height:120px; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; }
+.ottl-sidebar { width:240px; flex-shrink:0; padding:12px; background:#0f172a; border-left:1px solid #334155; max-height:320px; overflow-y:auto; }
+.ottl-sidebar h4 { font-size:11px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; }
+.ottl-snippet-group { margin-bottom:16px; }
+.ottl-snippet-group:last-child { margin-bottom:0; }
+.ottl-snippet { padding:7px 10px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; background:#1e293b; border-radius:4px; cursor:pointer; color:#94a3b8; margin-bottom:4px; transition:all 0.15s; word-break:break-all; }
+.ottl-snippet:hover { background:#334155; color:#e2e8f0; }
+.ottl-result-panel { margin-top:12px; border:1px solid #334155; border-radius:6px; overflow:hidden; }
+.ottl-result-tabs { display:flex; gap:0; border-bottom:1px solid #334155; background:#0f172a; }
+.ottl-result-tab { padding:8px 16px; background:transparent; border:none; color:#64748b; font-size:12px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
+.ottl-result-tab:hover { color:#94a3b8; background:#1e293b; }
+.ottl-result-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; }
+.ottl-result-content { padding:4px; background:transparent; }
+.ottl-result-content pre { margin:0; padding:12px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; overflow-x:auto; max-height:400px; overflow-y:auto; white-space:pre; background:transparent; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+<header>
+  <h1>mocktelemetrygen</h1>
+  <p>Deterministic mock OTLP trace generator &mdash; web dashboard</p>
+</header>
+
+<section id="config-section">
+  <h2>Configuration</h2>
+  <div class="form-grid">
+    <div class="field">
+      <label>Seed</label>
+      <input type="number" id="seed" value="42">
+    </div>
+    <div class="field">
+      <label>Traces</label>
+      <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite">
+    </div>
+    <div class="field">
+      <label>Rate (0 = unlimited)</label>
+      <input type="number" id="rate" value="0" min="0">
+    </div>
+    <div class="field">
+      <label>Scenario</label>
+      <select id="scenario">
+        <option value="">None (use topology)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Topology</label>
+      <select id="topology">
+        <option value="flat">Flat</option>
+        <option value="branching">Branching</option>
+        <option value="split">Split</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Span Count</label>
+      <input type="number" id="span-count" value="10" min="1">
+    </div>
+    <div class="field">
+      <label>Scenario Span Count</label>
+      <input type="number" id="scenario-span-count" value="0" min="0">
+    </div>
+    <div class="field">
+      <label>Max Depth</label>
+      <input type="number" id="max-depth" value="5" min="1">
+    </div>
+    <div class="field">
+      <label>Service Name</label>
+      <input type="text" id="service-name" value="mock-service">
+    </div>
+    <div class="field">
+      <label>Output</label>
+      <select id="output">
+        <option value="file">File</option>
+        <option value="otlp">OTLP</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Format</label>
+      <select id="format">
+        <option value="json">JSON</option>
+        <option value="protobuf">Protobuf</option>
+      </select>
+    </div>
+    <div class="field" style="grid-column: span 2;">
+      <label>Endpoints (comma-separated)</label>
+      <input type="text" id="endpoints" value="localhost:4317" placeholder="e.g. localhost:4317,collector:4317">
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+      <input type="checkbox" id="insecure" checked style="width:18px;height:18px">
+      <label for="insecure" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Insecure gRPC</label>
+    </div>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
+    <span id="run-status"></span>
+    <span style="flex:1"></span>
+    <button class="btn btn-secondary" onclick="openImportModal()">Import OTLP JSON</button>
+    <button class="btn btn-secondary" onclick="openScenarioModal()">Upload Scenarios</button>
+  </div>
+</section>
+
+<section id="ottl-playground">
+  <h2>OTTL Playground</h2>
+
+  <!-- Tab Bar -->
+  <div class="ottl-playground-tabs">
+    <button class="ottl-playground-tab active" data-ottl-mode="transform" onclick="switchOttlMode('transform')">Transform</button>
+    <button class="ottl-playground-tab" data-ottl-mode="filter" onclick="switchOttlMode('filter')">Filter</button>
+  </div>
+
+  <!-- Shared Run Selector -->
+  <div style="display:flex;gap:12px;align-items:center;margin:12px 0;padding:4px 0">
+    <label for="ottl-run-select" style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Target Run</label>
+    <select id="ottl-run-select" onchange="onOttlRunChange()" style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;max-width:400px">
+      <option value="">Select a completed run...</option>
+    </select>
+  </div>
+
+  <!-- Editor Container: Line Numbers + Textarea + Sidebar -->
+  <div class="ottl-editor-container">
+    <div class="ottl-line-numbers" id="ottl-line-numbers"><span>1</span></div>
+    <textarea id="ottl-input" class="ottl-textarea" style="padding:12px;background:#0f172a;border:none;color:#e2e8f0;resize:vertical;min-height:130px" placeholder="Paste OTel Collector processor config (YAML)&#10;&#10;transform:&#10;  trace_statements:&#10;    - context: span&#10;      statements:&#10;        - set(attributes[&quot;env&quot;], &quot;prod&quot;)"></textarea>
+    <div class="ottl-sidebar">
+      <div class="ottl-snippet-group" id="ottl-snippets-transform">
+        <h4>Transform Snippets</h4>
+        <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - set(attributes[&quot;key&quot;], &quot;value&quot;)')">set attribute</div>
+        <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - delete_key(attributes, &quot;key&quot;)')">delete attribute</div>
+        <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - keep_keys(attributes, [key1, key2])')">keep keys</div>
+        <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;api.*&quot;')">set with where</div>
+      </div>
+      <div class="ottl-snippet-group" id="ottl-snippets-filter" style="display:none">
+        <h4>Filter Snippets</h4>
+        <div class="ottl-snippet" onclick="insertSnippet('traces:\n  span:\n    - kind == SPAN_KIND_INTERNAL')">kind condition</div>
+        <div class="ottl-snippet" onclick="insertSnippet('traces:\n  span:\n    - attributes[&quot;key&quot;] == &quot;value&quot;')">attribute condition</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Controls (visible only on Filter tab) -->
+  <div id="ottl-filter-controls" class="ottl-filter-controls hidden">
+    <div style="display:flex;gap:24px;align-items:center;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;margin:8px 0">
+      <label style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em">Mode</label>
+      <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="ottl-filter-mode" value="include" checked onchange="updateFilterMode()"><span>Include</span></label>
+      <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="ottl-filter-mode" value="exclude" onchange="updateFilterMode()"><span>Exclude</span></label>
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="form-actions">
+    <button class="btn btn-primary" id="ottl-validate-btn">Validate</button>
+    <button class="btn btn-primary" id="ottl-action-btn" onclick="ottlTransform()" disabled>Transform</button>
+    <span id="ottl-status"></span>
+    <button class="btn btn-secondary" id="ottl-clear-btn" onclick="ottlClear()">Clear</button>
+  </div>
+
+  <!-- Source Data -->
+  <div id="ottl-source-data" class="ottl-source-data hidden"></div>
+
+  <!-- Result Panel -->
+  <div id="ottl-result" class="ottl-result-panel hidden">
+    <div class="ottl-result-tabs">
+      <button class="ottl-result-tab active" data-result-tab="summary" onclick="switchOttlResultTab('summary')">Summary</button>
+      <button class="ottl-result-tab" data-result-tab="spans" onclick="switchOttlResultTab('spans')">Per-Span</button>
+      <button class="ottl-result-tab" data-result-tab="json" onclick="switchOttlResultTab('json')">Raw JSON</button>
+    </div>
+    <div id="ottl-result-content" class="ottl-result-content"></div>
+  </div>
+</section>
+
+<section id="runs-section">
+  <h2>Jobs</h2>
+  <div id="run-list" class="run-list">
+    <div class="empty"><p>No runs yet. Configure and click Run to generate traces.</p></div>
+  </div>
+</section>
+
+<section id="detail-section" class="hidden">
+  <h2>Run Detail <span id="detail-id"></span></h2>
+  <div id="detail-content" class="run-detail"></div>
+</section>
+</div>
+
+<!-- Import OTLP JSON Modal -->
+<div class="modal-overlay" id="import-modal-overlay" onclick="closeImportModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Import OTLP JSON</h3>
+      <button class="modal-close" onclick="closeImportModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="desc">Upload a JSON file exported by the OpenTelemetry Collector file exporter. Supports single JSON, JSON arrays, and NDJSON formats.</p>
+      <div class="field">
+        <label for="import-file">Select File</label>
+        <input type="file" id="import-file" accept=".json,.ndjson">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="import-btn" onclick="importTraces()">Import</button>
+        <span id="import-status"></span>
+        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Scenarios Modal -->
+<div class="modal-overlay" id="scenario-modal-overlay" onclick="closeScenarioModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Upload Scenarios</h3>
+      <button class="modal-close" onclick="closeScenarioModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="desc">Upload a YAML or JSON file with user-defined scenario definitions. After registration, scenarios appear in the dropdown above.</p>
+      <div class="field">
+        <label for="scenario-file-input">Select File</label>
+        <input type="file" id="scenario-file-input" accept=".yaml,.yml,.json">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="scenario-upload-btn" onclick="uploadScenarios()">Upload</button>
+        <span id="scenario-upload-status"></span>
+        <button class="btn btn-secondary" onclick="closeScenarioModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+async function api(path, opts) {
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || (Array.isArray(data.errors) && data.errors[0]) || res.statusText);
+  return data;
+}
+
+let scenarios = [];
+
+// --- Modal toggles ---
+function openModal(overlayId) {
+  document.getElementById(overlayId).classList.add('open');
+}
+function closeModal(overlayId) {
+  document.getElementById(overlayId).classList.remove('open');
+}
+function openImportModal() {
+  document.getElementById('import-file').value = '';
+  document.getElementById('import-status').textContent = '';
+  openModal('import-modal-overlay');
+}
+function closeImportModal(e) {
+  if (e && e.target !== e.currentTarget) return; // only close when overlay itself is clicked
+  closeModal('import-modal-overlay');
+}
+function openScenarioModal() {
+  document.getElementById('scenario-file-input').value = '';
+  document.getElementById('scenario-upload-status').textContent = '';
+  openModal('scenario-modal-overlay');
+}
+function closeScenarioModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  closeModal('scenario-modal-overlay');
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeModal('import-modal-overlay');
+    closeModal('scenario-modal-overlay');
+  }
+});
+
+async function loadScenarios() {
+  try {
+    const data = await api('/api/scenarios');
+    scenarios = data.scenarios;
+    const sel = document.getElementById('scenario');
+    scenarios.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error('load scenarios:', e); }
+}
+
+function statusClass(status) {
+  return 'status-' + status;
+}
+
+function formatTime(t) {
+  if (!t) return '-';
+  return new Date(t).toLocaleTimeString();
+}
+
+function formatDuration(ns) {
+  if (!ns) return '-';
+  if (ns < 1000) return ns + 'ns';
+  if (ns < 1e6) return (ns / 1e3).toFixed(1) + '&#956;s';
+  if (ns < 1e9) return (ns / 1e6).toFixed(1) + 'ms';
+  return (ns / 1e9).toFixed(2) + 's';
+}
+
+let runs = {};
+let pollTimer = null;
+
+async function startRun() {
+  const runBtn = document.getElementById('run-btn');
+  runBtn.disabled = true;
+  const statusEl = document.getElementById('run-status');
+  statusEl.textContent = 'Starting...';
+
+  const body = {
+    seed: parseInt(document.getElementById('seed').value) || 42,
+    trace_count: (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })(),
+    rate: parseInt(document.getElementById('rate').value) || 0,
+    topology: document.getElementById('topology').value,
+    scenario: document.getElementById('scenario').value,
+    span_count: parseInt(document.getElementById('span-count').value) || 10,
+    scenario_span_count: parseInt(document.getElementById('scenario-span-count').value) || 0,
+    max_depth: parseInt(document.getElementById('max-depth').value) || 5,
+    service_name: document.getElementById('service-name').value || 'mock-service',
+    output: document.getElementById('output').value,
+    format: document.getElementById('format').value,
+    insecure: document.getElementById('insecure').checked,
+    endpoints: document.getElementById('endpoints').value.split(',').map(s => s.trim()).filter(s => s)
+  };
+
+  try {
+    const run = await api('/api/runs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    runs[run.id] = run;
+    if (!pollTimer) startPolling();
+    statusEl.textContent = 'Run queued';
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  }
+  runBtn.disabled = false;
+}
+
+async function importTraces() {
+  const fileInput = document.getElementById('import-file');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('import-btn');
+  const status = document.getElementById('import-status');
+  btn.disabled = true;
+  status.textContent = 'Importing...';
+  try {
+    const text = await file.text();
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: text
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
+    setTimeout(() => closeImportModal(), 800);
+  } catch(e) {
+    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
+async function uploadScenarios() {
+  const fileInput = document.getElementById('scenario-file-input');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('scenario-upload-btn');
+  const status = document.getElementById('scenario-upload-status');
+  btn.disabled = true;
+  status.textContent = 'Uploading...';
+  try {
+    const text = await file.text();
+    const ct = file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? 'application/x-yaml' : 'application/json';
+    const data = await api('/api/scenarios', {
+      method: 'POST',
+      headers: {'Content-Type': ct},
+      body: text
+    });
+    status.innerHTML = '<span style="color:#22c55e">Registered: ' + (data.registered || []).join(', ') + '</span>';
+    setTimeout(() => closeScenarioModal(), 800);
+    // Reload scenario dropdown
+    const sel = document.getElementById('scenario');
+    while (sel.options.length > 1) sel.remove(1);
+    await loadScenarios();
+  } catch(e) {
+    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
+async function ottlValidate() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-validate-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  btn.disabled = true;
+  status.textContent = 'Validating...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to validate</div>';
+    resultPanel.classList.remove('hidden');
+    switchOttlResultTab('summary');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ config: config })
+    });
+    if (data.valid) {
+      resultContent.innerHTML = '<div class="ottl-success">All ' + data.statements_parsed + ' statement(s) valid.</div>';
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+// --- Transform / Diff state ---
+let lastTransform = { original: null, transformed: null, activeTab: 'transformed' };
+let ottlMode = 'transform';
+
+async function ottlTransform() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-action-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  const runSelect = document.getElementById('ottl-run-select');
+  const runId = runSelect.value;
+  if (!runId) {
+    resultContent.innerHTML = '<div class="ottl-error">Select a target run first</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Transforming...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to execute</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/transform', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, config: config })
+    });
+    if (data.valid && data.transformed_data) {
+      const run = runs[runId];
+      const originalData = run && run.trace_data ? run.trace_data : null;
+      lastTransform.original = originalData;
+      lastTransform.transformed = data.transformed_data;
+      lastTransform.activeTab = 'transformed';
+      renderTransformResult(data.transformed_data, data.statements_parsed);
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+      resultPanel.classList.remove('hidden');
+    
+      switchOttlResultTab('summary');
+    }
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function renderTransformResult(transformed, statementsParsed) {
+  const resultPanel = document.getElementById('ottl-result');
+  lastResult = {
+    type: 'transform',
+    transformed: transformed,
+    original: lastTransform.original,
+    statementsParsed: statementsParsed
+  };
+  resultPanel.classList.remove('hidden');
+  switchOttlResultTab('summary');
+}
+
+function switchOttlTab(tab) {
+  if (!lastTransform.transformed) return;
+  lastTransform.activeTab = tab;
+  // Update tab button states
+  document.querySelectorAll('.ottl-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  const content = document.getElementById('ottl-tab-content');
+  if (tab === 'transformed') {
+    const formatted = JSON.stringify(lastTransform.transformed, null, 2);
+    content.innerHTML = '<pre>' + escapeHtml(formatted) + '</pre>';
+  } else if (tab === 'diff' && lastTransform.original) {
+    const diff = computeDiff(lastTransform.original, lastTransform.transformed);
+    content.innerHTML = renderDiffTable(diff);
+  } else if (tab === 'fulldiff' && lastTransform.original) {
+    content.innerHTML = renderInlineDiff(lastTransform.original, lastTransform.transformed);
+  }
+}
+
+function computeDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  const result = { added: 0, removed: 0, modified: 0, totalSpans: 0, spanDiffs: [] };
+  if (!orig || !trans) return result;
+  const getSpans = td => {
+    const list = [];
+    if (td.resource_spans) td.resource_spans.forEach((rs, ri) => {
+      if (rs.scope_spans) rs.scope_spans.forEach((ss, si) => {
+        if (ss.spans) ss.spans.forEach((sp, pi) => {
+          const attrs = {};
+          if (sp.attributes) sp.attributes.forEach(a => { attrs[a.key] = a.value; });
+          list.push({ resourceIdx: ri, scopeIdx: si, spanIdx: pi, name: sp.name || 'span-' + pi, attrs });
+        });
+      });
+    });
+    return list;
+  };
+  const origSpans = getSpans(orig);
+  const transSpans = getSpans(trans);
+  result.totalSpans = Math.max(origSpans.length, transSpans.length);
+  const maxLen = Math.max(origSpans.length, transSpans.length);
+  for (let i = 0; i < maxLen; i++) {
+    const os = i < origSpans.length ? origSpans[i] : null;
+    const ts = i < transSpans.length ? transSpans[i] : null;
+    if (!os && !ts) continue;
+    const spanName = (ts || os).name;
+    const spanDiff = { name: spanName, idx: i, added: [], removed: [], modified: [] };
+    const origKeys = os ? Object.keys(os.attrs) : [];
+    const transKeys = ts ? Object.keys(ts.attrs) : [];
+    const allKeys = [...new Set([...origKeys, ...transKeys])];
+    for (const key of allKeys) {
+      const ov = os && key in os.attrs ? os.attrs[key] : undefined;
+      const tv = ts && key in ts.attrs ? ts.attrs[key] : undefined;
+      if (ov === undefined && tv !== undefined) {
+        spanDiff.added.push({ key, value: tv });
+        result.added++;
+      } else if (ov !== undefined && tv === undefined) {
+        spanDiff.removed.push({ key, value: ov });
+        result.removed++;
+      } else if (JSON.stringify(ov) !== JSON.stringify(tv)) {
+        spanDiff.modified.push({ key, oldValue: ov, newValue: tv });
+        result.modified++;
+      }
+    }
+    if (spanDiff.added.length > 0 || spanDiff.removed.length > 0 || spanDiff.modified.length > 0) {
+      result.spanDiffs.push(spanDiff);
+    }
+  }
+  return result;
+}
+
+function renderDiffTable(diff) {
+  if (diff.spanDiffs.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found between original and transformed data.</div>';
+  }
+  let html = '<table class="ottl-diff-table"><tr><th style="width:30%">Attribute</th><th style="width:35%">Original</th><th style="width:35%">Transformed</th></tr>';
+  for (const sd of diff.spanDiffs) {
+    html += '<tr class="span-header"><td colspan="3">' + escapeHtml(sd.name) + ' (span ' + sd.idx + ')</td></tr>';
+    for (const item of sd.removed) {
+      const v = formatAttrValue(item.value);
+      html += '<tr class="removed"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(v) + '</td><td></td></tr>';
+    }
+    for (const item of sd.added) {
+      const v = formatAttrValue(item.value);
+      html += '<tr class="added"><td>' + escapeHtml(item.key) + '</td><td></td><td class="val-new">' + escapeHtml(v) + '</td></tr>';
+    }
+    for (const item of sd.modified) {
+      const ov = formatAttrValue(item.oldValue);
+      const nv = formatAttrValue(item.newValue);
+      html += '<tr class="modified"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(ov) + '</td><td class="val-new">' + escapeHtml(nv) + '</td></tr>';
+    }
+  }
+  html += '</table>';
+  return html;
+}
+
+function formatAttrValue(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    for (const key of ['stringValue', 'intValue', 'doubleValue', 'boolValue', 'arrayValue', 'kvlistValue']) {
+      if (key in v) {
+        const inner = v[key];
+        return typeof inner === 'object' ? JSON.stringify(inner) : String(inner);
+      }
+    }
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+// --- Full inline diff (unified diff of full JSON) ---
+
+function computeInlineDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  if (!orig || !trans) return [];
+
+  const origLines = JSON.stringify(orig, null, 2).split('\n');
+  const transLines = JSON.stringify(trans, null, 2).split('\n');
+
+  // Simple unified diff: walk both line arrays, matching lines forward.
+  // When lines differ, scan ahead in both arrays to find the next match.
+  const hunks = [];
+  let oi = 0, ti = 0;
+  while (oi < origLines.length && ti < transLines.length) {
+    if (origLines[oi] === transLines[ti]) {
+      hunks.push({ type: 'same', text: origLines[oi] });
+      oi++; ti++;
+      continue;
+    }
+    // Lines differ — look ahead in orig and trans for the next match.
+    let found = false;
+    const lookAhead = Math.min(10, Math.max(origLines.length - oi, transLines.length - ti));
+    for (let ahead = 1; ahead <= lookAhead; ahead++) {
+      // Check if orig[oi + ahead] matches trans[ti]
+      if (oi + ahead < origLines.length && origLines[oi + ahead] === transLines[ti]) {
+        // orig has extra lines
+        for (let r = 0; r < ahead; r++) hunks.push({ type: 'removed', text: origLines[oi + r] });
+        oi += ahead;
+        found = true;
+        break;
+      }
+      // Check if orig[oi] matches trans[ti + ahead]
+      if (ti + ahead < transLines.length && origLines[oi] === transLines[ti + ahead]) {
+        // trans has extra lines
+        for (let a = 0; a < ahead; a++) hunks.push({ type: 'added', text: transLines[ti + a] });
+        ti += ahead;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      // No match found within lookAhead — mark as changed
+      if (origLines[oi] !== undefined) hunks.push({ type: 'removed', text: origLines[oi] });
+      if (transLines[ti] !== undefined) hunks.push({ type: 'added', text: transLines[ti] });
+      oi++; ti++;
+    }
+  }
+  // Remaining lines
+  while (oi < origLines.length) hunks.push({ type: 'removed', text: origLines[oi++] });
+  while (ti < transLines.length) hunks.push({ type: 'added', text: transLines[ti++] });
+  return hunks;
+}
+
+function renderInlineDiff(originalData, transformedData) {
+  const hunks = computeInlineDiff(originalData, transformedData);
+  if (hunks.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found.</div>';
+  }
+  let html = '<div class="ottl-inline-diff">';
+  let origLine = 0, transLine = 0;
+  for (const hunk of hunks) {
+    const type = hunk.type;
+    const cls = type === 'added' ? ' added' : type === 'removed' ? ' removed' : '';
+    let marker = ' ';
+    let lineNum = '';
+    if (type === 'added') {
+      marker = '+';
+      transLine++;
+      lineNum = '<span class="ln"></span><span class="ln" style="color:#22c55e">' + transLine + '</span>';
+    } else if (type === 'removed') {
+      marker = '-';
+      origLine++;
+      lineNum = '<span class="ln" style="color:#ef4444">' + origLine + '</span><span class="ln"></span>';
+    } else {
+      origLine++;
+      transLine++;
+      lineNum = '<span class="ln">' + origLine + '</span><span class="ln">' + transLine + '</span>';
+    }
+    html += '<div class="diff-line' + cls + '">' + lineNum + '<span class="marker">' + marker + '</span><span>' + escapeHtml(hunk.text) + '</span></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function saveTransformedRun() {
+  if (!lastTransform.transformed) return;
+  const statusEl = document.getElementById('ottl-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '#94a3b8';
+  try {
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(lastTransform.transformed)
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    statusEl.innerHTML = '<span style="color:#22c55e">Saved as <a href="#" onclick="showDetail(\'' + run.id + '\');return false" style="color:#3b82f6;text-decoration:underline">' + run.id + '</a></span>';
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+function updateOttlRunSelector() {
+  const select = document.getElementById('ottl-run-select');
+  const currentVal = select.value;
+  const actionBtn = document.getElementById('ottl-action-btn');
+  // Remove all options except the placeholder
+  while (select.options.length > 1) {
+    select.remove(1);
+  }
+  const entries = Object.values(runs).filter(r => r.status === 'completed' && r.span_count > 0);
+  entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  let hasData = false;
+  entries.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
+    opt.textContent = label + ' — ' + (r.span_count || 0) + ' spans';
+    select.appendChild(opt);
+    hasData = true;
+  });
+  actionBtn.disabled = !hasData;
+  if (currentVal) {
+    // Re-select the previously selected run if it still exists
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === currentVal) {
+        select.selectedIndex = i;
+        break;
+      }
+    }
+  }
+}
+
+function ottlClear() {
+  document.getElementById('ottl-input').value = '';
+  document.getElementById('ottl-result').classList.add('hidden');
+  document.getElementById('ottl-result-content').innerHTML = '';
+  document.getElementById('ottl-status').textContent = '';
+  lastTransform = { original: null, transformed: null, activeTab: 'transformed' };
+  lastFilterResult = { filtered: null, total: 0, kept: 0 };
+  updateOttlLineNumbers();
+}
+
+// --- OTTL Mode Switching ---
+function switchOttlMode(mode) {
+  ottlMode = mode;
+  // Update tab buttons
+  document.querySelectorAll('.ottl-playground-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.ottlMode === mode);
+  });
+  // Update action button label
+  const actionBtn = document.getElementById('ottl-action-btn');
+  actionBtn.textContent = mode === 'transform' ? 'Transform' : 'Filter';
+  actionBtn.onclick = mode === 'transform' ? ottlTransform : ottlFilter;
+  // Update validate button handler per mode
+  const validateBtn = document.getElementById('ottl-validate-btn');
+  validateBtn.onclick = mode === 'transform' ? ottlValidate : ottlFilterValidate;
+  // Toggle filter controls visibility
+  document.getElementById('ottl-filter-controls').classList.toggle('hidden', mode !== 'filter');
+  // Toggle snippet groups
+  document.getElementById('ottl-snippets-transform').style.display = mode === 'transform' ? '' : 'none';
+  document.getElementById('ottl-snippets-filter').style.display = mode === 'filter' ? '' : 'none';
+  // Update placeholder
+  const ta = document.getElementById('ottl-input');
+  ta.placeholder = mode === 'transform'
+    ? 'Paste OTel Collector processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n        - delete_key(attributes, "secret")'
+    : 'Paste OTel Collector processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n      - attributes["http.status_code"] == 200';
+  // Clear results
+  ottlClear();
+}
+
+function insertSnippet(code) {
+  const ta = document.getElementById('ottl-input');
+  ta.value = code + '\n';
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+  ta.focus();
+  updateOttlLineNumbers();
+}
+
+function updateOttlLineNumbers() {
+  const ta = document.getElementById('ottl-input');
+  const lines = ta.value.split('\n');
+  const count = Math.max(lines.length, 10);
+  let html = '';
+  for (let i = 1; i <= count; i++) {
+    html += '<span>' + i + '</span>';
+  }
+  document.getElementById('ottl-line-numbers').innerHTML = html;
+}
+
+// --- Result tab state ---
+let lastResult = null; // { type: 'transform', ... } or { type: 'filter', ... }
+
+function switchOttlResultTab(tab) {
+  document.querySelectorAll('.ottl-result-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.resultTab === tab);
+  });
+  renderOttlResultContent(tab);
+}
+
+function renderOttlResultContent(tab) {
+  const content = document.getElementById('ottl-result-content');
+  const r = lastResult;
+  if (!r) { content.innerHTML = ''; return; }
+
+  if (r.type === 'transform') {
+    if (tab === 'summary') {
+      let summaryHtml = '';
+      if (r.original) {
+        const diff = computeDiff(r.original, r.transformed);
+        summaryHtml = '<div class="ottl-diff-summary">'
+          + '<div class="ottl-diff-stat ottl-diff-added"><div class="count">' + diff.added + '</div><div class="label">Added</div></div>'
+          + '<div class="ottl-diff-stat ottl-diff-removed"><div class="count">' + diff.removed + '</div><div class="label">Removed</div></div>'
+          + '<div class="ottl-diff-stat ottl-diff-modified"><div class="count">' + diff.modified + '</div><div class="label">Modified</div></div>'
+          + '<div class="ottl-diff-stat ottl-diff-unchanged"><div class="count">' + diff.totalSpans + '</div><div class="label">Spans</div></div>'
+          + '</div>';
+      }
+      const activeInnerTab = lastTransform.activeTab || 'transformed';
+      let innerTabContent;
+      if (activeInnerTab === 'transformed') {
+        innerTabContent = '<pre>' + escapeHtml(JSON.stringify(r.transformed, null, 2)) + '</pre>';
+      } else if (activeInnerTab === 'diff' && r.original) {
+        const diff = computeDiff(r.original, r.transformed);
+        innerTabContent = renderDiffTable(diff);
+      } else if (activeInnerTab === 'fulldiff' && r.original) {
+        innerTabContent = renderInlineDiff(r.original, r.transformed);
+      } else {
+        innerTabContent = '<pre>' + escapeHtml(JSON.stringify(r.transformed, null, 2)) + '</pre>';
+      }
+      content.innerHTML = '<div class="ottl-transform-result">'
+        + '<div class="header"><span class="badge">' + r.statementsParsed + ' statements</span>Transform succeeded</div>'
+        + summaryHtml
+        + '<div class="ottl-tabs">'
+        + '<button class="ottl-tab' + (activeInnerTab === 'transformed' ? ' active' : '') + '" data-tab="transformed" onclick="switchOttlTab(\'transformed\')">Transformed</button>'
+        + (r.original ? '<button class="ottl-tab' + (activeInnerTab === 'diff' ? ' active' : '') + '" data-tab="diff" onclick="switchOttlTab(\'diff\')">Diff</button>' : '')
+        + (r.original ? '<button class="ottl-tab' + (activeInnerTab === 'fulldiff' ? ' active' : '') + '" data-tab="fulldiff" onclick="switchOttlTab(\'fulldiff\')">Full Diff</button>' : '')
+        + '</div>'
+        + '<div id="ottl-tab-content">' + innerTabContent + '</div>'
+        + '<div class="ottl-save-area">'
+        + '<button class="btn btn-primary" onclick="saveTransformedRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
+        + '<span class="ottl-save-status" id="ottl-save-status"></span>'
+        + '</div></div>';
+    } else if (tab === 'spans') {
+      if (r.original) {
+        const diff = computeDiff(r.original, r.transformed);
+        content.innerHTML = '<div class="ottl-transform-result">' + renderDiffTable(diff) + '</div>';
+      } else {
+        content.innerHTML = '<div class="ottl-message" style="padding:24px;color:#94a3b8;font-size:14px;text-align:center">No original data available for per-span comparison.</div>';
+      }
+    } else if (tab === 'json') {
+      const formatted = JSON.stringify(r.transformed, null, 2);
+      content.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>';
+    }
+  } else if (r.type === 'filter') {
+    if (tab === 'summary') {
+      const removed = r.total - r.kept;
+      const modeLabel = r.mode === 'include' ? 'Kept' : 'Removed';
+      const modeColor = r.mode === 'include' ? '#22c55e' : '#ef4444';
+      const formatted = JSON.stringify(r.filtered, null, 2);
+      content.innerHTML = '<div class="ottl-transform-result">'
+        + '<div class="header"><span class="badge">' + r.conditionsParsed + ' condition(s)</span>Filter ' + r.mode + 'd</div>'
+        + '<div class="ottl-filter-summary">'
+        + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.kept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+        + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + removed + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+        + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.total + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+        + '</div>'
+        + '<pre style="margin:12px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>'
+        + '<div class="ottl-save-area" style="display:flex;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid #334155;margin-top:12px">'
+        + '<button class="btn btn-primary" onclick="saveFilteredRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
+        + '<span class="ottl-save-status" id="ottl-save-status"></span>'
+        + '</div></div>';
+    } else if (tab === 'spans') {
+      content.innerHTML = renderFilteredSpans(r.filtered);
+    } else if (tab === 'json') {
+      const formatted = JSON.stringify(r.filtered, null, 2);
+      content.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>';
+    }
+  }
+}
+
+function renderFilteredSpans(filtered) {
+  const td = typeof filtered === 'string' ? JSON.parse(filtered) : filtered;
+  if (!td.resource_spans || td.resource_spans.length === 0) {
+    return '<div class="ottl-message" style="padding:24px;color:#94a3b8;font-size:14px;text-align:center">No spans in filtered result.</div>';
+  }
+  let html = '<div class="ottl-transform-result"><table class="ottl-diff-table"><tr><th>Resource</th><th>Span Name</th><th>Span ID</th><th>Attributes</th></tr>';
+  td.resource_spans.forEach((rs, ri) => {
+    const svc = rs.resource && rs.resource.attributes ? rs.resource.attributes.find(a => a.key === 'service.name') : null;
+    const svcName = svc ? (svc.value.stringValue || 'service-' + ri) : 'resource-' + ri;
+    if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+      if (ss.spans) ss.spans.forEach(sp => {
+        const attrs = sp.attributes ? sp.attributes.map(a => escapeHtml(a.key) + '=' + escapeHtml(formatAttrValue(a.value))).join('<br>') : '';
+        html += '<tr><td>' + escapeHtml(svcName) + '</td><td>' + escapeHtml(sp.name || '') + '</td><td style="font-family:monospace;font-size:11px">' + escapeHtml(sp.span_id || '') + '</td><td style="font-size:11px">' + attrs + '</td></tr>';
+      });
+    });
+  });
+  html += '</table></div>';
+  return html;
+}
+
+// --- Filter state ---
+let lastFilterResult = { filtered: null, total: 0, kept: 0 };
+
+function updateFilterMode() {
+  const mode = document.querySelector('input[name="ottl-filter-mode"]:checked');
+  return mode ? mode.value : 'include';
+}
+
+// --- Source data display for OTTL panels ---
+
+function onOttlRunChange() {
+  const select = document.getElementById('ottl-run-select');
+  renderRunSourceData(select.value, 'ottl-source-data');
+}
+
+function renderRunSourceData(runId, containerId) {
+  const container = document.getElementById(containerId);
+  if (!runId || !runs[runId]) {
+    container.classList.add('hidden');
+    return;
+  }
+  const run = runs[runId];
+  if (!run.trace_data) {
+    container.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+
+  // Parse trace data and count spans/traces
+  let traceCount = 0, spanCount = 0;
+  const td = typeof run.trace_data === 'string' ? JSON.parse(run.trace_data) : run.trace_data;
+  if (td.resource_spans) {
+    traceCount = td.resource_spans.length;
+    td.resource_spans.forEach(rs => {
+      if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+        if (ss.spans) spanCount += ss.spans.length;
+      });
+    });
+  }
+
+  const isOpen = container.dataset.open === 'true';
+  const pretty = typeof run.trace_data === 'string' ? run.trace_data : JSON.stringify(run.trace_data, null, 2);
+  container.innerHTML =
+    '<div class="header" onclick="toggleSourceData(this)">'
+    + '<span class="arrow' + (isOpen ? ' expanded' : '') + '">&#9654;</span>'
+    + '<strong>Source Data</strong>'
+    + ' <span class="summary">' + spanCount + ' spans, ' + traceCount + ' trace group(s)</span>'
+    + '</div>'
+    + '<div class="stats">'
+    + '<span>Spans: <strong>' + spanCount + '</strong></span>'
+    + '<span>Trace groups: <strong>' + traceCount + '</strong></span>'
+    + '<span>Run: <strong>' + escapeHtml(run.id) + '</strong></span>'
+    + '</div>'
+    + '<div class="body' + (isOpen ? ' open' : '') + '"><pre>' + escapeHtml(pretty) + '</pre></div>';
+}
+
+function toggleSourceData(headerEl) {
+  const container = headerEl.closest('.ottl-source-data');
+  const arrow = headerEl.querySelector('.arrow');
+  const body = container.querySelector('.body');
+  const isOpen = body.classList.toggle('open');
+  arrow.classList.toggle('expanded', isOpen);
+  container.dataset.open = isOpen ? 'true' : 'false';
+}
+
+async function ottlFilterValidate() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-validate-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  btn.disabled = true;
+  status.textContent = 'Validating...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to validate</div>';
+    resultPanel.classList.remove('hidden');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/filter-validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ config: config })
+    });
+    if (data.valid) {
+      resultContent.innerHTML = '<div class="ottl-success">All ' + data.statements_parsed + ' condition(s) valid.</div>';
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+async function ottlFilter() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-action-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  const runSelect = document.getElementById('ottl-run-select');
+  const runId = runSelect.value;
+  if (!runId) {
+    resultContent.innerHTML = '<div class="ottl-error">Select a target run first</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Filtering...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to evaluate</div>';
+    resultPanel.classList.remove('hidden');
+  
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  const mode = updateFilterMode();
+  try {
+    const data = await api('/api/ottl/filter', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, config: config, mode: mode })
+    });
+    if (data.valid && data.filtered_data) {
+      lastFilterResult.filtered = data.filtered_data;
+      lastFilterResult.total = data.total_span_count;
+      lastFilterResult.kept = data.filtered_span_count;
+      renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode);
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+      resultPanel.classList.remove('hidden');
+    
+      switchOttlResultTab('summary');
+    }
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function renderFilterResult(filtered, conditionsParsed, total, kept, mode) {
+  const resultPanel = document.getElementById('ottl-result');
+  lastResult = {
+    type: 'filter',
+    filtered: filtered,
+    total: total,
+    kept: kept,
+    conditionsParsed: conditionsParsed,
+    mode: mode
+  };
+  resultPanel.classList.remove('hidden');
+  switchOttlResultTab('summary');
+}
+
+async function saveFilteredRun() {
+  if (!lastFilterResult.filtered) return;
+  const statusEl = document.getElementById('ottl-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '#94a3b8';
+  try {
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(lastFilterResult.filtered)
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    statusEl.innerHTML = '<span style="color:#22c55e">Saved as <a href="#" onclick="showDetail(\'' + run.id + '\');return false" style="color:#3b82f6;text-decoration:underline">' + run.id + '</a></span>';
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+async function stopRun(id) {
+  try {
+    await api('/api/runs/' + id + '/stop', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('stop run:', e);
+  }
+}
+
+function startPolling() {
+  const announcedCompleted = new Set();
+  pollTimer = setInterval(async () => {
+    try {
+      const data = await api('/api/runs');
+      data.runs.forEach(r => {
+        const prevStatus = runs[r.id]?.status;
+        runs[r.id] = r;
+        // Show brief "Completed!" when a run transitions to completed
+        if (r.status === 'completed' && prevStatus && prevStatus !== 'completed' && !announcedCompleted.has(r.id)) {
+          announcedCompleted.add(r.id);
+          const el = document.getElementById('run-status');
+          el.textContent = 'Completed!';
+          setTimeout(() => { if (el.textContent === 'Completed!') el.textContent = ''; }, 3000);
+        }
+      });
+      renderRunList();
+      updateOttlRunSelector();
+      // Show detail if viewing one
+      const detail = document.getElementById('detail-section');
+      if (!detail.classList.contains('hidden')) {
+        const id = detail.querySelector('#detail-id').textContent;
+        const r = runs[id];
+        if (r) renderDetail(r);
+      }
+    } catch(e) { /* ignore polling errors */ }
+  }, 1000);
+}
+
+let lastDetailKey = '';
+
+function renderRunList() {
+  const list = document.getElementById('run-list');
+  const entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="empty"><p>No jobs yet. Configure and click Run to generate traces.</p></div>';
+    return;
+  }
+  list.innerHTML = entries.map(r => {
+    const scenario = r.scenario || r.config?.Scenario || '';
+    const scenarioTag = scenario ? ' &middot; ' + scenario : '';
+    const isImported = r.output === 'import';
+    const metaParts = [formatTime(r.started_at)];
+    if (isImported) {
+      metaParts.push('imported');
+    } else {
+      if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
+      var tc = r.config?.TraceCount;
+      if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
+    }
+    return `<div class="run-card" onclick="showDetail('${r.id}')">
+      <div class="status ${statusClass(r.status)}"></div>
+      <div class="info">
+        <div class="id">${r.id}${scenarioTag}</div>
+        <div class="meta">${metaParts.join(' &middot; ')}</div>
+      </div>
+      <div class="stats">
+        <span>${r.span_count || 0} spans</span>
+        <span>${formatDuration(r.duration_ns)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showDetail(id) {
+  const r = runs[id];
+  if (!r) return;
+  const section = document.getElementById('detail-section');
+  section.classList.remove('hidden');
+  document.getElementById('detail-id').textContent = r.id;
+  lastDetailKey = '';
+  renderDetail(r);
+  section.scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderDetail(r) {
+  // Build a key from the run's mutable fields. If unchanged since last
+  // render, skip DOM replacement to preserve scroll position in <pre>.
+  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + (typeof r.trace_data === 'string' ? r.trace_data.substring(0, 100) : '');
+  if (key === lastDetailKey) return;
+  lastDetailKey = key;
+
+  const el = document.getElementById('detail-content');
+
+  if (r.status === 'running') {
+    const done = r.trace_count_completed || 0;
+    const total = r.trace_count;
+    const totalDisplay = total === 0 ? '&infin;' : total;
+    const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" onclick="stopRun('${r.id}')">Stop</button>
+    </div>`;
+    return;
+  }
+
+  if (r.status === 'failed') {
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
+    </div>
+    <div class="error">${r.error || 'Unknown error'}</div>`;
+    return;
+  }
+
+  if (r.status === 'stopped') {
+    el.innerHTML = `<div class="stat-row">
+      <div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div>
+      <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
+      <div class="stat"><div class="value">${r.trace_count_completed || 0}</div><div class="label">Traces Generated</div></div>
+      <div class="stat"><div class="value">${r.span_count || 0}</div><div class="label">Spans</div></div>
+    </div>`;
+    return;
+  }
+
+  let spanCountTotal = 0;
+  let traceCount = 0;
+  if (r.trace_data) {
+    try {
+      const td = typeof r.trace_data === 'string' ? JSON.parse(r.trace_data) : r.trace_data;
+      if (td.resource_spans) {
+        traceCount = td.resource_spans.length;
+        td.resource_spans.forEach(rs => {
+          if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+            if (ss.spans) spanCountTotal += ss.spans.length;
+          });
+        });
+      }
+    } catch(e) { /* use r.span_count */ }
+  }
+
+  const isImported = r.output === 'import';
+  el.innerHTML = `<div class="stat-row">
+    <div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>
+    <div class="stat"><div class="value">${spanCountTotal || r.span_count || 0}</div><div class="label">Total Spans</div></div>
+    <div class="stat"><div class="value">${traceCount || r.trace_count || 0}</div><div class="label">Traces</div></div>
+    <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
+    <div class="stat"><div class="value">${isImported ? '-' : (r.config?.Seed || '-')}</div><div class="label">Seed</div></div>
+    <div class="stat"><div class="value">${isImported ? 'Imported' : (r.scenario || r.config?.Scenario || r.config?.Topology || '-')}</div><div class="label">Scenario/Topology</div></div>
+  </div>`;
+
+  if (r.trace_data) {
+    const pretty = typeof r.trace_data === 'string' ? r.trace_data : JSON.stringify(r.trace_data, null, 2);
+    el.innerHTML += '<h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#94a3b8">Trace Data</h3>';
+    el.innerHTML += '<pre>' + escapeHtml(pretty) + '</pre>';
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+loadScenarios();
+renderRunList();
+
+// Initialize OTTL playground
+document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);
+document.getElementById('ottl-validate-btn').onclick = ottlValidate;
+updateOttlLineNumbers();
+</script>
+</body>
+</html>

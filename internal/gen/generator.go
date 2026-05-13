@@ -3,14 +3,15 @@ package gen
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/johndemoss/mocktracegen/internal/export"
-	"github.com/johndemoss/mocktracegen/internal/region"
+	"github.com/johndemoss/mocktelemetrygen/internal/export"
+	"github.com/johndemoss/mocktelemetrygen/internal/region"
 )
 
 type Config struct {
@@ -41,7 +42,8 @@ func DefaultConfig() Config {
 }
 
 type Generator struct {
-	config Config
+	config     Config
+	OnProgress func(completed, total int)
 }
 
 func NewGenerator(config Config) *Generator {
@@ -76,7 +78,7 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 		defer ticker.Stop()
 	}
 
-	for i := 0; i < g.config.TraceCount; i++ {
+	for i := 0; g.config.TraceCount == 0 || i < g.config.TraceCount; i++ {
 		if ticker != nil {
 			select {
 			case <-ticker.C:
@@ -100,18 +102,19 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 			spanCount = g.config.ScenarioSpanCount
 		}
 
-		var spans []*tracev1.Span
+		var spansByService map[string][]*tracev1.Span
 
 		if g.config.Scenario != "" {
-			scenarioRoots, err := GenerateScenario(g.config.Scenario, topoRng, spanCount, g.config.MaxDepth)
+			scenarioRoots, err := getScenario(g.config.Scenario, topoRng, spanCount, g.config.MaxDepth)
 			if err != nil {
 				return err
 			}
-			spans = g.buildScenarioSpans(idRng, scenarioRoots, traceID, g.config.BaseTime)
+			spansByService = g.buildScenarioSpans(idRng, scenarioRoots, traceID, g.config.BaseTime)
 		} else {
 			topology := g.config.Topology
 			root := GenerateTopology(topology, topoRng, spanCount, g.config.MaxDepth)
-			spans, _, _ = g.buildSpans(idRng, root, traceID, [8]byte{}, g.config.BaseTime)
+			spans, _, _ := g.buildSpans(idRng, root, traceID, [8]byte{}, g.config.BaseTime)
+			spansByService = map[string][]*tracev1.Span{g.config.ServiceName: spans}
 		}
 
 		endpoints := region.All()
@@ -119,35 +122,59 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 			continue
 		}
 
-		// Distribute spans across all endpoints so the trace is scattered.
-		groups := make(map[region.Name][]*tracev1.Span, len(endpoints))
-		for _, span := range spans {
-			ep := endpoints[topoRng.Int63n(int64(len(endpoints)))]
-			groups[ep] = append(groups[ep], span)
+		// Distribute spans by (endpoint, serviceName) so each ResourceSpans
+		// gets the correct resource-level service.name.
+		type epSvcKey struct {
+			ep  region.Name
+			svc string
 		}
 
-		// Iterate in region.All() order so output is deterministic.
-		for _, ep := range endpoints {
-			groupSpans := groups[ep]
-			rs := &tracev1.ResourceSpans{
-				Resource: &resourcev1.Resource{
-					Attributes: region.ResourceAttributes(ep, g.config.ServiceName),
-				},
-				ScopeSpans: []*tracev1.ScopeSpans{
-					{
-						Scope: &commonv1.InstrumentationScope{
-							Name:    "mocktracegen",
-							Version: "0.1.0",
-						},
-						Spans: groupSpans,
-					},
-				},
-				SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
-			}
+		// Collect deterministic service name ordering before distribution
+		// (map iteration is non-deterministic and would break the RNG sequence).
+		svcNames := make([]string, 0, len(spansByService))
+		for svcName := range spansByService {
+			svcNames = append(svcNames, svcName)
+		}
+		sort.Strings(svcNames)
 
-			if err := exp.Export(ctx, []*tracev1.ResourceSpans{rs}); err != nil {
-				return err
+		groups := make(map[epSvcKey][]*tracev1.Span)
+		for _, svcName := range svcNames {
+			for _, sp := range spansByService[svcName] {
+				ep := endpoints[topoRng.Int63n(int64(len(endpoints)))]
+				key := epSvcKey{ep, svcName}
+				groups[key] = append(groups[key], sp)
 			}
+		}
+
+		// Iterate in region.All() × sorted service name order.
+		for _, ep := range endpoints {
+			for _, svcName := range svcNames {
+				key := epSvcKey{ep, svcName}
+				if groupSpans := groups[key]; len(groupSpans) > 0 {
+					rs := &tracev1.ResourceSpans{
+						Resource: &resourcev1.Resource{
+							Attributes: region.ResourceAttributes(ep, svcName),
+						},
+						ScopeSpans: []*tracev1.ScopeSpans{
+							{
+								Scope: &commonv1.InstrumentationScope{
+									Name:    "mocktelemetrygen",
+									Version: "0.1.0",
+								},
+								Spans: groupSpans,
+							},
+						},
+						SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
+					}
+
+					if err := exp.Export(ctx, []*tracev1.ResourceSpans{rs}); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if g.OnProgress != nil {
+			g.OnProgress(i+1, g.config.TraceCount)
 		}
 	}
 
@@ -243,36 +270,33 @@ func (g *Generator) buildSpans(rng *SeededRNG, node *SpanNode, traceID [16]byte,
 	return result, startTime, endTime
 }
 
-func (g *Generator) buildScenarioSpans(rng *SeededRNG, roots []*ScenarioSpanNode, traceID [16]byte, traceStart time.Time) []*tracev1.Span {
-	var all []*tracev1.Span
+func (g *Generator) buildScenarioSpans(rng *SeededRNG, roots []*ScenarioSpanNode, traceID [16]byte, traceStart time.Time) map[string][]*tracev1.Span {
+	byService := make(map[string][]*tracev1.Span)
 	for i, root := range roots {
 		start := traceStart
 		if i > 0 {
 			start = traceStart.Add(g.config.TraceDuration / 2)
 		}
-		spans, _, _ := g.buildScenarioSubtree(rng, root, traceID, [8]byte{}, start)
-		all = append(all, spans...)
+		g.buildScenarioSubtree(rng, root, traceID, [8]byte{}, start, byService)
 	}
-	return all
+	return byService
 }
 
-func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode, traceID [16]byte, parentSpanID [8]byte, traceStart time.Time) ([]*tracev1.Span, time.Time, time.Time) {
+func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode, traceID [16]byte, parentSpanID [8]byte, traceStart time.Time, byService map[string][]*tracev1.Span) (time.Time, time.Time) {
 	if node == nil {
-		return nil, time.Time{}, time.Time{}
+		return time.Time{}, time.Time{}
 	}
 
 	spanID := rng.SpanID()
 
 	var (
-		childList     []*tracev1.Span
 		earliestStart time.Time
 		latestEnd     time.Time
 		nextStart     = traceStart
 	)
 
 	for _, child := range node.Children {
-		spans, cs, ce := g.buildScenarioSubtree(rng, child, traceID, spanID, nextStart)
-		childList = append(childList, spans...)
+		cs, ce := g.buildScenarioSubtree(rng, child, traceID, spanID, nextStart, byService)
 		if earliestStart.IsZero() || cs.Before(earliestStart) {
 			earliestStart = cs
 		}
@@ -313,9 +337,7 @@ func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode,
 		kind = tracev1.Span_SPAN_KIND_INTERNAL
 	}
 
-	attrs := []*commonv1.KeyValue{
-		stringAttr("service.name", node.ServiceName),
-	}
+	attrs := make([]*commonv1.KeyValue, 0, 1+len(node.Attributes))
 	attrs = append(attrs, node.Attributes...)
 
 	var parentSpanIDBytes []byte
@@ -346,10 +368,8 @@ func (g *Generator) buildScenarioSubtree(rng *SeededRNG, node *ScenarioSpanNode,
 		}
 	}
 
-	result := make([]*tracev1.Span, 0, 1+len(childList))
-	result = append(result, otlpSpan)
-	result = append(result, childList...)
-	return result, startTime, endTime
+	byService[node.ServiceName] = append(byService[node.ServiceName], otlpSpan)
+	return startTime, endTime
 }
 
 func stringAttr(key, value string) *commonv1.KeyValue {
