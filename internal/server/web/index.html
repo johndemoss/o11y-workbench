@@ -286,7 +286,8 @@ let pollTimer = null;
 async function startRun() {
   const runBtn = document.getElementById('run-btn');
   runBtn.disabled = true;
-  document.getElementById('run-status').textContent = 'Starting...';
+  const statusEl = document.getElementById('run-status');
+  statusEl.textContent = 'Starting...';
 
   const body = {
     seed: parseInt(document.getElementById('seed').value) || 42,
@@ -312,8 +313,9 @@ async function startRun() {
     });
     runs[run.id] = run;
     if (!pollTimer) startPolling();
+    statusEl.textContent = 'Run queued';
   } catch(e) {
-    document.getElementById('run-status').textContent = 'Error: ' + e.message;
+    statusEl.textContent = 'Error: ' + e.message;
   }
   runBtn.disabled = false;
 }
@@ -774,10 +776,21 @@ async function cancelRun(id) {
 }
 
 function startPolling() {
+  const announcedCompleted = new Set();
   pollTimer = setInterval(async () => {
     try {
       const data = await api('/api/runs');
-      data.runs.forEach(r => { runs[r.id] = r; });
+      data.runs.forEach(r => {
+        const prevStatus = runs[r.id]?.status;
+        runs[r.id] = r;
+        // Show brief "Completed!" when a run transitions to completed
+        if (r.status === 'completed' && prevStatus && prevStatus !== 'completed' && !announcedCompleted.has(r.id)) {
+          announcedCompleted.add(r.id);
+          const el = document.getElementById('run-status');
+          el.textContent = 'Completed!';
+          setTimeout(() => { if (el.textContent === 'Completed!') el.textContent = ''; }, 3000);
+        }
+      });
       renderRunList();
       updateOttlRunSelector();
       updateOttlFilterRunSelector();
