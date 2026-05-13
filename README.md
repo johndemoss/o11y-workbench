@@ -45,8 +45,8 @@ The dashboard lets you configure trace parameters, run generation jobs, inspect 
 ### Docker
 
 ```bash
-docker build -t otel-workbench .
-docker run -p 8080:8080 otel-workbench
+docker build -f Dockerfile.web -t otel-workbench-web .
+docker run -p 8080:8080 otel-workbench-web
 ```
 
 ## CLI Reference
@@ -244,7 +244,7 @@ endpoint:
 │   ├── region/                  # Multi-endpoint region routing
 │   └── server/                  # Web server, API handlers, run store
 ├── brand/                       # Brand concept exploration assets
-├── Dockerfile
+├── Dockerfile.web
 ├── go.mod
 └── go.sum
 ```
