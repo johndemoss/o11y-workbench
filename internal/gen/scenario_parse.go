@@ -17,26 +17,26 @@ import (
 
 // ScenarioDef is the top-level JSON structure for a user-defined scenario.
 type ScenarioDef struct {
-	Name  string           `json:"name"`
-	Roots []ScenarioNodeDef `json:"roots"`
+	Name  string           `json:"name" yaml:"name"`
+	Roots []ScenarioNodeDef `json:"roots" yaml:"roots"`
 }
 
 // ScenarioNodeDef is a single node in a user-defined scenario tree.
 type ScenarioNodeDef struct {
-	ServiceName string            `json:"service_name"`
-	Name        string            `json:"name"`
-	Kind        string            `json:"kind"`
-	Children    []ScenarioNodeDef `json:"children,omitempty"`
-	MinDuration string            `json:"min_duration,omitempty"`
-	MaxDuration string            `json:"max_duration,omitempty"`
-	IsError     bool              `json:"is_error,omitempty"`
-	Attributes  []AttributeDef    `json:"attributes,omitempty"`
+	ServiceName string            `json:"service_name" yaml:"service_name"`
+	Name        string            `json:"name" yaml:"name"`
+	Kind        string            `json:"kind" yaml:"kind"`
+	Children    []ScenarioNodeDef `json:"children,omitempty" yaml:"children,omitempty"`
+	MinDuration string            `json:"min_duration,omitempty" yaml:"min_duration,omitempty"`
+	MaxDuration string            `json:"max_duration,omitempty" yaml:"max_duration,omitempty"`
+	IsError     bool              `json:"is_error,omitempty" yaml:"is_error,omitempty"`
+	Attributes  []AttributeDef    `json:"attributes,omitempty" yaml:"attributes,omitempty"`
 }
 
 // AttributeDef is a key-value attribute on a scenario node.
 type AttributeDef struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key   string `json:"key" yaml:"key"`
+	Value string `json:"value" yaml:"value"`
 }
 
 // spanKindFromString maps a string to the corresponding SpanKind.
