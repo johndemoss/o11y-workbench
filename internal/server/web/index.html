@@ -178,8 +178,8 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </section>
 
 <section id="ottl-section">
-  <h2>OTTL Playground</h2>
-  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Test OpenTelemetry Transformation Language statements. Validate syntax or execute transforms against completed runs.</p>
+  <h2>OTTL Playground: Transform</h2>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Validate and execute OTTL transform statements against completed runs.</p>
   <div style="display:flex;flex-direction:column;gap:8px">
     <textarea id="ottl-input" rows="6" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL statements, one per line&#10;&#10;set(attributes[&quot;env&quot;], &quot;prod&quot;)&#10;delete_key(attributes, &quot;secret&quot;)&#10;set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;api.*&quot;"></textarea>
     <div class="form-actions">
@@ -199,8 +199,8 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </section>
 
 <section id="ottl-filter-section">
-  <h2>OTTL Filter <span style="font-size:12px;font-weight:400;color:#94a3b8;text-transform:none;letter-spacing:0">— Keep or remove spans by OTTL conditions</span></h2>
-  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Write OTTL boolean conditions (ORed together). Spans matching the conditions are kept or removed based on the mode.</p>
+  <h2>OTTL Playground: Filter</h2>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">Keep or remove spans by OTTL boolean conditions. Conditions are ORed together — matching spans are kept or removed based on the mode.</p>
   <div style="display:flex;flex-direction:column;gap:8px">
     <textarea id="ottl-filter-input" rows="4" style="width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical" placeholder="Enter OTTL conditions, one per line&#10;&#10;name == &quot;GET /api/users&quot;&#10;attributes[&quot;http.status_code&quot;] == 200&#10;attributes[&quot;error&quot;] == true"></textarea>
     <div class="form-actions">
