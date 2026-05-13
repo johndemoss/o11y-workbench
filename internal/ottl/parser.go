@@ -1,5 +1,5 @@
 // Package ottl provides OTTL (OpenTelemetry Transformation Language) statement
-// validation and execution for the mocktelemetrygen web dashboard.
+// validation and execution for the otel-workbench web dashboard.
 package ottl
 
 import (

@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/johndemoss/mocktelemetrygen/internal/gen"
-	"github.com/johndemoss/mocktelemetrygen/internal/server"
+	"github.com/johndemoss/otel-workbench/internal/gen"
+	"github.com/johndemoss/otel-workbench/internal/server"
 )
 
 func main() {

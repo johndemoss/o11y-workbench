@@ -3,13 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>mocktelemetrygen Dashboard</title>
+<title>otel-workbench Dashboard</title>
+
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.5; }
 .app { max-width: 1400px; margin: 0 auto; padding: 24px; }
 header { margin-bottom: 32px; }
-header h1 { font-size: 24px; font-weight: 600; color: #f1f5f9; }
+header .logo { display: flex; align-items: center; gap: 10px; }
+header .logo-text { font-size: 24px; font-weight: 600; color: #f1f5f9; }
 header p { color: #94a3b8; font-size: 14px; margin-top: 4px; }
 section { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
 section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 16px; }
@@ -180,11 +182,11 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   margin-bottom: 12px;
 }
 
-/* === OTTL Playground Option 2 === */
-.ottl-playground-tabs { display:flex; gap:0; border-bottom:1px solid #334155; margin-bottom:12px; background:#1e293b; border-radius:6px 6px 0 0; }
-.ottl-playground-tab { padding:10px 24px; background:transparent; border:none; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
-.ottl-playground-tab:hover { color:#94a3b8; background:#0f172a; }
-.ottl-playground-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; background:#0f172a; }
+/* === OTTL Prototyper Option 2 === */
+.ottl-prototyper-tabs { display:flex; gap:0; border-bottom:1px solid #334155; margin-bottom:12px; background:#1e293b; border-radius:6px 6px 0 0; }
+.ottl-prototyper-tab { padding:10px 24px; background:transparent; border:none; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
+.ottl-prototyper-tab:hover { color:#94a3b8; background:#0f172a; }
+.ottl-prototyper-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; background:#0f172a; }
 .ottl-editor-container { display:flex; gap:0; border:1px solid #334155; border-radius:6px; overflow:hidden; }
 .ottl-line-numbers { width:48px; flex-shrink:0; padding:12px 8px; text-align:right; color:#475569; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; background:#0f172a; border-right:1px solid #334155; user-select:none; overflow:hidden; padding-top:13px; }
 .ottl-line-numbers span { display:block; }
@@ -207,8 +209,10 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 <body>
 <div class="app" id="app">
 <header>
-  <h1>mocktelemetrygen</h1>
-  <p>Deterministic mock OTLP trace generator &mdash; web dashboard</p>
+  <div class="logo">
+    <span class="logo-text">otel-workbench</span>
+  </div>
+
 </header>
 
 <section id="config-section">
@@ -288,13 +292,13 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   </div>
 </section>
 
-<section id="ottl-playground">
-  <h2>OTTL Playground</h2>
+<section id="ottl-prototyper">
+  <h2>OTTL Prototyper</h2>
 
   <!-- Tab Bar -->
-  <div class="ottl-playground-tabs">
-    <button class="ottl-playground-tab active" data-ottl-mode="transform" onclick="switchOttlMode('transform')">Transform</button>
-    <button class="ottl-playground-tab" data-ottl-mode="filter" onclick="switchOttlMode('filter')">Filter</button>
+  <div class="ottl-prototyper-tabs">
+    <button class="ottl-prototyper-tab active" data-ottl-mode="transform" onclick="switchOttlMode('transform')">Transform</button>
+    <button class="ottl-prototyper-tab" data-ottl-mode="filter" onclick="switchOttlMode('filter')">Filter</button>
   </div>
 
   <!-- Shared Run Selector -->
@@ -965,7 +969,7 @@ function ottlClear() {
 function switchOttlMode(mode) {
   ottlMode = mode;
   // Update tab buttons
-  document.querySelectorAll('.ottl-playground-tab').forEach(tab => {
+  document.querySelectorAll('.ottl-prototyper-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.ottlMode === mode);
   });
   // Update action button label
@@ -1484,7 +1488,7 @@ function escapeHtml(s) {
 loadScenarios();
 renderRunList();
 
-// Initialize OTTL playground
+// Initialize OTTL Prototyper
 document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);
 document.getElementById('ottl-validate-btn').onclick = ottlValidate;
 updateOttlLineNumbers();

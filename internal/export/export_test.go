@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/johndemoss/mocktelemetrygen/internal/export"
-	"github.com/johndemoss/mocktelemetrygen/internal/region"
+	"github.com/johndemoss/otel-workbench/internal/export"
+	"github.com/johndemoss/otel-workbench/internal/region"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 

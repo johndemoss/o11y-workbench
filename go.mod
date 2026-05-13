@@ -1,4 +1,4 @@
-module github.com/johndemoss/mocktelemetrygen
+module github.com/johndemoss/otel-workbench
 
 go 1.26.3
 

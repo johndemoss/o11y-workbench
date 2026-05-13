@@ -3,7 +3,7 @@ package gen_test
 import (
 	"testing"
 
-	"github.com/johndemoss/mocktelemetrygen/internal/gen"
+	"github.com/johndemoss/otel-workbench/internal/gen"
 )
 
 func TestParseScenarioFile_MultiYAML(t *testing.T) {

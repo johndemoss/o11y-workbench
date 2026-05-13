@@ -12,9 +12,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
-	"github.com/johndemoss/mocktelemetrygen/internal/export"
-	"github.com/johndemoss/mocktelemetrygen/internal/gen"
-	"github.com/johndemoss/mocktelemetrygen/internal/region"
+	"github.com/johndemoss/otel-workbench/internal/export"
+	"github.com/johndemoss/otel-workbench/internal/gen"
+	"github.com/johndemoss/otel-workbench/internal/region"
 )
 
 type RunStatus string
