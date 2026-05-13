@@ -3,6 +3,8 @@ package server
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -35,6 +37,7 @@ func New(addr string) *Server {
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/scenarios", s.handleScenarios)
+	s.mux.HandleFunc("POST /api/scenarios", s.handleUploadScenarios)
 	s.mux.HandleFunc("GET /api/config/defaults", s.handleDefaults)
 	s.mux.HandleFunc("POST /api/runs", s.handleStartRun)
 	s.mux.HandleFunc("GET /api/runs", s.handleListRuns)
@@ -44,6 +47,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/ottl/validate", s.handleOTTLValidate)
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
+	s.mux.HandleFunc("POST /api/ottl/filter-validate", s.handleOTTLFilterValidate)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -78,6 +82,48 @@ func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
 	all = append(all, userDefined...)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scenarios": all,
+	})
+}
+
+func (s *Server) handleUploadScenarios(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot read body: " + err.Error()})
+		return
+	}
+	if len(body) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty request body"})
+		return
+	}
+
+	// Detect format from Content-Type if possible, else auto-detect.
+	ct := r.Header.Get("Content-Type")
+	var ext string
+	switch {
+	case strings.Contains(ct, "/yaml") || strings.Contains(ct, "/x-yaml"):
+		ext = ".yaml"
+	case strings.Contains(ct, "/json") || strings.Contains(ct, "/x-json"):
+		ext = ".json"
+	}
+
+	scenarios, err := gen.ParseScenarioFile(body, ext)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	registered := make([]string, 0, len(scenarios))
+	for name, roots := range scenarios {
+		if err := gen.RegisterUserScenario(name, roots); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("scenario %q: %v", name, err)})
+			return
+		}
+		registered = append(registered, name)
+	}
+
+	log.Printf("Registered %d user scenario(s) via API: %v", len(registered), registered)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"registered": registered,
 	})
 }
 
@@ -301,6 +347,27 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		TotalSpanCount:    total,
 		FilteredSpanCount: kept,
 	})
+}
+
+func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Conditions []string `json:"conditions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if len(req.Conditions) == 0 {
+		writeJSON(w, http.StatusBadRequest, ottl.ValidateResult{Valid: false, Errors: []string{"no conditions provided"}})
+		return
+	}
+
+	result := ottl.ValidateFilterConditionsParse(req.Conditions)
+	status := http.StatusOK
+	if !result.Valid {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, result)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

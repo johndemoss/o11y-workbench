@@ -23,6 +23,55 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
+// ValidateFilterConditionsParse parses and validates OTTL filter conditions
+// without executing them. Returns which conditions are syntactically valid.
+func ValidateFilterConditionsParse(conditions []string) ValidateResult {
+	if len(conditions) == 0 {
+		return ValidateResult{
+			Valid:  false,
+			Errors: []string{"no conditions provided"},
+		}
+	}
+
+	settings := component.TelemetrySettings{
+		Logger: zap.NewNop(),
+	}
+
+	parser, err := ottlspan.NewParser(
+		ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+		settings,
+	)
+	if err != nil {
+		return ValidateResult{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("internal error creating parser: %v", err)},
+		}
+	}
+
+	// Validate each condition independently to identify which ones fail.
+	var allErrors []string
+	parsedCount := 0
+	for _, cond := range conditions {
+		if _, err := parser.ParseCondition(cond); err != nil {
+			allErrors = append(allErrors, fmt.Sprintf("condition %q: %v", cond, err))
+		} else {
+			parsedCount++
+		}
+	}
+
+	if len(allErrors) > 0 {
+		return ValidateResult{
+			Valid:  false,
+			Errors: allErrors,
+		}
+	}
+
+	return ValidateResult{
+		Valid:  true,
+		Parsed: parsedCount,
+	}
+}
+
 // FilterMode controls whether conditions include or exclude matching spans.
 type FilterMode string
 
