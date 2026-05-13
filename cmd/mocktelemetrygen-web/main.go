@@ -14,9 +14,17 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	jobsPath := flag.String("jobs", "", "Path to JSON file with startup job definitions")
+	scenarioFile := flag.String("scenario-file", "", "Path to YAML/JSON file with user-defined scenario definitions")
 	flag.Parse()
 
 	srv := server.New(*addr)
+
+	if *scenarioFile != "" {
+		log.Printf("Loading user scenarios from %s", *scenarioFile)
+		if _, err := gen.LoadScenarioFile(*scenarioFile); err != nil {
+			log.Fatalf("loading scenario file: %v", err)
+		}
+	}
 
 	if *jobsPath != "" {
 		data, err := os.ReadFile(*jobsPath)

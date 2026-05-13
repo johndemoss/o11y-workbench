@@ -40,6 +40,19 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			scenario := viper.GetString("scenario")
 
+			// Load user-defined scenarios from file if specified.
+			if sf := viper.GetString("scenario-file"); sf != "" {
+				loaded, err := gen.LoadScenarioFile(sf)
+				if err != nil {
+					return fmt.Errorf("load scenarios: %w", err)
+				}
+				names := make([]string, 0, len(loaded))
+				for n := range loaded {
+					names = append(names, n)
+				}
+				log.Printf("Loaded %d user scenario(s) from %s: %v", len(loaded), sf, names)
+			}
+
 			region.SetEndpoints(viper.GetStringSlice("endpoint"))
 
 			var topoType gen.TopologyType
@@ -112,7 +125,8 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 	cmd.Flags().Int("traces", 1, "number of traces to generate")
 	cmd.Flags().Int("rate", 0, "target traces per second (0 = unlimited)")
 	cmd.Flags().String("topology", "flat", "trace topology shape (flat, branching, split)")
-	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven")
+	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven, or a user-defined scenario")
+	cmd.Flags().String("scenario-file", "", "path to YAML/JSON file with user-defined scenario definitions")
 	cmd.Flags().Int("scenario-span-count", 0, "per-service span budget for scenarios; 0 uses --span-count")
 	cmd.Flags().Int("span-count", 10, "target number of spans per trace")
 	cmd.Flags().Int("max-depth", 5, "maximum span depth in branching/split topologies")
@@ -126,7 +140,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 
 	// Precedence: CLI flag > env var > config file > built-in default.
 	for _, name := range []string{
-		"seed", "traces", "rate", "topology", "scenario", "scenario-span-count", "span-count", "max-depth",
+		"seed", "traces", "rate", "topology", "scenario", "scenario-file", "scenario-span-count", "span-count", "max-depth",
 		"service-name", "output", "format", "output-dir", "endpoint", "insecure",
 	} {
 		if err := viper.BindPFlag(name, cmd.Flags().Lookup(name)); err != nil {
