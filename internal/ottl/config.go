@@ -9,6 +9,7 @@ import (
 
 type TransformConfig struct {
 	TraceStatements []ContextStatements `yaml:"trace_statements"`
+	LogStatements   []ContextStatements `yaml:"log_statements"`
 }
 
 type ContextStatements struct {
@@ -19,10 +20,15 @@ type ContextStatements struct {
 
 type FilterConfig struct {
 	Traces TraceFilters `yaml:"traces"`
+	Logs   LogFilters   `yaml:"logs"`
 }
 
 type TraceFilters struct {
 	SpanConditions []string `yaml:"span"`
+}
+
+type LogFilters struct {
+	LogRecordConditions []string `yaml:"log_record"`
 }
 
 type transformWrapper struct {
@@ -88,11 +94,17 @@ func ParseFilterConditions(configYAML string) ([]string, error) {
 		if conds := cfg.Traces.SpanConditions; len(conds) > 0 {
 			return conds, nil
 		}
+		if conds := cfg.Logs.LogRecordConditions; len(conds) > 0 {
+			return conds, nil
+		}
 	}
 
 	var wrapped filterWrapper
 	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
 		if conds := wrapped.Filter.Traces.SpanConditions; len(conds) > 0 {
+			return conds, nil
+		}
+		if conds := wrapped.Filter.Logs.LogRecordConditions; len(conds) > 0 {
 			return conds, nil
 		}
 	}
@@ -113,6 +125,9 @@ func ParseFilterConditions(configYAML string) ([]string, error) {
 func (tc *TransformConfig) statements() []string {
 	var out []string
 	for _, g := range tc.TraceStatements {
+		out = append(out, g.Statements...)
+	}
+	for _, g := range tc.LogStatements {
 		out = append(out, g.Statements...)
 	}
 	return out

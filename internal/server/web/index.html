@@ -192,6 +192,11 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-prototyper-tab { padding:10px 24px; background:transparent; border:none; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
 .ottl-prototyper-tab:hover { color:#94a3b8; background:#0f172a; }
 .ottl-prototyper-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; background:#0f172a; }
+
+.ottl-signal-tabs { display:flex; gap:4px; margin-bottom:12px; }
+.ottl-signal-tab { padding:5px 14px; background:#1e293b; border:1px solid #334155; border-radius:4px; color:#94a3b8; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.15s; font-family:inherit; }
+.ottl-signal-tab:hover { color:#e2e8f0; background:#334155; }
+.ottl-signal-tab.active { background:#3b82f6; color:#fff; border-color:#3b82f6; }
 .ottl-editor-container { display:flex; gap:0; border:1px solid #334155; border-radius:6px; overflow:hidden; }
 .ottl-line-numbers { width:48px; flex-shrink:0; padding:12px 8px; text-align:right; color:#475569; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; background:#0f172a; border-right:1px solid #334155; user-select:none; overflow:hidden; padding-top:13px; }
 .ottl-line-numbers span { display:block; }
@@ -209,6 +214,113 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-result-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; }
 .ottl-result-content { padding:4px; background:transparent; }
 .ottl-result-content pre { margin:0; padding:12px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; overflow-x:auto; max-height:400px; overflow-y:auto; white-space:pre; background:transparent; }
+
+/* === SEGMENTED CONTROL === */
+.segmented-control { display:inline-flex; background:#0f172a; border-radius:6px; padding:3px; gap:2px; }
+.segmented-control button { padding:6px 16px; border:none; border-radius:4px; background:transparent; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.15s; font-family:inherit; }
+.segmented-control button:hover { color:#94a3b8; background:#1e293b; }
+.segmented-control button.active { background:#3b82f6; color:#fff; }
+
+/* === TOGGLE === */
+.toggle-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.toggle { position:relative; width:44px; height:24px; flex-shrink:0; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle .slider { position:absolute; inset:0; background:#334155; border-radius:12px; cursor:pointer; transition:0.2s; }
+.toggle .slider::before { content:''; position:absolute; left:3px; top:3px; width:18px; height:18px; background:#94a3b8; border-radius:50%; transition:0.2s; }
+.toggle input:checked + .slider { background:#8b5cf6; }
+.toggle input:checked + .slider::before { transform:translateX(20px); background:#fff; }
+.toggle-label { font-size:13px; color:#e2e8f0; cursor:pointer; }
+
+/* === LOG CONFIG PANEL === */
+.log-config-panel { display:none; margin-top:16px; padding-top:16px; border-top:1px solid #334155; }
+.log-config-panel.open { display:block; }
+.log-config-panel h3 { font-size:13px; font-weight:600; color:#94a3b8; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.05em; }
+.severity-grid { display:flex; flex-direction:column; gap:6px; margin-bottom:4px; }
+.severity-row { display:flex; align-items:center; gap:8px; }
+.severity-row label { font-size:11px; font-weight:700; min-width:48px; letter-spacing:0.03em; }
+.severity-row.sev-info label { color:#3b82f6; }
+.severity-row.sev-warn label { color:#eab308; }
+.severity-row.sev-error label { color:#ef4444; }
+.severity-row.sev-fatal label { color:#dc2626; }
+.sev-bar-track { flex:1; height:20px; background:#0f172a; border-radius:4px; cursor:pointer; position:relative; overflow:hidden; }
+.sev-bar-fill { height:100%; border-radius:4px; transition:width 0.12s ease; }
+.sev-bar-fill.sev-info { background:#3b82f6; }
+.sev-bar-fill.sev-warn { background:#eab308; }
+.sev-bar-fill.sev-error { background:#ef4444; }
+.sev-bar-fill.sev-fatal { background:#dc2626; }
+.severity-row input[type=number] { width:48px; padding:3px 6px; background:#0f172a; border:1px solid #334155; border-radius:4px; color:#e2e8f0; font-size:13px; font-weight:600; font-family:"SF Mono","Fira Code",monospace; text-align:right; }
+.severity-row input[type=number]:focus { outline:none; border-color:#3b82f6; }
+.severity-total { display:flex; justify-content:flex-end; gap:6px; margin-top:2px; margin-bottom:10px; font-size:12px; font-weight:600; color:#64748b; font-family:"SF Mono","Fira Code",monospace; }
+.severity-total span.ok { color:#22c55e; }
+.severity-total span.over { color:#ef4444; }
+
+/* === ATTRIBUTE TABLE === */
+.attr-table { width:100%; border-collapse:collapse; margin-bottom:8px; }
+.attr-table th { font-size:11px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; padding:4px 8px; text-align:left; border-bottom:1px solid #334155; }
+.attr-table td { padding:4px 8px; }
+.attr-table input { width:100%; padding:6px 8px; background:#0f172a; border:1px solid #334155; border-radius:4px; color:#e2e8f0; font-size:13px; font-family:"SF Mono","Fira Code",monospace; }
+.attr-table input:focus { outline:none; border-color:#3b82f6; }
+.attr-table .btn-remove { background:transparent; border:none; color:#ef4444; font-size:16px; cursor:pointer; padding:2px 6px; line-height:1; }
+
+/* === SIGNAL BADGES === */
+.signal-badge { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0; flex-shrink:0; }
+.signal-badge.traces { background:rgba(59,130,246,0.2); color:#60a5fa; }
+.signal-badge.logs { background:rgba(139,92,246,0.2); color:#a78bfa; }
+.signal-badge.both { background:linear-gradient(135deg,rgba(59,130,246,0.2),rgba(139,92,246,0.2)); color:#a78bfa; }
+
+/* === FILTER BAR === */
+.filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+.filter-bar .filter-chip { padding:4px 12px; border-radius:12px; font-size:12px; font-weight:500; cursor:pointer; border:1px solid #334155; background:transparent; color:#94a3b8; transition:all 0.15s; }
+.filter-bar .filter-chip:hover { border-color:#475569; color:#e2e8f0; }
+.filter-bar .filter-chip.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
+.filter-search { flex:1; min-width:120px; padding:6px 10px; background:#0f172a; border:1px solid #334155; border-radius:6px; color:#e2e8f0; font-size:13px; font-family:"SF Mono","Fira Code",monospace; }
+.filter-search:focus { outline:none; border-color:#3b82f6; }
+
+/* === DETAIL TABS === */
+.detail-tabs { display:flex; gap:0; border-bottom:1px solid #334155; margin-bottom:16px; }
+.detail-tab { padding:8px 20px; background:transparent; border:none; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
+.detail-tab:hover { color:#94a3b8; background:#1e293b; }
+.detail-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; }
+.detail-tab .tab-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:8px; font-size:10px; font-weight:600; background:#334155; color:#94a3b8; vertical-align:middle; }
+
+/* === LOG TABLE === */
+.log-table { width:100%; border-collapse:collapse; font-size:12px; }
+.log-table th { padding:8px 12px; background:#0f172a; border-bottom:1px solid #334155; color:#64748b; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:left; white-space:nowrap; }
+.log-table td { padding:8px 12px; border-bottom:1px solid #1e293b; vertical-align:top; }
+.log-table tr { cursor:pointer; transition:background 0.1s; }
+.log-table tr:hover { background:rgba(59,130,246,0.05); }
+.log-table tr.expanded { background:rgba(59,130,246,0.08); }
+.severity-tag { display:inline-block; font-size:10px; font-weight:600; }
+.severity-tag.info { background:rgba(59,130,246,0.2); color:#60a5fa; padding:1px 6px; border-radius:4px; }
+.severity-tag.warn { background:rgba(234,179,8,0.2); color:#eab308; padding:1px 6px; border-radius:4px; }
+.severity-tag.error { background:rgba(239,68,68,0.2); color:#f87171; padding:1px 6px; border-radius:4px; }
+.severity-tag.fatal { background:rgba(220,38,38,0.3); color:#fca5a5; padding:1px 6px; border-radius:4px; }
+.log-table .log-body { max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#94a3b8; }
+.log-table tr.expanded .log-body { white-space:normal; word-break:break-all; }
+.log-detail { display:none; }
+.log-detail.open { display:table-row; }
+.log-detail td { padding:12px 16px; background:#0f172a; }
+.log-detail pre { margin:0; font-size:11px; font-family:"SF Mono","Fira Code",monospace; white-space:pre-wrap; word-break:break-all; max-height:300px; overflow-y:auto; }
+.log-detail .attr-list { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:8px; }
+.log-detail .attr-item { font-size:11px; color:#94a3b8; }
+.log-detail .attr-item strong { color:#64748b; }
+
+/* === LOG SUMMARY === */
+.log-summary-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; margin-bottom:16px; }
+
+/* === SEVERITY MINI TILES === */
+.sev-tiles { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+.sev-tile { background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px 18px; min-width:80px; text-align:center; }
+.sev-tile .count { font-size:22px; font-weight:700; line-height:1.2; }
+.sev-tile .count.sev-info { color:#60a5fa; }
+.sev-tile .count.sev-warn { color:#eab308; }
+.sev-tile .count.sev-error { color:#f87171; }
+.sev-tile .count.sev-fatal { color:#fca5a5; }
+.sev-tile .lbl { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; margin-top:2px; }
+.sev-tile .lbl.sev-info { color:#60a5fa; }
+.sev-tile .lbl.sev-warn { color:#eab308; }
+.sev-tile .lbl.sev-error { color:#f87171; }
+.sev-tile .lbl.sev-fatal { color:#fca5a5; }
 </style>
 </head>
 <body>
@@ -287,6 +399,72 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       <input type="checkbox" id="insecure" checked style="width:18px;height:18px">
       <label for="insecure" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Insecure gRPC</label>
     </div>
+    <!-- Signal Type -->
+    <div class="field" style="grid-column:1/-1">
+      <label>Signal Type</label>
+      <div class="segmented-control" id="signal-type">
+        <button class="active" data-value="traces" onclick="setSignalType('traces')">Traces</button>
+        <button data-value="logs" onclick="setSignalType('logs')">Logs</button>
+        <button data-value="both" onclick="setSignalType('both')">Both</button>
+      </div>
+    </div>
+    <!-- Log Config Toggle & Panel -->
+    <div class="field" style="grid-column:1/-1" id="log-config-area">
+      <div class="log-config-panel open" id="log-config-panel">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="field" id="log-per-span-field">
+            <label>Logs per Span</label>
+            <input type="number" id="logs-per-span" value="3" min="1">
+          </div>
+          <div class="field" id="log-count-field">
+            <label>Log Count</label>
+            <input type="number" id="log-count" value="10" min="1">
+          </div>
+        </div>
+        <h3>Severity Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be 100)</span></h3>
+        <div class="severity-grid" id="severity-grid">
+          <div class="severity-row sev-info">
+            <label>INFO</label>
+            <div class="sev-bar-track" onclick="clickSeverityBar('info', event)">
+              <div class="sev-bar-fill sev-info" id="sev-bar-info" style="width:60%"></div>
+            </div>
+            <input type="number" id="sev-info" min="0" max="100" value="60" oninput="onSeverityInput('info')">
+          </div>
+          <div class="severity-row sev-warn">
+            <label>WARN</label>
+            <div class="sev-bar-track" onclick="clickSeverityBar('warn', event)">
+              <div class="sev-bar-fill sev-warn" id="sev-bar-warn" style="width:25%"></div>
+            </div>
+            <input type="number" id="sev-warn" min="0" max="100" value="25" oninput="onSeverityInput('warn')">
+          </div>
+          <div class="severity-row sev-error">
+            <label>ERROR</label>
+            <div class="sev-bar-track" onclick="clickSeverityBar('error', event)">
+              <div class="sev-bar-fill sev-error" id="sev-bar-error" style="width:12%"></div>
+            </div>
+            <input type="number" id="sev-error" min="0" max="100" value="12" oninput="onSeverityInput('error')">
+          </div>
+          <div class="severity-row sev-fatal">
+            <label>FATAL</label>
+            <div class="sev-bar-track" onclick="clickSeverityBar('fatal', event)">
+              <div class="sev-bar-fill sev-fatal" id="sev-bar-fatal" style="width:3%"></div>
+            </div>
+            <input type="number" id="sev-fatal" min="0" max="100" value="3" oninput="onSeverityInput('fatal')">
+          </div>
+        </div>
+        <div class="severity-total" id="severity-total">Total: <span class="ok">100</span> / 100</div>
+        <h3>Body Template</h3>
+        <div class="field" style="margin-bottom:12px">
+          <textarea id="body-template" rows="3" style="width:100%;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical">{"message":"{{.Message}}","service":"{{.ServiceName}}","severity":"{{.Severity}}","component":"{{.Component}}"}</textarea>
+        </div>
+        <h3>Custom Attributes</h3>
+        <table class="attr-table" id="attr-table">
+          <thead><tr><th>Key</th><th>Value</th><th style="width:32px"></th></tr></thead>
+          <tbody id="attr-body"></tbody>
+        </table>
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px" onclick="addLogAttr()">+ Add Attribute</button>
+      </div>
+    </div>
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
@@ -306,12 +484,20 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     <button class="ottl-prototyper-tab" data-ottl-mode="filter" onclick="switchOttlMode('filter')">Filter</button>
   </div>
 
+  <!-- Signal Tabs -->
+  <div class="ottl-signal-tabs">
+    <button class="ottl-signal-tab active" data-ottl-signal="traces" onclick="switchOttlSignal('traces')">Traces</button>
+    <button class="ottl-signal-tab" data-ottl-signal="logs" onclick="switchOttlSignal('logs')">Logs</button>
+    <button class="ottl-signal-tab" data-ottl-signal="both" onclick="switchOttlSignal('both')">Both</button>
+  </div>
+
   <!-- Shared Run Selector -->
   <div style="display:flex;gap:12px;align-items:center;margin:12px 0;padding:4px 0">
     <label for="ottl-run-select" style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Target Run</label>
     <select id="ottl-run-select" onchange="onOttlRunChange()" style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;max-width:400px">
       <option value="">Select a completed run...</option>
     </select>
+    <span id="ottl-sig-badge" style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;color:#fff;background:#3b82f6;white-space:nowrap">Traces</span>
   </div>
 
   <!-- Editor Container: Line Numbers + Textarea + Sidebar -->
@@ -326,10 +512,22 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
         <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - keep_keys(attributes, [key1, key2])')">keep keys</div>
         <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;api.*&quot;')">set with where</div>
       </div>
+      <div class="ottl-snippet-group" id="ottl-snippets-transform-logs" style="display:none">
+        <h4>Log Transform Snippets</h4>
+        <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - set(attributes[&quot;key&quot;], &quot;value&quot;)')">set attribute</div>
+        <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - delete_key(attributes, &quot;key&quot;)')">delete attribute</div>
+        <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - set(severity_text, &quot;ERROR&quot;)')">set severity</div>
+        <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - set(body, &quot;transformed log body&quot;)')">set body</div>
+      </div>
       <div class="ottl-snippet-group" id="ottl-snippets-filter" style="display:none">
         <h4>Filter Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('traces:\n  span:\n    - kind == SPAN_KIND_INTERNAL')">kind condition</div>
         <div class="ottl-snippet" onclick="insertSnippet('traces:\n  span:\n    - attributes[&quot;key&quot;] == &quot;value&quot;')">attribute condition</div>
+      </div>
+      <div class="ottl-snippet-group" id="ottl-snippets-filter-logs" style="display:none">
+        <h4>Log Filter Snippets</h4>
+        <div class="ottl-snippet" onclick="insertSnippet('logs:\n  log_record:\n    - severity_number >= SEVERITY_NUMBER_ERROR')">severity >= ERROR</div>
+        <div class="ottl-snippet" onclick="insertSnippet('logs:\n  log_record:\n    - attributes[&quot;key&quot;] == &quot;value&quot;')">attribute condition</div>
       </div>
     </div>
   </div>
@@ -371,6 +569,13 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     <button id="pause-all-btn" class="btn-pause" onclick="pauseAllRuns()" style="display:none">Pause All</button>
     <button id="resume-all-btn" class="btn-pause" onclick="resumeAllRuns()" style="display:none">Resume All</button>
     <button id="stop-all-btn" class="btn-danger" onclick="stopAllRuns()" style="display:none">Stop All Running</button>
+  </div>
+  <div class="filter-bar">
+    <button class="filter-chip active" data-filter="all" onclick="setSignalFilter('all')">All</button>
+    <button class="filter-chip" data-filter="traces" onclick="setSignalFilter('traces')">Traces</button>
+    <button class="filter-chip" data-filter="logs" onclick="setSignalFilter('logs')">Logs</button>
+    <button class="filter-chip" data-filter="both" onclick="setSignalFilter('both')">Both</button>
+    <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs..." oninput="renderRunList()">
   </div>
   <div id="run-list" class="run-list">
     <div class="empty"><p>No runs yet. Configure and click Run to generate traces.</p></div>
@@ -502,6 +707,116 @@ function formatDuration(ns) {
   return (ns / 1e9).toFixed(2) + 's';
 }
 
+// --- Signal type UI ---
+let signalFilter = 'all';
+
+function getSignalType() {
+  const btns = document.querySelectorAll('#signal-type button');
+  for (const btn of btns) {
+    if (btn.classList.contains('active')) return btn.getAttribute('data-value');
+  }
+  return 'traces';
+}
+
+function setSignalType(type) {
+  document.querySelectorAll('#signal-type button').forEach(b => b.classList.toggle('active', b.getAttribute('data-value') === type));
+  const isLogs = type === 'logs';
+  const isBoth = type === 'both';
+  // Disable trace-specific fields for log-only mode
+  document.getElementById('trace-count').disabled = isLogs;
+  document.getElementById('topology').disabled = isLogs;
+  document.getElementById('scenario').disabled = isLogs;
+  document.getElementById('span-count').disabled = isLogs;
+  document.getElementById('scenario-span-count').disabled = isLogs;
+  document.getElementById('max-depth').disabled = isLogs;
+  document.getElementById('service-name').disabled = isLogs;
+  // Show/hide log config area; always open when visible
+  document.getElementById('log-config-area').style.display = (isBoth || isLogs) ? 'block' : 'none';
+  document.getElementById('log-config-panel').classList.toggle('open', isBoth || isLogs);
+  // Show/hide per-span vs count fields
+  document.getElementById('log-per-span-field').style.display = isBoth ? 'block' : 'none';
+  document.getElementById('log-count-field').style.display = isLogs ? 'block' : 'none';
+}
+
+function updateSeverityBars() {
+  const ids = ['info', 'warn', 'error', 'fatal'];
+  ids.forEach(s => {
+    const v = parseInt(document.getElementById('sev-' + s).value) || 0;
+    document.getElementById('sev-bar-' + s).style.width = Math.min(v, 100) + '%';
+  });
+  const total = ids.reduce((sum, s) => sum + (parseInt(document.getElementById('sev-' + s).value) || 0), 0);
+  const el = document.getElementById('severity-total');
+  el.innerHTML = 'Total: <span class="' + (total === 100 ? 'ok' : 'over') + '">' + total + '</span> / 100';
+}
+
+function redistributeSeverity(changed, newVal) {
+  const ids = ['info', 'warn', 'error', 'fatal'];
+  const clamped = Math.max(0, Math.min(100, newVal));
+  const remaining = 100 - clamped;
+  const others = ids.filter(s => s !== changed);
+  const otherSum = others.reduce((sum, s) => sum + (parseInt(document.getElementById('sev-' + s).value) || 0), 0);
+  let newOthers = {};
+  if (otherSum === 0) {
+    const each = Math.floor(remaining / 3);
+    let leftover = remaining - each * 3;
+    others.forEach((s, i) => { newOthers[s] = each + (i < leftover ? 1 : 0); });
+  } else {
+    let assigned = 0;
+    others.forEach((s, i) => {
+      const cur = parseInt(document.getElementById('sev-' + s).value) || 0;
+      let v = i === others.length - 1
+        ? remaining - assigned
+        : Math.round(remaining * cur / otherSum);
+      newOthers[s] = v;
+      assigned += v;
+    });
+  }
+  document.getElementById('sev-' + changed).value = clamped;
+  others.forEach(s => { document.getElementById('sev-' + s).value = Math.max(0, Math.min(100, newOthers[s])); });
+  updateSeverityBars();
+}
+
+function onSeverityInput(changed) {
+  const el = document.getElementById('sev-' + changed);
+  let v = parseInt(el.value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 100) v = 100;
+  redistributeSeverity(changed, v);
+}
+
+function clickSeverityBar(changed, ev) {
+  const track = ev.currentTarget;
+  const rect = track.getBoundingClientRect();
+  const pct = Math.round(((ev.clientX - rect.left) / rect.width) * 100);
+  redistributeSeverity(changed, Math.max(0, Math.min(100, pct)));
+}
+
+function collectLogAttrs() {
+  const rows = document.querySelectorAll('#attr-body tr');
+  const attrs = [];
+  rows.forEach(tr => {
+    const key = tr.querySelector('.attr-key').value.trim();
+    const val = tr.querySelector('.attr-val').value.trim();
+    if (key) attrs.push({ key: key, value: val });
+  });
+  return attrs;
+}
+
+function addLogAttr(key, val) {
+  const tbody = document.getElementById('attr-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" class="attr-key" placeholder="key" value="' + escapeHtml(key || '') + '"></td>' +
+    '<td><input type="text" class="attr-val" placeholder="value" value="' + escapeHtml(val || '') + '"></td>' +
+    '<td><button class="btn-danger" style="font-size:14px;padding:2px 6px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+  tbody.appendChild(tr);
+}
+
+function setSignalFilter(type) {
+  signalFilter = type;
+  document.querySelectorAll('.filter-chip').forEach(b => b.classList.toggle('active', b.getAttribute('data-filter') === type));
+  renderRunList();
+}
+
 let runs = {};
 let pollTimer = null;
 
@@ -511,7 +826,9 @@ async function startRun() {
   const statusEl = document.getElementById('run-status');
   statusEl.textContent = 'Starting...';
 
-  const body = {
+  const signalType = getSignalType();
+
+  var body = {
     seed: parseInt(document.getElementById('seed').value) || 42,
     trace_count: (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })(),
     rate: parseInt(document.getElementById('rate').value) || 0,
@@ -524,8 +841,25 @@ async function startRun() {
     output: document.getElementById('output').value,
     format: document.getElementById('format').value,
     insecure: document.getElementById('insecure').checked,
-    endpoints: document.getElementById('endpoints').value.split(',').map(s => s.trim()).filter(s => s)
+    endpoints: document.getElementById('endpoints').value.split(',').map(s => s.trim()).filter(s => s),
+    signal_type: signalType
   };
+
+  if (signalType === 'logs' || signalType === 'both') {
+    body.log_config = {
+      enabled: true,
+      logs_per_span: parseInt(document.getElementById('logs-per-span').value) || 3,
+      log_count: parseInt(document.getElementById('log-count').value) || 10,
+      severity_dist: {
+        info: parseInt(document.getElementById('sev-info').value) || 0,
+        warn: parseInt(document.getElementById('sev-warn').value) || 0,
+        error: parseInt(document.getElementById('sev-error').value) || 0,
+        fatal: parseInt(document.getElementById('sev-fatal').value) || 0
+      },
+      body_template: document.getElementById('body-template').value || '',
+      attributes: collectLogAttrs()
+    };
+  }
 
   try {
     const run = await api('/api/runs', {
@@ -643,6 +977,7 @@ async function ottlValidate() {
 // --- Transform / Diff state ---
 let lastTransform = { original: null, transformed: null, activeTab: 'transformed' };
 let ottlMode = 'transform';
+let ottlSignal = 'traces';
 
 async function ottlTransform() {
   const input = document.getElementById('ottl-input');
@@ -672,15 +1007,16 @@ async function ottlTransform() {
     btn.disabled = false;
     return;
   }
+  const run = runs[runId];
+  const sigType = ottlSignal;
   try {
     const data = await api('/api/ottl/transform', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ run_id: runId, config: config })
+      body: JSON.stringify({ run_id: runId, config: config, signal_type: sigType })
     });
     if (data.valid && data.transformed_data) {
-      const run = runs[runId];
-      const originalData = run && run.trace_data ? run.trace_data : null;
+      const originalData = run && (sigType === 'logs' ? run.log_data : run.trace_data) ? (sigType === 'logs' ? run.log_data : run.trace_data) : null;
       lastTransform.original = originalData;
       lastTransform.transformed = data.transformed_data;
       lastTransform.activeTab = 'transformed';
@@ -942,26 +1278,63 @@ function updateOttlRunSelector() {
   while (select.options.length > 1) {
     select.remove(1);
   }
-  const entries = Object.values(runs).filter(r => r.status === 'completed' && r.span_count > 0);
+  const entries = Object.values(runs).filter(r => r.status === 'completed' && (r.span_count > 0 || r.log_count > 0));
   entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
   let hasData = false;
   entries.forEach(r => {
     const opt = document.createElement('option');
     opt.value = r.id;
+    // Detect run signal type from all available signals:
+    //  1. presence of trace_data / log_data (actual telemetry),
+    //  2. log_count / log_count_completed (run-level counters),
+    //  3. config.signal_type (the original run config).
+    const hasTrace = !!r.trace_data;
+    const hasLog = !!(r.log_data || r.log_count || r.log_count_completed || r.config?.log_config?.enabled);
+    const sig = hasTrace && hasLog ? 'T+L' : hasTrace ? 'T' : 'L';
+    opt.dataset.signal = hasTrace && hasLog ? 'both' : hasTrace ? 'traces' : 'logs';
     const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
-    opt.textContent = label + ' — ' + (r.span_count || 0) + ' spans';
+    opt.textContent = label + ' — ' + sig + ' ' + (r.span_count || 0) + ' spans' + (hasLog ? ', ' + (r.log_count || r.log_count_completed || 0) + ' logs' : '');
     select.appendChild(opt);
     hasData = true;
   });
   actionBtn.disabled = !hasData;
   if (currentVal) {
-    // Re-select the previously selected run if it still exists
     for (let i = 0; i < select.options.length; i++) {
       if (select.options[i].value === currentVal) {
         select.selectedIndex = i;
         break;
       }
     }
+  }
+  onOttlRunChange();
+}
+
+function onOttlRunChange() {
+  const select = document.getElementById('ottl-run-select');
+  const opt = select.options[select.selectedIndex];
+  const signal = opt && opt.dataset ? opt.dataset.signal : '';
+
+  // Always render source data for the selected run
+  renderRunSourceData(select.value, 'ottl-source-data');
+
+  // Update badge
+  const badgeEl = document.getElementById('ottl-sig-badge');
+  if (!badgeEl) return;
+  if (!signal) {
+    // Placeholder or unknown — neutral badge
+    badgeEl.textContent = '—';
+    badgeEl.style.background = '#475569';
+    return;
+  }
+  if (signal === 'logs') {
+    badgeEl.textContent = 'Logs';
+    badgeEl.style.background = '#8b5cf6';
+  } else if (signal === 'both') {
+    badgeEl.textContent = 'T+L';
+    badgeEl.style.background = '#f59e0b';
+  } else {
+    badgeEl.textContent = 'Traces';
+    badgeEl.style.background = '#3b82f6';
   }
 }
 
@@ -975,32 +1348,61 @@ function ottlClear() {
   updateOttlLineNumbers();
 }
 
-// --- OTTL Mode Switching ---
+// --- OTTL Mode + Signal Switching ---
 function switchOttlMode(mode) {
   ottlMode = mode;
-  // Update tab buttons
   document.querySelectorAll('.ottl-prototyper-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.ottlMode === mode);
   });
-  // Update action button label
   const actionBtn = document.getElementById('ottl-action-btn');
   actionBtn.textContent = mode === 'transform' ? 'Transform' : 'Filter';
   actionBtn.onclick = mode === 'transform' ? ottlTransform : ottlFilter;
-  // Update validate button handler per mode
   const validateBtn = document.getElementById('ottl-validate-btn');
   validateBtn.onclick = mode === 'transform' ? ottlValidate : ottlFilterValidate;
-  // Toggle filter controls visibility
   document.getElementById('ottl-filter-controls').classList.toggle('hidden', mode !== 'filter');
-  // Toggle snippet groups
-  document.getElementById('ottl-snippets-transform').style.display = mode === 'transform' ? '' : 'none';
-  document.getElementById('ottl-snippets-filter').style.display = mode === 'filter' ? '' : 'none';
-  // Update placeholder
-  const ta = document.getElementById('ottl-input');
-  ta.placeholder = mode === 'transform'
-    ? 'Paste OTel Collector processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n        - delete_key(attributes, "secret")'
-    : 'Paste OTel Collector processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n      - attributes["http.status_code"] == 200';
-  // Clear results
+  updateSnippetVisibility();
+  updateOttlPlaceholder();
   ottlClear();
+}
+
+function switchOttlSignal(signal) {
+  ottlSignal = signal;
+  document.querySelectorAll('.ottl-signal-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.ottlSignal === signal);
+  });
+  updateSnippetVisibility();
+  updateOttlPlaceholder();
+  ottlClear();
+}
+
+function updateSnippetVisibility() {
+  const showTrace = ottlSignal === 'traces' || ottlSignal === 'both';
+  const showLog = ottlSignal === 'logs' || ottlSignal === 'both';
+  document.getElementById('ottl-snippets-transform').style.display = ottlMode === 'transform' && showTrace ? '' : 'none';
+  document.getElementById('ottl-snippets-transform-logs').style.display = ottlMode === 'transform' && showLog ? '' : 'none';
+  document.getElementById('ottl-snippets-filter').style.display = ottlMode === 'filter' && showTrace ? '' : 'none';
+  document.getElementById('ottl-snippets-filter-logs').style.display = ottlMode === 'filter' && showLog ? '' : 'none';
+}
+
+function updateOttlPlaceholder() {
+  const ta = document.getElementById('ottl-input');
+  if (ottlMode === 'transform') {
+    if (ottlSignal === 'traces') {
+      ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")';
+    } else if (ottlSignal === 'logs') {
+      ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+    } else {
+      ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+    }
+  } else {
+    if (ottlSignal === 'traces') {
+      ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL';
+    } else if (ottlSignal === 'logs') {
+      ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
+    } else {
+      ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - attributes["key"] == "value"\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
+    }
+  }
 }
 
 function insertSnippet(code) {
@@ -1142,11 +1544,6 @@ function updateFilterMode() {
 
 // --- Source data display for OTTL panels ---
 
-function onOttlRunChange() {
-  const select = document.getElementById('ottl-run-select');
-  renderRunSourceData(select.value, 'ottl-source-data');
-}
-
 function renderRunSourceData(runId, containerId) {
   const container = document.getElementById(containerId);
   if (!runId || !runs[runId]) {
@@ -1154,38 +1551,67 @@ function renderRunSourceData(runId, containerId) {
     return;
   }
   const run = runs[runId];
-  if (!run.trace_data) {
-    container.classList.add('hidden');
+
+  // Trace data available
+  if (run.trace_data) {
+    container.classList.remove('hidden');
+    let traceCount = 0, spanCount = 0;
+    const td = typeof run.trace_data === 'string' ? JSON.parse(run.trace_data) : run.trace_data;
+    if (td.resource_spans) {
+      traceCount = td.resource_spans.length;
+      td.resource_spans.forEach(rs => {
+        if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+          if (ss.spans) spanCount += ss.spans.length;
+        });
+      });
+    }
+    const isOpen = container.dataset.open === 'true';
+    const pretty = typeof run.trace_data === 'string' ? run.trace_data : JSON.stringify(run.trace_data, null, 2);
+    container.innerHTML =
+      '<div class="header" onclick="toggleSourceData(this)">'
+      + '<span class="arrow' + (isOpen ? ' expanded' : '') + '">&#9654;</span>'
+      + '<strong>Source Data</strong>'
+      + ' <span class="summary">' + spanCount + ' spans, ' + traceCount + ' trace group(s)</span>'
+      + '</div>'
+      + '<div class="stats">'
+      + '<span>Spans: <strong>' + spanCount + '</strong></span>'
+      + '<span>Trace groups: <strong>' + traceCount + '</strong></span>'
+      + '<span>Run: <strong>' + escapeHtml(run.id) + '</strong></span>'
+      + '</div>'
+      + '<div class="body' + (isOpen ? ' open' : '') + '"><pre>' + escapeHtml(pretty) + '</pre></div>';
     return;
   }
-  container.classList.remove('hidden');
 
-  // Parse trace data and count spans/traces
-  let traceCount = 0, spanCount = 0;
-  const td = typeof run.trace_data === 'string' ? JSON.parse(run.trace_data) : run.trace_data;
-  if (td.resource_spans) {
-    traceCount = td.resource_spans.length;
-    td.resource_spans.forEach(rs => {
-      if (rs.scope_spans) rs.scope_spans.forEach(ss => {
-        if (ss.spans) spanCount += ss.spans.length;
+  // Log data available (log-only run)
+  if (run.log_data) {
+    container.classList.remove('hidden');
+    let logRecordCount = 0;
+    const ld = typeof run.log_data === 'string' ? JSON.parse(run.log_data) : run.log_data;
+    if (ld.resource_logs) {
+      ld.resource_logs.forEach(rl => {
+        if (rl.scope_logs) rl.scope_logs.forEach(sl => {
+          if (sl.log_records) logRecordCount += sl.log_records.length;
+        });
       });
-    });
+    }
+    const isOpen = container.dataset.open === 'true';
+    const pretty = typeof run.log_data === 'string' ? run.log_data : JSON.stringify(run.log_data, null, 2);
+    container.innerHTML =
+      '<div class="header" onclick="toggleSourceData(this)">'
+      + '<span class="arrow' + (isOpen ? ' expanded' : '') + '">&#9654;</span>'
+      + '<strong>Source Data</strong>'
+      + ' <span class="summary">' + logRecordCount + ' log records</span>'
+      + '</div>'
+      + '<div class="stats">'
+      + '<span>Log records: <strong>' + logRecordCount + '</strong></span>'
+      + '<span>Run: <strong>' + escapeHtml(run.id) + '</strong></span>'
+      + '</div>'
+      + '<div class="body' + (isOpen ? ' open' : '') + '"><pre>' + escapeHtml(pretty) + '</pre></div>';
+    return;
   }
 
-  const isOpen = container.dataset.open === 'true';
-  const pretty = typeof run.trace_data === 'string' ? run.trace_data : JSON.stringify(run.trace_data, null, 2);
-  container.innerHTML =
-    '<div class="header" onclick="toggleSourceData(this)">'
-    + '<span class="arrow' + (isOpen ? ' expanded' : '') + '">&#9654;</span>'
-    + '<strong>Source Data</strong>'
-    + ' <span class="summary">' + spanCount + ' spans, ' + traceCount + ' trace group(s)</span>'
-    + '</div>'
-    + '<div class="stats">'
-    + '<span>Spans: <strong>' + spanCount + '</strong></span>'
-    + '<span>Trace groups: <strong>' + traceCount + '</strong></span>'
-    + '<span>Run: <strong>' + escapeHtml(run.id) + '</strong></span>'
-    + '</div>'
-    + '<div class="body' + (isOpen ? ' open' : '') + '"><pre>' + escapeHtml(pretty) + '</pre></div>';
+  // No source data available at all
+  container.classList.add('hidden');
 }
 
 function toggleSourceData(headerEl) {
@@ -1266,11 +1692,13 @@ async function ottlFilter() {
     return;
   }
   const mode = updateFilterMode();
+  const run = runs[runId];
+  const sigType = ottlSignal;
   try {
     const data = await api('/api/ottl/filter', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ run_id: runId, config: config, mode: mode })
+      body: JSON.stringify({ run_id: runId, config: config, mode: mode, signal_type: sigType })
     });
     if (data.valid && data.filtered_data) {
       lastFilterResult.filtered = data.filtered_data;
@@ -1429,14 +1857,37 @@ function startPolling() {
 
 let lastDetailKey = '';
 
+function getRunSignalType(r) {
+  if (r.output === 'import') return 'traces';
+  return r.config?.signal_type || 'traces';
+}
+
+function getSignalBadge(signalType) {
+  if (signalType === 'both') return '<span class="signal-badge both">TL</span>';
+  if (signalType === 'logs') return '<span class="signal-badge logs">L</span>';
+  return '<span class="signal-badge traces">T</span>';
+}
+
 function renderRunList() {
   const list = document.getElementById('run-list');
-  const entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  const search = (document.getElementById('filter-search').value || '').toLowerCase();
+  let entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+
+  // Apply filters
+  if (signalFilter !== 'all') {
+    entries = entries.filter(r => getRunSignalType(r) === signalFilter);
+  }
+  if (search) {
+    entries = entries.filter(r => r.id.toLowerCase().includes(search) || (r.scenario || '').toLowerCase().includes(search));
+  }
+
   if (entries.length === 0) {
-    list.innerHTML = '<div class="empty"><p>No jobs yet. Configure and click Run to generate traces.</p></div>';
+    list.innerHTML = '<div class="empty"><p>No jobs match the current filter.</p></div>';
     return;
   }
   list.innerHTML = entries.map(r => {
+    const signalType = getRunSignalType(r);
+    const signalBadge = getSignalBadge(signalType);
     const scenario = r.scenario || r.config?.Scenario || '';
     const scenarioTag = scenario ? ' &middot; ' + scenario : '';
     const isImported = r.output === 'import';
@@ -1448,15 +1899,21 @@ function renderRunList() {
       var tc = r.config?.TraceCount;
       if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
     }
+    var statsHtml = '<span>' + (r.span_count || 0) + ' spans</span>';
+    if (r.log_count || r.log_count_completed) {
+      var lc = r.log_count || r.log_count_completed;
+      statsHtml += '<span>' + lc + ' logs</span>';
+    }
+    statsHtml += '<span>' + formatDuration(r.duration_ns) + '</span>';
     return `<div class="run-card" onclick="showDetail('${r.id}')">
+      ${signalBadge}
       <div class="status ${statusClass(r.status)}"></div>
       <div class="info">
         <div class="id">${r.id}${scenarioTag}</div>
         <div class="meta">${metaParts.join(' &middot; ')}</div>
       </div>
       <div class="stats">
-        <span>${r.span_count || 0} spans</span>
-        <span>${formatDuration(r.duration_ns)}</span>
+        ${statsHtml}
       </div>
       ${r.status === 'running' ? `<button class="btn-pause" onclick="event.stopPropagation();pauseRun('${r.id}')">Pause</button>` : ''}
       ${r.status === 'paused' ? `<button class="btn-pause" onclick="event.stopPropagation();resumeRun('${r.id}')">Resume</button>` : ''}
@@ -1485,68 +1942,65 @@ function showDetail(id) {
   section.scrollIntoView({ behavior: 'smooth' });
 }
 
+let detailTab = 'traces';
+
 function renderDetail(r) {
   // Build a key from the run's mutable fields. If unchanged since last
   // render, skip DOM replacement to preserve scroll position in <pre>.
-  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + (typeof r.trace_data === 'string' ? r.trace_data.substring(0, 100) : '');
+  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.log_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + (typeof r.trace_data === 'string' ? r.trace_data.substring(0, 100) : '') + '|' + detailTab;
   if (key === lastDetailKey) return;
   lastDetailKey = key;
 
   const el = document.getElementById('detail-content');
+  const signalType = getRunSignalType(r);
+  const hasLogs = r.log_data || (r.log_count && r.log_count > 0);
 
+  // Running state
   if (r.status === 'running') {
     const done = r.trace_count_completed || 0;
     const total = r.trace_count;
-    const totalDisplay = total === 0 ? '&infin;' : total;
     const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
-    el.innerHTML = `<div class="stat-row">
-      <div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>
-      <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
-    </div>
-    <div style="margin-top:12px">
-      <button class="btn btn-secondary" onclick="pauseRun('${r.id}')">Pause</button>
-      <button class="btn btn-secondary" onclick="stopRun('${r.id}')" style="margin-left:8px">Stop</button>
-    </div>`;
+    var progressHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
+    if (hasLogs || r.config?.log_config?.enabled) {
+      var logDone = r.log_count_completed || 0;
+      var logTotal = r.log_count || 0;
+      progressHtml += '<div class="stat"><div class="value">' + logDone + ' / ' + (logTotal || '?') + '</div><div class="label">Logs</div></div>';
+    }
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>' + progressHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="pauseRun(\'' + r.id + '\')">Pause</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
     return;
   }
 
+  // Paused state
   if (r.status === 'paused') {
     const done = r.trace_count_completed || 0;
     const total = r.trace_count;
-    const totalDisplay = total === 0 ? '&infin;' : total;
     const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
-    el.innerHTML = `<div class="stat-row">
-      <div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>
-      <div class="stat"><div class="value">${tracesLabel}</div><div class="label">Traces</div></div>
-    </div>
-    <div style="margin-top:12px">
-      <button class="btn btn-secondary" onclick="resumeRun('${r.id}')">Resume</button>
-      <button class="btn btn-secondary" onclick="stopRun('${r.id}')" style="margin-left:8px">Stop</button>
-    </div>`;
+    var pausedHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
+    if (hasLogs) {
+      pausedHtml += '<div class="stat"><div class="value">' + (r.log_count_completed || 0) + ' / ' + (r.log_count || '?') + '</div><div class="label">Logs</div></div>';
+    }
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>' + pausedHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="resumeRun(\'' + r.id + '\')">Resume</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
     return;
   }
 
+  // Failed state
   if (r.status === 'failed') {
-    el.innerHTML = `<div class="stat-row">
-      <div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div>
-      <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
-    </div>
-    <div class="error">${r.error || 'Unknown error'}</div>`;
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div></div><div class="error">' + (r.error || 'Unknown error') + '</div>';
     return;
   }
 
+  // Stopped state
   if (r.status === 'stopped') {
-    el.innerHTML = `<div class="stat-row">
-      <div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div>
-      <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
-      <div class="stat"><div class="value">${r.trace_count_completed || 0}</div><div class="label">Traces Generated</div></div>
-      <div class="stat"><div class="value">${r.span_count || 0}</div><div class="label">Spans</div></div>
-    </div>`;
+    var stoppedStats = '<div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div><div class="stat"><div class="value">' + (r.span_count || 0) + '</div><div class="label">Spans</div></div>';
+    if (r.log_count_completed) {
+      stoppedStats += '<div class="stat"><div class="value">' + r.log_count_completed + '</div><div class="label">Logs</div></div>';
+    }
+    el.innerHTML = '<div class="stat-row">' + stoppedStats + '</div>';
     return;
   }
 
-  let spanCountTotal = 0;
-  let traceCount = 0;
+  // ===== Completed status =====
+  let spanCountTotal = 0, traceCount = 0;
   if (r.trace_data) {
     try {
       const td = typeof r.trace_data === 'string' ? JSON.parse(r.trace_data) : r.trace_data;
@@ -1561,20 +2015,151 @@ function renderDetail(r) {
     } catch(e) { /* use r.span_count */ }
   }
 
-  const isImported = r.output === 'import';
-  el.innerHTML = `<div class="stat-row">
-    <div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>
-    <div class="stat"><div class="value">${spanCountTotal || r.span_count || 0}</div><div class="label">Total Spans</div></div>
-    <div class="stat"><div class="value">${traceCount || r.trace_count || 0}</div><div class="label">Traces</div></div>
-    <div class="stat"><div class="value">${formatDuration(r.duration_ns)}</div><div class="label">Duration</div></div>
-    <div class="stat"><div class="value">${isImported ? '-' : (r.config?.Seed || '-')}</div><div class="label">Seed</div></div>
-    <div class="stat"><div class="value">${isImported ? 'Imported' : (r.scenario || r.config?.Scenario || r.config?.Topology || '-')}</div><div class="label">Scenario/Topology</div></div>
-  </div>`;
+  // Count log records
+  let logRecordCount = 0, logSeverities = {};
+  if (r.log_data) {
+    try {
+      const ld = typeof r.log_data === 'string' ? JSON.parse(r.log_data) : r.log_data;
+      if (ld.resource_logs) {
+        ld.resource_logs.forEach(rl => {
+          if (rl.scope_logs) rl.scope_logs.forEach(sl => {
+            if (sl.log_records) {
+              sl.log_records.forEach(lr => {
+                logRecordCount++;
+                var sev = (lr.severity_text || 'INFO').toLowerCase();
+                logSeverities[sev] = (logSeverities[sev] || 0) + 1;
+              });
+            }
+          });
+        });
+      }
+    } catch(e) {}
+  }
 
-  if (r.trace_data) {
+  const isImported = r.output === 'import';
+  var summaryHtml = '<div class="stat-row">';
+  summaryHtml += '<div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (spanCountTotal || r.span_count || 0) + '</div><div class="label">Spans</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (traceCount || r.trace_count || 0) + '</div><div class="label">Traces</div></div>';
+  if (logRecordCount > 0) {
+    summaryHtml += '<div class="stat"><div class="value">' + logRecordCount + '</div><div class="label">Logs</div></div>';
+  }
+  summaryHtml += '<div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed || '-')) + '</div><div class="label">Seed</div></div>';
+  summaryHtml += '</div>';
+
+  // Severity mini tiles — below stat row, each severity as a small stat tile
+  if (logRecordCount > 0) {
+    summaryHtml += '<div class="sev-tiles">';
+    var sevOrder = ['info', 'warn', 'error', 'fatal'];
+    sevOrder.forEach(function(s) {
+      var count = logSeverities[s] || 0;
+      summaryHtml += '<div class="sev-tile"><div class="count sev-' + s + '">' + count + '</div><div class="lbl sev-' + s + '">' + s.toUpperCase() + '</div></div>';
+    });
+    summaryHtml += '</div>';
+  }
+
+  // Build tab bar
+  var hasTraceData = !!r.trace_data;
+  var hasLogData = logRecordCount > 0;
+  var tabHtml = '<div class="detail-tabs">';
+  if (hasTraceData) {
+    tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Traces<span class="tab-badge">' + (traceCount || r.trace_count || 0) + '</span></button>';
+  }
+  if (hasLogData) {
+    tabHtml += '<button class="detail-tab' + (detailTab === 'logs' ? ' active' : '') + '" onclick="switchDetailTab(\'logs\')">Logs<span class="tab-badge">' + logRecordCount + '</span></button>';
+  }
+  tabHtml += '</div>';
+
+  el.innerHTML = summaryHtml + tabHtml;
+
+  if (detailTab === 'logs' && hasLogData) {
+    el.innerHTML += renderLogTable(r.log_data);
+  } else if (detailTab === 'traces' && r.trace_data) {
     const pretty = typeof r.trace_data === 'string' ? r.trace_data : JSON.stringify(r.trace_data, null, 2);
     el.innerHTML += '<h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#94a3b8">Trace Data</h3>';
     el.innerHTML += '<pre>' + escapeHtml(pretty) + '</pre>';
+  }
+}
+
+function switchDetailTab(tab) {
+  detailTab = tab;
+  // Re-render will fire via polling or we can manually trigger
+  const detailId = document.getElementById('detail-id').textContent;
+  const r = runs[detailId];
+  if (r) renderDetail(r);
+}
+
+function renderLogTable(logData) {
+  let logs;
+  try {
+    logs = typeof logData === 'string' ? JSON.parse(logData) : logData;
+  } catch(e) { return '<div class="error">Failed to parse log data</div>'; }
+
+  var html = '<table class="log-table"><thead><tr><th style="width:52px">Severity</th><th style="width:140px">Timestamp</th><th>Body</th><th style="width:80px">Trace ID</th></tr></thead><tbody>';
+
+  if (logs.resource_logs) {
+    var allRecords = [];
+    logs.resource_logs.forEach(function(rl) {
+      if (rl.scope_logs) rl.scope_logs.forEach(function(sl) {
+        if (sl.log_records) sl.log_records.forEach(function(lr) {
+          allRecords.push(lr);
+        });
+      });
+    });
+
+    allRecords.slice(0, 200).forEach(function(lr, idx) {
+      var sev = (lr.severity_text || 'info').toLowerCase();
+      var sevClass = sev === 'warn' ? 'warn' : sev === 'error' ? 'error' : sev === 'fatal' ? 'fatal' : 'info';
+      var ts = lr.time_unix_nano ? new Date(lr.time_unix_nano / 1e6).toLocaleTimeString() : '-';
+
+      var bodyStr = '';
+      if (lr.body) {
+        bodyStr = lr.body.stringValue || JSON.stringify(lr.body);
+      }
+
+      var traceIdStr = '';
+      if (lr.trace_id) {
+        traceIdStr = typeof lr.trace_id === 'string' ? lr.trace_id.substring(0, 16) : '';
+      }
+
+      html += '<tr onclick="toggleLogDetail(this, ' + idx + ')" class="log-row" data-idx="' + idx + '">';
+      html += '<td><span class="severity-tag ' + sevClass + '">' + (lr.severity_text || 'INFO') + '</span></td>';
+      html += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
+      html += '<td><div class="log-body">' + escapeHtml(bodyStr) + '</div></td>';
+      html += '<td style="font-family:monospace;font-size:10px;color:#475569">' + escapeHtml(traceIdStr) + '...</td>';
+      html += '</tr>';
+
+      // Detail row (hidden)
+      html += '<tr class="log-detail" id="log-detail-' + idx + '"><td colspan="4">';
+      html += '<pre>' + escapeHtml(JSON.stringify(lr, null, 2)) + '</pre>';
+      if (lr.attributes && lr.attributes.length) {
+        html += '<div class="attr-list">';
+        lr.attributes.forEach(function(attr) {
+          var av = '';
+          if (attr.value) av = attr.value.stringValue || attr.value.intValue || attr.value.doubleValue || JSON.stringify(attr.value);
+          html += '<span class="attr-item"><strong>' + escapeHtml(attr.key) + ':</strong> ' + escapeHtml(String(av)) + '</span>';
+        });
+        html += '</div>';
+      }
+      html += '</td></tr>';
+    });
+  }
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function toggleLogDetail(row, idx) {
+  var detail = document.getElementById('log-detail-' + idx);
+  if (!detail) return;
+  var isOpen = detail.classList.contains('open');
+  // Close all
+  document.querySelectorAll('.log-detail.open').forEach(function(el) { el.classList.remove('open'); });
+  document.querySelectorAll('.log-table tr.expanded').forEach(function(el) { el.classList.remove('expanded'); });
+  if (!isOpen) {
+    detail.classList.add('open');
+    row.classList.add('expanded');
   }
 }
 
@@ -1585,7 +2170,21 @@ function escapeHtml(s) {
 }
 
 loadScenarios();
-renderRunList();
+setSignalType('traces');
+
+// Load existing runs from the server so the run list and OTTL selector
+// are populated immediately on page load (not just after the first new run).
+(async function loadExistingRuns() {
+  try {
+    const data = await api('/api/runs');
+    if (data.runs) {
+      data.runs.forEach(r => { runs[r.id] = r; });
+      renderRunList();
+      updateOttlRunSelector();
+    }
+  } catch(e) { /* page may load before any runs exist */ }
+  if (!pollTimer) startPolling();
+})();
 
 // Initialize OTTL Prototyper
 document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);

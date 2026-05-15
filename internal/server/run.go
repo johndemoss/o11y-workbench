@@ -9,8 +9,10 @@ import (
 	"time"
 
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
 	"github.com/johndemoss/otel-workbench/internal/export"
 	"github.com/johndemoss/otel-workbench/internal/gen"
@@ -39,9 +41,12 @@ type Run struct {
 	SpanCount            int              `json:"span_count"`
 	TraceCount           int              `json:"trace_count"`
 	TraceCountCompleted  int              `json:"trace_count_completed"`
+	LogCount             int              `json:"log_count,omitempty"`
+	LogCountCompleted    int              `json:"log_count_completed,omitempty"`
 	Scenario             string           `json:"scenario,omitempty"`
 	Error                string           `json:"error,omitempty"`
 	TraceData            *json.RawMessage `json:"trace_data,omitempty"`
+	LogData              *json.RawMessage `json:"log_data,omitempty"`
 	Endpoints            []string         `json:"endpoints"`
 	Insecure             bool             `json:"insecure"`
 	Output               string           `json:"output"`
@@ -93,6 +98,7 @@ func (r *Run) snapshot() *Run {
 		StartedAt: r.StartedAt, CompletedAt: r.CompletedAt,
 		DurationNs: r.DurationNs, SpanCount: r.SpanCount,
 		TraceCount: r.TraceCount, TraceCountCompleted: r.TraceCountCompleted,
+		LogCount: r.LogCount, LogCountCompleted: r.LogCountCompleted,
 		Scenario: r.Scenario, Error: r.Error,
 		Endpoints: append([]string(nil), r.Endpoints...),
 		Insecure:  r.Insecure, Output: r.Output,
@@ -101,6 +107,11 @@ func (r *Run) snapshot() *Run {
 		data := make(json.RawMessage, len(*r.TraceData))
 		copy(data, *r.TraceData)
 		c.TraceData = &data
+	}
+	if r.LogData != nil {
+		data := make(json.RawMessage, len(*r.LogData))
+		copy(data, *r.LogData)
+		c.LogData = &data
 	}
 	return c
 }
@@ -120,6 +131,22 @@ func (e *bufferExporter) Export(_ context.Context, spans []*tracev1.ResourceSpan
 }
 
 func (e *bufferExporter) Shutdown(_ context.Context) error {
+	return nil
+}
+
+type bufferLogExporter struct {
+	mu   sync.Mutex
+	logs []*logsv1.ResourceLogs
+}
+
+func (e *bufferLogExporter) Export(_ context.Context, logs []*logsv1.ResourceLogs) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.logs = append(e.logs, logs...)
+	return nil
+}
+
+func (e *bufferLogExporter) Shutdown(_ context.Context) error {
 	return nil
 }
 
@@ -191,6 +218,32 @@ func marshalTraceJSON(spans []*tracev1.ResourceSpans) ([]byte, error) {
 	return opts.Marshal(req)
 }
 
+func marshalLogJSON(logs []*logsv1.ResourceLogs) ([]byte, error) {
+	req := &collectorlogsv1.ExportLogsServiceRequest{ResourceLogs: logs}
+	opts := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}
+	return opts.Marshal(req)
+}
+
+type multiLogExporter []export.LogExporter
+
+func (e multiLogExporter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) error {
+	for _, exp := range e {
+		if err := exp.Export(ctx, logs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e multiLogExporter) Shutdown(ctx context.Context) error {
+	for _, exp := range e {
+		if err := exp.Shutdown(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []string, insecure bool, output string) (*Run, error) {
 	id := fmt.Sprintf("run-%d", runIDCounter.Add(1))
 	scenario := ""
@@ -202,6 +255,13 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 		ID: id, Status: RunStatusPending, Config: cfg,
 		Scenario: scenario, StartedAt: time.Now(), TraceCount: cfg.TraceCount,
 		Endpoints: epCopy, Insecure: insecure, Output: output,
+	}
+	if cfg.SignalType == "logs" || cfg.SignalType == "both" {
+		run.LogCount = cfg.LogConfig.LogCount
+		if cfg.LogConfig.LogsPerSpan > 0 && cfg.SignalType == "both" {
+			// LogCount will be computed after trace generation.
+			run.LogCount = 0
+		}
 	}
 	store.Add(run)
 	genCtx, cancel := context.WithCancel(context.Background())
@@ -249,79 +309,151 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 
 	start := time.Now()
 	buf := &bufferExporter{}
+	logBuf := &bufferLogExporter{}
+	var traceErr, logErr error
 
-	exp := export.Exporter(buf)
-	if run.Output == "otlp" {
-		otlpExporters := make(map[region.Name]export.Exporter)
-		for _, reg := range region.All() {
-			ep := region.GetEndpoint(reg)
-			otlpExp, err := export.NewOTLPExporter(ep, run.Insecure, nil)
-			if err != nil {
-				run.mu.Lock()
-				run.Status = RunStatusFailed
-				run.Error = fmt.Sprintf("create OTLP exporter for %s: %v", reg, err)
-				run.DurationNs = time.Since(start).Nanoseconds()
-				now := time.Now()
-				run.CompletedAt = &now
-				run.mu.Unlock()
-				return
+	// Determine which signals to generate.
+	signalType := cfg.SignalType
+	if signalType == "" {
+		signalType = "traces"
+	}
+	doTraces := signalType == "traces" || signalType == "both"
+	doLogs := signalType == "logs" || (signalType == "both" && cfg.LogConfig.Enabled)
+
+	// --- TRACE GENERATION ---
+	if doTraces {
+		exp := export.Exporter(buf)
+		if run.Output == "otlp" {
+			otlpExporters := make(map[region.Name]export.Exporter)
+			for _, reg := range region.All() {
+				ep := region.GetEndpoint(reg)
+				otlpExp, err := export.NewOTLPExporter(ep, run.Insecure, nil)
+				if err != nil {
+					run.mu.Lock()
+					run.Status = RunStatusFailed
+					run.Error = fmt.Sprintf("create OTLP exporter for %s: %v", reg, err)
+					run.DurationNs = time.Since(start).Nanoseconds()
+					now := time.Now()
+					run.CompletedAt = &now
+					run.mu.Unlock()
+					return
+				}
+				otlpExporters[reg] = otlpExp
 			}
-			otlpExporters[reg] = otlpExp
+			router := export.NewEndpointRouter(otlpExporters)
+			exp = multiExporter{buf, router}
 		}
-		router := export.NewEndpointRouter(otlpExporters)
-		exp = multiExporter{buf, router}
+
+		g := gen.NewGenerator(cfg)
+		g.OnProgress = func(completed, total int) {
+			run.mu.Lock()
+			run.TraceCountCompleted = completed
+			buf.mu.Lock()
+			spanTotal := 0
+			for _, rs := range buf.spans {
+				for _, ss := range rs.ScopeSpans {
+					spanTotal += len(ss.Spans)
+				}
+			}
+			run.SpanCount = spanTotal
+			buf.mu.Unlock()
+			run.mu.Unlock()
+
+			run.mu.Lock()
+			ch := run.pauseCh
+			run.mu.Unlock()
+			if ch != nil {
+				select {
+				case <-ch:
+				case <-genCtx.Done():
+				}
+			}
+		}
+		traceErr = g.Run(genCtx, exp)
 	}
 
-	g := gen.NewGenerator(cfg)
-	g.OnProgress = func(completed, total int) {
-		run.mu.Lock()
-		run.TraceCountCompleted = completed
-		// Count spans from buffer after each trace so the dashboard
-		// shows a live span count for running / stopped jobs.
-		buf.mu.Lock()
-		spanTotal := 0
-		for _, rs := range buf.spans {
-			for _, ss := range rs.ScopeSpans {
-				spanTotal += len(ss.Spans)
+	// --- LOG GENERATION ---
+	if doLogs && traceErr == nil {
+		logExp := export.LogExporter(logBuf)
+		if run.Output == "otlp" {
+			otlpLogExporters := make(map[region.Name]export.LogExporter)
+			for _, reg := range region.All() {
+				ep := region.GetEndpoint(reg)
+				otlpLogExp, err := export.NewOTLPLogExporter(ep, run.Insecure, nil)
+				if err != nil {
+					run.mu.Lock()
+					run.Status = RunStatusFailed
+					run.Error = fmt.Sprintf("create OTLP log exporter for %s: %v", reg, err)
+					run.DurationNs = time.Since(start).Nanoseconds()
+					now := time.Now()
+					run.CompletedAt = &now
+					run.mu.Unlock()
+					return
+				}
+				otlpLogExporters[reg] = otlpLogExp
 			}
+			router := export.NewLogEndpointRouter(otlpLogExporters)
+			logExp = multiLogExporter{logBuf, router}
 		}
-		run.SpanCount = spanTotal
-		buf.mu.Unlock()
-		run.mu.Unlock()
 
-		// Pause check — block between traces until resumed or stopped.
-		run.mu.Lock()
-		ch := run.pauseCh
-		run.mu.Unlock()
-		if ch != nil {
-			select {
-			case <-ch:
-			case <-genCtx.Done():
+		lg := gen.NewLogGenerator(cfg.LogConfig)
+		lg.OnProgress = func(completed, total int) {
+			run.mu.Lock()
+			run.LogCountCompleted = completed
+			if run.LogCount == 0 {
+				run.LogCount = total
 			}
+			run.mu.Unlock()
 		}
+
+		var traceSpans []*tracev1.ResourceSpans
+		if signalType == "both" {
+			traceSpans = buf.spans
+		}
+		logErr = lg.Run(genCtx, logExp, traceSpans)
 	}
-	err := g.Run(genCtx, exp)
+
 	elapsed := time.Since(start).Nanoseconds()
-
 	run.mu.Lock()
 	run.DurationNs = elapsed
 
+	// Count log records from log buffer.
+	logTotal := 0
+	for _, rl := range logBuf.logs {
+		for _, sl := range rl.ScopeLogs {
+			logTotal += len(sl.LogRecords)
+		}
+	}
+	if logTotal > 0 {
+		run.LogCountCompleted = logTotal
+		if run.LogCount == 0 {
+			run.LogCount = logTotal
+		}
+	}
+
+	// Check for cancellation / stop first.
+	if traceErr == context.Canceled || logErr == context.Canceled {
+		if run.Status == RunStatusStopped {
+			total := 0
+			for _, rs := range buf.spans {
+				for _, ss := range rs.ScopeSpans {
+					total += len(ss.Spans)
+				}
+			}
+			run.SpanCount = total
+			run.mu.Unlock()
+			return
+		}
+	}
+
+	// Determine the primary error.
+	err := traceErr
+	if err == nil {
+		err = logErr
+	}
+
 	if err != nil {
 		if err == context.Canceled {
-			// If already stopped via Stop(), preserve that status.
-			if run.Status == RunStatusStopped {
-				// Count spans from buffer before returning so stopped
-				// (infinite) runs show a meaningful span count.
-				total := 0
-				for _, rs := range buf.spans {
-					for _, ss := range rs.ScopeSpans {
-						total += len(ss.Spans)
-					}
-				}
-				run.SpanCount = total
-				run.mu.Unlock()
-				return
-			}
 			run.Error = "cancelled"
 		} else {
 			run.Error = err.Error()
@@ -333,6 +465,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		return
 	}
 
+	// Finalise trace data.
 	totalSpans := 0
 	for _, rs := range buf.spans {
 		for _, ss := range rs.ScopeSpans {
@@ -346,6 +479,15 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		if err == nil {
 			raw := json.RawMessage(data)
 			run.TraceData = &raw
+		}
+	}
+
+	// Finalise log data.
+	if len(logBuf.logs) > 0 {
+		data, err := marshalLogJSON(logBuf.logs)
+		if err == nil {
+			raw := json.RawMessage(data)
+			run.LogData = &raw
 		}
 	}
 

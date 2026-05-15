@@ -134,6 +134,7 @@ func (s *Server) handleUploadScenarios(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 	def := gen.DefaultConfig()
+	logDef := gen.DefaultLogConfig()
 	endpoints := make([]string, len(region.All()))
 	for i, reg := range region.All() {
 		endpoints[i] = region.GetEndpoint(reg)
@@ -145,24 +146,40 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 		"service_name": def.ServiceName, "scenario_span_count": 0,
 		"output": "file", "format": "json",
 		"endpoints": endpoints, "insecure": true,
+		"signal_type": "traces",
+		"log_config": map[string]any{
+			"enabled":      logDef.Enabled,
+			"logs_per_span": logDef.LogsPerSpan,
+			"log_count":    logDef.LogCount,
+			"severity_dist": map[string]int{
+				"info":  logDef.SeverityDist.Info,
+				"warn":  logDef.SeverityDist.Warn,
+				"error": logDef.SeverityDist.Error,
+				"fatal": logDef.SeverityDist.Fatal,
+			},
+			"body_template": logDef.BodyTemplate,
+			"attributes":    []gen.LogAttribute{},
+		},
 	})
 }
 
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Seed              int64    `json:"seed"`
-		TraceCount        int      `json:"trace_count"`
-		Rate              int      `json:"rate"`
-		Topology          string   `json:"topology"`
-		Scenario          string   `json:"scenario"`
-		ScenarioSpanCount int      `json:"scenario_span_count"`
-		SpanCount         int      `json:"span_count"`
-		MaxDepth          int      `json:"max_depth"`
-		ServiceName       string   `json:"service_name"`
-		Output            string   `json:"output"`
-		Format            string   `json:"format"`
-		Endpoints         []string `json:"endpoints"`
-		Insecure          *bool    `json:"insecure"`
+		Seed              int64              `json:"seed"`
+		TraceCount        int                `json:"trace_count"`
+		Rate              int                `json:"rate"`
+		Topology          string             `json:"topology"`
+		Scenario          string             `json:"scenario"`
+		ScenarioSpanCount int                `json:"scenario_span_count"`
+		SpanCount         int                `json:"span_count"`
+		MaxDepth          int                `json:"max_depth"`
+		ServiceName       string             `json:"service_name"`
+		Output            string             `json:"output"`
+		Format            string             `json:"format"`
+		Endpoints         []string           `json:"endpoints"`
+		Insecure          *bool              `json:"insecure"`
+		SignalType        string             `json:"signal_type"`
+		LogConfig         gen.LogConfig      `json:"log_config"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -196,6 +213,11 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	signalType := body.SignalType
+	if signalType == "" {
+		signalType = "traces"
+	}
+
 	cfg := gen.Config{
 		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate,
 		Topology: topoType, SpanCount: body.SpanCount, MaxDepth: body.MaxDepth,
@@ -203,6 +225,28 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		BaseTime:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		TraceDuration: 5 * time.Second,
 		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
+		SignalType: signalType,
+		LogConfig:  body.LogConfig,
+	}
+
+	// Validate log config.
+	if signalType == "logs" || signalType == "both" {
+		if signalType == "logs" || signalType == "both" {
+			cfg.LogConfig.Enabled = true
+			if cfg.LogConfig.LogCount == 0 {
+				cfg.LogConfig.LogCount = gen.DefaultLogConfig().LogCount
+			}
+		}
+		if cfg.LogConfig.SeverityDist == (gen.SeverityDistribution{}) {
+			def := gen.DefaultLogConfig()
+			cfg.LogConfig.SeverityDist = def.SeverityDist
+		}
+		if cfg.LogConfig.BodyTemplate == "" {
+			cfg.LogConfig.BodyTemplate = gen.DefaultLogConfig().BodyTemplate
+		}
+		if cfg.LogConfig.LogsPerSpan == 0 {
+			cfg.LogConfig.LogsPerSpan = gen.DefaultLogConfig().LogsPerSpan
+		}
 	}
 
 	run, err := StartRun(r.Context(), s.store, cfg, endpoints, insecure, body.Output)
@@ -295,6 +339,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		RunID      string   `json:"run_id"`
 		Config     string   `json:"config"`
 		Statements []string `json:"statements"` // backward compat
+		SignalType string   `json:"signal_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -322,25 +367,49 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + req.RunID})
 		return
 	}
-	if run.TraceData == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with data can be transformed"})
-		return
+
+	signalType := req.SignalType
+	if signalType == "" {
+		signalType = "traces"
 	}
 
-	transformed, err := ottl.TransformRunData(*run.TraceData, statements)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
-			Valid:  false,
-			Errors: []string{err.Error()},
+	if signalType == "logs" {
+		if run.LogData == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be transformed"})
+			return
+		}
+		transformed, err := ottl.TransformLogRunData(*run.LogData, statements)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.TransformResult{
+			Valid:            true,
+			TransformedData:  &transformed,
+			StatementsParsed: len(statements),
 		})
-		return
+	} else {
+		if run.TraceData == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be transformed"})
+			return
+		}
+		transformed, err := ottl.TransformRunData(*run.TraceData, statements)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.TransformResult{
+			Valid:            true,
+			TransformedData:  &transformed,
+			StatementsParsed: len(statements),
+		})
 	}
-
-	writeJSON(w, http.StatusOK, ottl.TransformResult{
-		Valid:            true,
-		TransformedData:  &transformed,
-		StatementsParsed: len(statements),
-	})
 }
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
@@ -349,6 +418,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		Config     string         `json:"config"`
 		Mode       ottl.FilterMode `json:"mode"`
 		Conditions []string       `json:"conditions"` // backward compat
+		SignalType string         `json:"signal_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -379,27 +449,53 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + req.RunID})
 		return
 	}
-	if run.TraceData == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with data can be filtered"})
-		return
+
+	signalType := req.SignalType
+	if signalType == "" {
+		signalType = "traces"
 	}
 
-	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conditions, req.Mode)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
-			Valid:  false,
-			Errors: []string{err.Error()},
+	if signalType == "logs" {
+		if run.LogData == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be filtered"})
+			return
+		}
+		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conditions, req.Mode)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.FilterResult{
+			Valid:             true,
+			FilteredData:      &filtered,
+			ConditionsParsed:  len(conditions),
+			TotalSpanCount:    total,
+			FilteredSpanCount: kept,
 		})
-		return
+	} else {
+		if run.TraceData == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be filtered"})
+			return
+		}
+		filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conditions, req.Mode)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.FilterResult{
+			Valid:             true,
+			FilteredData:      &filtered,
+			ConditionsParsed:  len(conditions),
+			TotalSpanCount:    total,
+			FilteredSpanCount: kept,
+		})
 	}
-
-	writeJSON(w, http.StatusOK, ottl.FilterResult{
-		Valid:             true,
-		FilteredData:      &filtered,
-		ConditionsParsed:  len(conditions),
-		TotalSpanCount:    total,
-		FilteredSpanCount: kept,
-	})
 }
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
