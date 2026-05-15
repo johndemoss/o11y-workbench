@@ -7,3 +7,10 @@
 /otel-workbench
 /otel-workbench-web
 
+# Node.js
+node_modules/
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+traces/
