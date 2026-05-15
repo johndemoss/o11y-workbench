@@ -371,8 +371,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	if signalType == "" {
 		signalType = "traces"
 	}
-	doTraces := signalType == "traces" || signalType == "both"
-	doLogs := signalType == "logs" || (signalType == "both" && cfg.LogConfig.Enabled)
+	doTraces := signalType == "traces" || signalType == "both" || signalType == "all" || signalType == "traces+metrics"
+	doLogs := signalType == "logs" || signalType == "both" || signalType == "all" || signalType == "logs+metrics"
 	doMetrics := signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics"
 
 	// --- TRACE GENERATION ---

@@ -215,11 +215,14 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 	var topoType gen.TopologyType
 	if body.Scenario == "" {
-		var err error
-		topoType, err = gen.ParseTopology(body.Topology)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
+		signalIncludesTraces := body.SignalType == "" || body.SignalType == "traces" || body.SignalType == "both" || body.SignalType == "all" || body.SignalType == "traces+metrics"
+		if signalIncludesTraces {
+			var err error
+			topoType, err = gen.ParseTopology(body.Topology)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
 		}
 	}
 
