@@ -387,7 +387,7 @@
       hx-post="/api/ottl/validate-html"
       hx-target="#ottl-result-content"
       hx-swap="innerHTML"
-      hx-vals='{"config":document.getElementById("ottl-input").value}'>Validate</button>
+      x-bind:hx-vals='JSON.stringify({config:document.getElementById("ottl-input").value})'>Validate</button>
     <button class="btn btn-primary" id="ottl-action-btn"
       x-bind:disabled="!runId"
       x-bind:hx-post="mode === 'filter' ? '/api/ottl/filter-html' : '/api/ottl/transform-html'"

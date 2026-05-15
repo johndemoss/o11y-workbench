@@ -968,14 +968,12 @@ func prettyJSON(raw json.RawMessage) string {
 }
 
 func (s *Server) handleOTTLValidateHTML(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Config string `json:"config"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid JSON body</div></div>`)
+	if err := r.ParseForm(); err != nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid form data</div></div>`)
 		return
 	}
-	statements, err := ottl.ParseTransformStatements(req.Config)
+	config := r.PostFormValue("config")
+	statements, err := ottl.ParseTransformStatements(config)
 	if err != nil {
 		writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
 		return
@@ -985,27 +983,24 @@ func (s *Server) handleOTTLValidateHTML(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RunID      string `json:"run_id"`
-		Config     string `json:"config"`
-		SignalType string `json:"signal_type"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid JSON body</div></div>`)
+	if err := r.ParseForm(); err != nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid form data</div></div>`)
 		return
 	}
-	if req.RunID == "" {
+	runID := r.PostFormValue("run_id")
+	config := r.PostFormValue("config")
+	signalType := r.PostFormValue("signal_type")
+	if runID == "" {
 		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run_id is required</div></div>`)
 		return
 	}
 
-	run := s.store.Get(req.RunID)
+	run := s.store.Get(runID)
 	if run == nil {
 		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run not found</div></div>`)
 		return
 	}
 
-	signalType := req.SignalType
 	if signalType == "" {
 		signalType = "traces"
 	}
@@ -1013,7 +1008,7 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 	var result ottl.TransformResult
 
 	if signalType == "both" {
-		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(req.Config)
+		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(config)
 		if err != nil {
 			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 			return
@@ -1042,7 +1037,7 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 	}
 
 	if signalType == "all" {
-		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(req.Config)
+		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(config)
 		if err != nil {
 			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 			return
@@ -1086,7 +1081,7 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 		}
 		var statements []string
 		var err error
-		statements, err = ottl.ParseTransformStatements(req.Config)
+		statements, err = ottl.ParseTransformStatements(config)
 		if err != nil {
 			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 			return
@@ -1108,7 +1103,7 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 		}
 		var statements []string
 		var err error
-		statements, err = ottl.ParseTransformStatements(req.Config)
+		statements, err = ottl.ParseTransformStatements(config)
 		if err != nil {
 			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 			return
@@ -1130,7 +1125,7 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 	}
 	var statements []string
 	var err error
-	statements, err = ottl.ParseTransformStatements(req.Config)
+	statements, err = ottl.ParseTransformStatements(config)
 	if err != nil {
 		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 		return
@@ -1145,46 +1140,43 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RunID      string         `json:"run_id"`
-		Config     string         `json:"config"`
-		Mode       ottl.FilterMode `json:"mode"`
-		SignalType string         `json:"signal_type"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid JSON body</div></div>`)
+	if err := r.ParseForm(); err != nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid form data</div></div>`)
 		return
 	}
-	if req.RunID == "" {
+	runID := r.PostFormValue("run_id")
+	config := r.PostFormValue("config")
+	mode := ottl.FilterMode(r.PostFormValue("mode"))
+	signalType := r.PostFormValue("signal_type")
+	if runID == "" {
 		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run_id is required</div></div>`)
 		return
 	}
-	if req.Mode == "" {
-		req.Mode = ottl.FilterModeInclude
+	if mode == "" {
+		mode = ottl.FilterModeInclude
 	}
 
-	run := s.store.Get(req.RunID)
+	run := s.store.Get(runID)
 	if run == nil {
 		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run not found</div></div>`)
 		return
 	}
 
-	signalType := req.SignalType
 	if signalType == "" {
 		signalType = "traces"
 	}
 
 	if signalType == "both" {
-		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(req.Config)
+		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(config)
 		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
 		result := ottl.FilterResult{Valid: true}
 		if len(traceConds) > 0 && run.TraceData != nil {
-			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, mode)
 			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(req.Mode), signalType))
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(mode), signalType))
 				return
 			}
 			result.FilteredData = &filtered
@@ -1193,9 +1185,9 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			result.FilteredSpanCount = kept
 		}
 		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, mode)
 			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(req.Mode), signalType))
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(mode), signalType))
 				return
 			}
 			result.LogFilteredData = &filtered
@@ -1203,21 +1195,21 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			result.TotalLogCount = total
 			result.FilteredLogCount = kept
 		}
-		writeHTML(w, renderFilterHTML(result, string(req.Mode), signalType))
+		writeHTML(w, renderFilterHTML(result, string(mode), signalType))
 		return
 	}
 
 	if signalType == "all" {
-		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(req.Config)
+		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(config)
 		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
 		result := ottl.FilterResult{Valid: true}
 		if len(traceConds) > 0 && run.TraceData != nil {
-			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, mode)
 			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(req.Mode), signalType))
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(mode), signalType))
 				return
 			}
 			result.FilteredData = &filtered
@@ -1226,9 +1218,9 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			result.FilteredSpanCount = kept
 		}
 		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, mode)
 			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(req.Mode), signalType))
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(mode), signalType))
 				return
 			}
 			result.LogFilteredData = &filtered
@@ -1237,9 +1229,9 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			result.FilteredLogCount = kept
 		}
 		if len(metricConds) > 0 && run.MetricData != nil {
-			filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, metricConds, req.Mode)
+			filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, metricConds, mode)
 			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, string(req.Mode), signalType))
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, string(mode), signalType))
 				return
 			}
 			result.MetricFilteredData = &filtered
@@ -1247,7 +1239,7 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			result.TotalMetricCount = total
 			result.FilteredMetricCount = kept
 		}
-		writeHTML(w, renderFilterHTML(result, string(req.Mode), signalType))
+		writeHTML(w, renderFilterHTML(result, string(mode), signalType))
 		return
 	}
 
@@ -1256,21 +1248,21 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no log data</div></div>`)
 			return
 		}
-		conds, err := ottl.ParseFilterConditions(req.Config)
+		conds, err := ottl.ParseFilterConditions(config)
 		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
-		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conds, req.Mode)
+		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conds, mode)
 		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{
 			Valid: true, LogFilteredData: &filtered,
 			LogConditionsParsed: len(conds),
 			TotalLogCount: total, FilteredLogCount: kept,
-		}, string(req.Mode), signalType))
+		}, string(mode), signalType))
 		return
 	}
 
@@ -1279,21 +1271,21 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no metric data</div></div>`)
 			return
 		}
-		conds, err := ottl.ParseFilterConditions(req.Config)
+		conds, err := ottl.ParseFilterConditions(config)
 		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
-		filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, conds, req.Mode)
+		filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, conds, mode)
 		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{
 			Valid: true, MetricFilteredData: &filtered,
 			MetricConditionsParsed: len(conds),
 			TotalMetricCount: total, FilteredMetricCount: kept,
-		}, string(req.Mode), signalType))
+		}, string(mode), signalType))
 		return
 	}
 
@@ -1302,19 +1294,19 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no trace data</div></div>`)
 		return
 	}
-	conds, err := ottl.ParseFilterConditions(req.Config)
+	conds, err := ottl.ParseFilterConditions(config)
 	if err != nil {
-		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 		return
 	}
-	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conds, req.Mode)
+	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conds, mode)
 	if err != nil {
-		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 		return
 	}
 	writeHTML(w, renderFilterHTML(ottl.FilterResult{
 		Valid: true, FilteredData: &filtered,
 		ConditionsParsed: len(conds),
 		TotalSpanCount: total, FilteredSpanCount: kept,
-	}, string(req.Mode), signalType))
+	}, string(mode), signalType))
 }
