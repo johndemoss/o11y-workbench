@@ -223,10 +223,14 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 
 // FilterResult holds the outcome of a filter request.
 type FilterResult struct {
-	Valid            bool             `json:"valid"`
-	Errors           []string         `json:"errors,omitempty"`
-	FilteredData     *json.RawMessage `json:"filtered_data,omitempty"`
-	ConditionsParsed int              `json:"conditions_parsed,omitempty"`
-	TotalSpanCount   int              `json:"total_span_count,omitempty"`
-	FilteredSpanCount int             `json:"filtered_span_count,omitempty"`
+	Valid              bool             `json:"valid"`
+	Errors             []string         `json:"errors,omitempty"`
+	FilteredData       *json.RawMessage `json:"filtered_data,omitempty"`
+	ConditionsParsed   int              `json:"conditions_parsed,omitempty"`
+	TotalSpanCount     int              `json:"total_span_count,omitempty"`
+	FilteredSpanCount  int              `json:"filtered_span_count,omitempty"`
+	LogFilteredData    *json.RawMessage `json:"log_filtered_data,omitempty"`
+	LogConditionsParsed int             `json:"log_conditions_parsed,omitempty"`
+	TotalLogCount      int              `json:"total_log_count,omitempty"`
+	FilteredLogCount   int              `json:"filtered_log_count,omitempty"`
 }

@@ -138,11 +138,13 @@ func TransformRunDataSelected(traceData json.RawMessage, statements []string, sp
 
 // TransformResult holds the outcome of a transform request.
 type TransformResult struct {
-	Valid            bool             `json:"valid"`
-	Errors           []string         `json:"errors,omitempty"`
-	OriginalData     *json.RawMessage `json:"original_data,omitempty"`
-	TransformedData  *json.RawMessage `json:"transformed_data,omitempty"`
-	StatementsParsed int              `json:"statements_parsed,omitempty"`
-	SpanCount        int              `json:"span_count,omitempty"`
-	TransformedCount int              `json:"transformed_count,omitempty"`
+	Valid              bool             `json:"valid"`
+	Errors             []string         `json:"errors,omitempty"`
+	OriginalData       *json.RawMessage `json:"original_data,omitempty"`
+	TransformedData    *json.RawMessage `json:"transformed_data,omitempty"`
+	StatementsParsed   int              `json:"statements_parsed,omitempty"`
+	SpanCount          int              `json:"span_count,omitempty"`
+	TransformedCount   int              `json:"transformed_count,omitempty"`
+	LogTransformedData *json.RawMessage `json:"log_transformed_data,omitempty"`
+	LogStatementsParsed int             `json:"log_statements_parsed,omitempty"`
 }

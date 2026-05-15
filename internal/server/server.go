@@ -350,18 +350,6 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var statements []string
-	if req.Config != "" {
-		var err error
-		statements, err = ottl.ParseTransformStatements(req.Config)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
-			return
-		}
-	} else {
-		statements = req.Statements
-	}
-
 	run := s.store.Get(req.RunID)
 	if run == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + req.RunID})
@@ -373,10 +361,56 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		signalType = "traces"
 	}
 
+	if signalType == "both" {
+		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+		result := ottl.TransformResult{Valid: true}
+		if len(traceStmts) > 0 && run.TraceData != nil {
+			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+					Valid:  false,
+					Errors: []string{"trace: " + err.Error()},
+				})
+				return
+			}
+			result.TransformedData = &transformed
+			result.StatementsParsed = len(traceStmts)
+		}
+		if len(logStmts) > 0 && run.LogData != nil {
+			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+					Valid:  false,
+					Errors: []string{"log: " + err.Error()},
+				})
+				return
+			}
+			result.LogTransformedData = &transformed
+			result.LogStatementsParsed = len(logStmts)
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
 	if signalType == "logs" {
 		if run.LogData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be transformed"})
 			return
+		}
+		var statements []string
+		if req.Config != "" {
+			var err error
+			statements, err = ottl.ParseTransformStatements(req.Config)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
+				return
+			}
+		} else {
+			statements = req.Statements
 		}
 		transformed, err := ottl.TransformLogRunData(*run.LogData, statements)
 		if err != nil {
@@ -391,25 +425,38 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			TransformedData:  &transformed,
 			StatementsParsed: len(statements),
 		})
-	} else {
-		if run.TraceData == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be transformed"})
-			return
-		}
-		transformed, err := ottl.TransformRunData(*run.TraceData, statements)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
-				Valid:  false,
-				Errors: []string{err.Error()},
-			})
-			return
-		}
-		writeJSON(w, http.StatusOK, ottl.TransformResult{
-			Valid:            true,
-			TransformedData:  &transformed,
-			StatementsParsed: len(statements),
-		})
+		return
 	}
+
+	// Traces (default)
+	if run.TraceData == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be transformed"})
+		return
+	}
+	var statements []string
+	if req.Config != "" {
+		var err error
+		statements, err = ottl.ParseTransformStatements(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+	} else {
+		statements = req.Statements
+	}
+	transformed, err := ottl.TransformRunData(*run.TraceData, statements)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+			Valid:  false,
+			Errors: []string{err.Error()},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, ottl.TransformResult{
+		Valid:            true,
+		TransformedData:  &transformed,
+		StatementsParsed: len(statements),
+	})
 }
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
@@ -432,18 +479,6 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		req.Mode = ottl.FilterModeInclude
 	}
 
-	var conditions []string
-	if req.Config != "" {
-		var err error
-		conditions, err = ottl.ParseFilterConditions(req.Config)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
-			return
-		}
-	} else {
-		conditions = req.Conditions
-	}
-
 	run := s.store.Get(req.RunID)
 	if run == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + req.RunID})
@@ -455,10 +490,54 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		signalType = "traces"
 	}
 
+	if signalType == "both" {
+		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+		result := ottl.FilterResult{Valid: true}
+		if len(traceConds) > 0 && run.TraceData != nil {
+			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}})
+				return
+			}
+			result.FilteredData = &filtered
+			result.ConditionsParsed = len(traceConds)
+			result.TotalSpanCount = total
+			result.FilteredSpanCount = kept
+		}
+		if len(logConds) > 0 && run.LogData != nil {
+			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}})
+				return
+			}
+			result.LogFilteredData = &filtered
+			result.LogConditionsParsed = len(logConds)
+			result.TotalLogCount = total
+			result.FilteredLogCount = kept
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
 	if signalType == "logs" {
 		if run.LogData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be filtered"})
 			return
+		}
+		var conditions []string
+		if req.Config != "" {
+			var err error
+			conditions, err = ottl.ParseFilterConditions(req.Config)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
+				return
+			}
+		} else {
+			conditions = req.Conditions
 		}
 		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conditions, req.Mode)
 		if err != nil {
@@ -475,27 +554,40 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			TotalSpanCount:    total,
 			FilteredSpanCount: kept,
 		})
-	} else {
-		if run.TraceData == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be filtered"})
-			return
-		}
-		filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conditions, req.Mode)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
-				Valid:  false,
-				Errors: []string{err.Error()},
-			})
-			return
-		}
-		writeJSON(w, http.StatusOK, ottl.FilterResult{
-			Valid:             true,
-			FilteredData:      &filtered,
-			ConditionsParsed:  len(conditions),
-			TotalSpanCount:    total,
-			FilteredSpanCount: kept,
-		})
+		return
 	}
+
+	// Traces (default)
+	if run.TraceData == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be filtered"})
+		return
+	}
+	var conditions []string
+	if req.Config != "" {
+		var err error
+		conditions, err = ottl.ParseFilterConditions(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+	} else {
+		conditions = req.Conditions
+	}
+	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conditions, req.Mode)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
+			Valid:  false,
+			Errors: []string{err.Error()},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, ottl.FilterResult{
+		Valid:             true,
+		FilteredData:      &filtered,
+		ConditionsParsed:  len(conditions),
+		TotalSpanCount:    total,
+		FilteredSpanCount: kept,
+	})
 }
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {

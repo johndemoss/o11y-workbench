@@ -133,6 +133,78 @@ func (tc *TransformConfig) statements() []string {
 	return out
 }
 
+// ExtractStatements flattens a slice of ContextStatements into a single string slice.
+func ExtractStatements(groups []ContextStatements) []string {
+	var out []string
+	for _, g := range groups {
+		out = append(out, g.Statements...)
+	}
+	return out
+}
+
+// ParseCombinedTransformConfig parses a YAML config and returns separate trace and log
+// statement slices. This enables executing both trace and log transformations from a
+// single config. For unstructured formats (flat list, lines), all statements are
+// returned as trace statements for backward compatibility.
+func ParseCombinedTransformConfig(configYAML string) (traceStmts, logStmts []string, err error) {
+	configYAML = strings.TrimSpace(configYAML)
+	cleaned := trimTrailingSpaces(configYAML)
+	if cleaned == "" {
+		return nil, nil, fmt.Errorf("empty transform config")
+	}
+
+	var cfg TransformConfig
+	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil {
+		t := ExtractStatements(cfg.TraceStatements)
+		l := ExtractStatements(cfg.LogStatements)
+		if len(t) > 0 || len(l) > 0 {
+			return t, l, nil
+		}
+	}
+
+	var wrapped transformWrapper
+	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil {
+		t := ExtractStatements(wrapped.Transform.TraceStatements)
+		l := ExtractStatements(wrapped.Transform.LogStatements)
+		if len(t) > 0 || len(l) > 0 {
+			return t, l, nil
+		}
+	}
+
+	// Fallback to generic parse (all statements treated as trace for backward compat)
+	stmts, err := ParseTransformStatements(configYAML)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stmts, nil, nil
+}
+
+// ParseCombinedFilterConfig parses a YAML filter config returning separate trace and
+// log condition slices.
+func ParseCombinedFilterConfig(configYAML string) (traceConditions, logConditions []string, err error) {
+	configYAML = strings.TrimSpace(configYAML)
+	if configYAML == "" {
+		return nil, nil, fmt.Errorf("empty filter config")
+	}
+
+	var cfg FilterConfig
+	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
+		return cfg.Traces.SpanConditions, cfg.Logs.LogRecordConditions, nil
+	}
+
+	var wrapped filterWrapper
+	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
+		return wrapped.Filter.Traces.SpanConditions, wrapped.Filter.Logs.LogRecordConditions, nil
+	}
+
+	// Fallback to generic parse
+	conds, err := ParseFilterConditions(configYAML)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conds, nil, nil
+}
+
 func trimTrailingSpaces(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
