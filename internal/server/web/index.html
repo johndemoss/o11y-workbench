@@ -953,19 +953,46 @@ function updateMetricTypeBars() {
   el.innerHTML = 'Total: <span class="' + (Math.abs(total - 100) < 0.5 ? 'ok' : 'over') + '">' + (total / 100).toFixed(1) + '</span>';
 }
 
+function redistributeMetricTypes(changed, newVal) {
+  const ids = ['gauge', 'sum', 'histogram'];
+  const clamped = Math.max(0, Math.min(100, newVal));
+  const remaining = 100 - clamped;
+  const others = ids.filter(s => s !== changed);
+  const otherSum = others.reduce((sum, s) => sum + (parseFloat(document.getElementById('metric-' + s).value) || 0), 0);
+  let newOthers = {};
+  if (otherSum === 0) {
+    const each = Math.floor(remaining / 2);
+    let leftover = remaining - each * 2;
+    others.forEach((s, i) => { newOthers[s] = each + (i < leftover ? 1 : 0); });
+  } else {
+    let assigned = 0;
+    others.forEach((s, i) => {
+      const cur = parseFloat(document.getElementById('metric-' + s).value) || 0;
+      let v = i === others.length - 1
+        ? remaining - assigned
+        : Math.round(remaining * cur / otherSum);
+      newOthers[s] = v;
+      assigned += v;
+    });
+  }
+  document.getElementById('metric-' + changed).value = clamped;
+  others.forEach(s => { document.getElementById('metric-' + s).value = Math.max(0, Math.min(100, newOthers[s])); });
+  updateMetricTypeBars();
+}
+
 function clickMetricTypeBar(type, event) {
   const track = event.currentTarget;
   const rect = track.getBoundingClientRect();
   const pct = Math.round(((event.clientX - rect.left) / rect.width) * 100);
-  const clamped = Math.max(0, Math.min(100, pct));
-  document.getElementById('metric-' + type).value = clamped;
-  updateMetricTypeBars();
+  redistributeMetricTypes(type, Math.max(0, Math.min(100, pct)));
 }
 
 function onMetricTypeInput(type) {
-  const v = parseInt(document.getElementById('metric-' + type).value);
-  if (isNaN(v)) document.getElementById('metric-' + type).value = 0;
-  updateMetricTypeBars();
+  const el = document.getElementById('metric-' + type);
+  let v = parseInt(el.value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 100) v = 100;
+  redistributeMetricTypes(type, v);
 }
 
 function toggleSignalConfig(signal) {
