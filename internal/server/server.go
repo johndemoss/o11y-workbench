@@ -50,6 +50,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
 	s.mux.HandleFunc("POST /api/ottl/filter-validate", s.handleOTTLFilterValidate)
+	s.mux.HandleFunc("POST /api/ottl/validate-html", s.handleOTTLValidateHTML)
+	s.mux.HandleFunc("POST /api/ottl/transform-html", s.handleOTTLTransformHTML)
+	s.mux.HandleFunc("POST /api/ottl/filter-html", s.handleOTTLFilterHTML)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -803,4 +806,515 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func writeHTML(w http.ResponseWriter, html string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(html))
+}
+
+// --- HTMX HTML endpoint helpers ---
+
+func renderValidateHTML(result ottl.ValidateResult) string {
+	if result.Valid {
+		return fmt.Sprintf(`<div class="ottl-success">All %d statement(s) valid.</div>`, result.Parsed)
+	}
+	var sb strings.Builder
+	sb.WriteString(`<div class="ottl-error">`)
+	for _, e := range result.Errors {
+		sb.WriteString(fmt.Sprintf(`<div class="ottl-error-item">%s</div>`, escapeHTMLEntity(e)))
+	}
+	sb.WriteString(`</div>`)
+	return sb.String()
+}
+
+func renderTransformHTML(result ottl.TransformResult, signalType string) string {
+	if !result.Valid {
+		var sb strings.Builder
+		sb.WriteString(`<div class="ottl-error">`)
+		for _, e := range result.Errors {
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-error-item">%s</div>`, escapeHTMLEntity(e)))
+		}
+		sb.WriteString(`</div>`)
+		return sb.String()
+	}
+
+	var parts []string
+
+	if signalType == "both" || signalType == "all" {
+		if result.StatementsParsed > 0 {
+			parts = append(parts, fmt.Sprintf(`<span>✓ %d trace statement(s) parsed, %d spans transformed</span>`, result.StatementsParsed, result.TransformedCount))
+		}
+		if result.LogStatementsParsed > 0 {
+			parts = append(parts, fmt.Sprintf(`<span>✓ %d log statement(s) parsed</span>`, result.LogStatementsParsed))
+		}
+		if result.MetricStatementsParsed > 0 {
+			parts = append(parts, fmt.Sprintf(`<span>✓ %d metric statement(s) parsed</span>`, result.MetricStatementsParsed))
+		}
+	} else {
+		parts = append(parts, fmt.Sprintf(`<span>✓ %d statement(s) parsed, %d spans transformed</span>`, result.StatementsParsed, result.TransformedCount))
+	}
+
+	var sb strings.Builder
+	sb.WriteString(`<div class="ottl-summary">`)
+	for i, p := range parts {
+		if i > 0 {
+			sb.WriteString(`<br>`)
+		}
+		sb.WriteString(p)
+	}
+	sb.WriteString(`</div>`)
+
+	if result.TransformedData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Transformed Trace Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.TransformedData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	if result.LogTransformedData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Transformed Log Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.LogTransformedData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	if result.MetricTransformedData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Transformed Metric Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricTransformedData)))
+		sb.WriteString(`</pre></div>`)
+	}
+
+	sb.WriteString(`<div class="ottl-tab-footer" style="margin-top:8px;display:flex;gap:8px">
+		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('summary')" data-result-tab="summary">Summary</button>
+		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('json')" data-result-tab="json">Raw JSON</button>
+	</div>`)
+
+	return sb.String()
+}
+
+func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) string {
+	if !result.Valid {
+		var sb strings.Builder
+		sb.WriteString(`<div class="ottl-error">`)
+		for _, e := range result.Errors {
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-error-item">%s</div>`, escapeHTMLEntity(e)))
+		}
+		sb.WriteString(`</div>`)
+		return sb.String()
+	}
+
+	var sb strings.Builder
+
+	if signalType == "both" || signalType == "all" {
+		if result.ConditionsParsed > 0 {
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
+				result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
+		}
+		if result.LogConditionsParsed > 0 {
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary" style="margin-top:4px">✓ %d log condition(s) applied, kept %d of %d logs (%s mode)</div>`,
+				result.LogConditionsParsed, result.FilteredLogCount, result.TotalLogCount, mode))
+		}
+		if result.MetricConditionsParsed > 0 {
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary" style="margin-top:4px">✓ %d metric condition(s) applied, kept %d of %d metrics (%s mode)</div>`,
+				result.MetricConditionsParsed, result.FilteredMetricCount, result.TotalMetricCount, mode))
+		}
+	} else {
+		sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
+			result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
+	}
+
+	// Filtered data
+	if result.FilteredData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Filtered Trace Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.FilteredData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	if result.LogFilteredData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Filtered Log Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.LogFilteredData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	if result.MetricFilteredData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Filtered Metric Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricFilteredData)))
+		sb.WriteString(`</pre></div>`)
+	}
+
+	sb.WriteString(`<div class="ottl-tab-footer" style="margin-top:8px;display:flex;gap:8px">
+		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('summary')" data-result-tab="summary">Summary</button>
+		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('json')" data-result-tab="json">Raw JSON</button>
+	</div>`)
+
+	return sb.String()
+}
+
+func escapeHTMLEntity(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	return s
+}
+
+func prettyJSON(raw json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return string(raw)
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return string(raw)
+	}
+	return string(b)
+}
+
+func (s *Server) handleOTTLValidateHTML(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Config string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid JSON body</div></div>`)
+		return
+	}
+	statements, err := ottl.ParseTransformStatements(req.Config)
+	if err != nil {
+		writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
+		return
+	}
+	result := ottl.ValidateStatements(statements)
+	writeHTML(w, renderValidateHTML(result))
+}
+
+func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunID      string `json:"run_id"`
+		Config     string `json:"config"`
+		SignalType string `json:"signal_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid JSON body</div></div>`)
+		return
+	}
+	if req.RunID == "" {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run_id is required</div></div>`)
+		return
+	}
+
+	run := s.store.Get(req.RunID)
+	if run == nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run not found</div></div>`)
+		return
+	}
+
+	signalType := req.SignalType
+	if signalType == "" {
+		signalType = "traces"
+	}
+
+	var result ottl.TransformResult
+
+	if signalType == "both" {
+		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(req.Config)
+		if err != nil {
+			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+			return
+		}
+		result = ottl.TransformResult{Valid: true}
+		if len(traceStmts) > 0 && run.TraceData != nil {
+			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			if err != nil {
+				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, signalType))
+				return
+			}
+			result.TransformedData = &transformed
+			result.StatementsParsed = len(traceStmts)
+		}
+		if len(logStmts) > 0 && run.LogData != nil {
+			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
+			if err != nil {
+				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"log: " + err.Error()}}, signalType))
+				return
+			}
+			result.LogTransformedData = &transformed
+			result.LogStatementsParsed = len(logStmts)
+		}
+		writeHTML(w, renderTransformHTML(result, signalType))
+		return
+	}
+
+	if signalType == "all" {
+		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(req.Config)
+		if err != nil {
+			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+			return
+		}
+		result = ottl.TransformResult{Valid: true}
+		if len(traceStmts) > 0 && run.TraceData != nil {
+			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			if err != nil {
+				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, signalType))
+				return
+			}
+			result.TransformedData = &transformed
+			result.StatementsParsed = len(traceStmts)
+		}
+		if len(logStmts) > 0 && run.LogData != nil {
+			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
+			if err != nil {
+				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"log: " + err.Error()}}, signalType))
+				return
+			}
+			result.LogTransformedData = &transformed
+			result.LogStatementsParsed = len(logStmts)
+		}
+		if len(metricStmts) > 0 && run.MetricData != nil {
+			transformed, err := ottl.TransformMetricRunData(*run.MetricData, metricStmts)
+			if err != nil {
+				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, signalType))
+				return
+			}
+			result.MetricTransformedData = &transformed
+			result.MetricStatementsParsed = len(metricStmts)
+		}
+		writeHTML(w, renderTransformHTML(result, signalType))
+		return
+	}
+
+	if signalType == "logs" {
+		if run.LogData == nil {
+			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no log data</div></div>`)
+			return
+		}
+		var statements []string
+		var err error
+		statements, err = ottl.ParseTransformStatements(req.Config)
+		if err != nil {
+			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+			return
+		}
+		transformed, err := ottl.TransformLogRunData(*run.LogData, statements)
+		if err != nil {
+			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+			return
+		}
+		result = ottl.TransformResult{Valid: true, LogTransformedData: &transformed, LogStatementsParsed: len(statements)}
+		writeHTML(w, renderTransformHTML(result, signalType))
+		return
+	}
+
+	if signalType == "metrics" {
+		if run.MetricData == nil {
+			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no metric data</div></div>`)
+			return
+		}
+		var statements []string
+		var err error
+		statements, err = ottl.ParseTransformStatements(req.Config)
+		if err != nil {
+			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+			return
+		}
+		transformed, err := ottl.TransformMetricRunData(*run.MetricData, statements)
+		if err != nil {
+			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+			return
+		}
+		result = ottl.TransformResult{Valid: true, MetricTransformedData: &transformed, MetricStatementsParsed: len(statements)}
+		writeHTML(w, renderTransformHTML(result, signalType))
+		return
+	}
+
+	// Traces (default)
+	if run.TraceData == nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no trace data</div></div>`)
+		return
+	}
+	var statements []string
+	var err error
+	statements, err = ottl.ParseTransformStatements(req.Config)
+	if err != nil {
+		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+		return
+	}
+	transformed, err := ottl.TransformRunData(*run.TraceData, statements)
+	if err != nil {
+		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
+		return
+	}
+	result = ottl.TransformResult{Valid: true, TransformedData: &transformed, StatementsParsed: len(statements)}
+	writeHTML(w, renderTransformHTML(result, signalType))
+}
+
+func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunID      string         `json:"run_id"`
+		Config     string         `json:"config"`
+		Mode       ottl.FilterMode `json:"mode"`
+		SignalType string         `json:"signal_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid JSON body</div></div>`)
+		return
+	}
+	if req.RunID == "" {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run_id is required</div></div>`)
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = ottl.FilterModeInclude
+	}
+
+	run := s.store.Get(req.RunID)
+	if run == nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run not found</div></div>`)
+		return
+	}
+
+	signalType := req.SignalType
+	if signalType == "" {
+		signalType = "traces"
+	}
+
+	if signalType == "both" {
+		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(req.Config)
+		if err != nil {
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			return
+		}
+		result := ottl.FilterResult{Valid: true}
+		if len(traceConds) > 0 && run.TraceData != nil {
+			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			if err != nil {
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(req.Mode), signalType))
+				return
+			}
+			result.FilteredData = &filtered
+			result.ConditionsParsed = len(traceConds)
+			result.TotalSpanCount = total
+			result.FilteredSpanCount = kept
+		}
+		if len(logConds) > 0 && run.LogData != nil {
+			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			if err != nil {
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(req.Mode), signalType))
+				return
+			}
+			result.LogFilteredData = &filtered
+			result.LogConditionsParsed = len(logConds)
+			result.TotalLogCount = total
+			result.FilteredLogCount = kept
+		}
+		writeHTML(w, renderFilterHTML(result, string(req.Mode), signalType))
+		return
+	}
+
+	if signalType == "all" {
+		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(req.Config)
+		if err != nil {
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			return
+		}
+		result := ottl.FilterResult{Valid: true}
+		if len(traceConds) > 0 && run.TraceData != nil {
+			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			if err != nil {
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(req.Mode), signalType))
+				return
+			}
+			result.FilteredData = &filtered
+			result.ConditionsParsed = len(traceConds)
+			result.TotalSpanCount = total
+			result.FilteredSpanCount = kept
+		}
+		if len(logConds) > 0 && run.LogData != nil {
+			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			if err != nil {
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(req.Mode), signalType))
+				return
+			}
+			result.LogFilteredData = &filtered
+			result.LogConditionsParsed = len(logConds)
+			result.TotalLogCount = total
+			result.FilteredLogCount = kept
+		}
+		if len(metricConds) > 0 && run.MetricData != nil {
+			filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, metricConds, req.Mode)
+			if err != nil {
+				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, string(req.Mode), signalType))
+				return
+			}
+			result.MetricFilteredData = &filtered
+			result.MetricConditionsParsed = len(metricConds)
+			result.TotalMetricCount = total
+			result.FilteredMetricCount = kept
+		}
+		writeHTML(w, renderFilterHTML(result, string(req.Mode), signalType))
+		return
+	}
+
+	if signalType == "logs" {
+		if run.LogData == nil {
+			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no log data</div></div>`)
+			return
+		}
+		conds, err := ottl.ParseFilterConditions(req.Config)
+		if err != nil {
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			return
+		}
+		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conds, req.Mode)
+		if err != nil {
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			return
+		}
+		writeHTML(w, renderFilterHTML(ottl.FilterResult{
+			Valid: true, LogFilteredData: &filtered,
+			LogConditionsParsed: len(conds),
+			TotalLogCount: total, FilteredLogCount: kept,
+		}, string(req.Mode), signalType))
+		return
+	}
+
+	if signalType == "metrics" {
+		if run.MetricData == nil {
+			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no metric data</div></div>`)
+			return
+		}
+		conds, err := ottl.ParseFilterConditions(req.Config)
+		if err != nil {
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			return
+		}
+		filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, conds, req.Mode)
+		if err != nil {
+			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+			return
+		}
+		writeHTML(w, renderFilterHTML(ottl.FilterResult{
+			Valid: true, MetricFilteredData: &filtered,
+			MetricConditionsParsed: len(conds),
+			TotalMetricCount: total, FilteredMetricCount: kept,
+		}, string(req.Mode), signalType))
+		return
+	}
+
+	// Traces (default)
+	if run.TraceData == nil {
+		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no trace data</div></div>`)
+		return
+	}
+	conds, err := ottl.ParseFilterConditions(req.Config)
+	if err != nil {
+		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+		return
+	}
+	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conds, req.Mode)
+	if err != nil {
+		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(req.Mode), signalType))
+		return
+	}
+	writeHTML(w, renderFilterHTML(ottl.FilterResult{
+		Valid: true, FilteredData: &filtered,
+		ConditionsParsed: len(conds),
+		TotalSpanCount: total, FilteredSpanCount: kept,
+	}, string(req.Mode), signalType))
 }

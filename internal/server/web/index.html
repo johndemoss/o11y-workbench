@@ -241,32 +241,59 @@
   </div>
 </section>
 
-<section id="ottl-prototyper">
+<section id="ottl-prototyper" x-data="ottlState()">
   <h2>OTTL Prototyper</h2>
+  <script>
+  function ottlState() {
+    return {
+      mode: 'transform',
+      filterMode: 'include',
+      runId: '',
+      activeTab: 'summary',
+      signals: {traces: true, logs: false, metrics: false},
+      get signalLabel() {
+        const a = Object.entries(this.signals).filter(([,v])=>v).map(([k])=>k);
+        if (a.length===0) return 'None';
+        if (a.length===3) return 'All';
+        return a.map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join('+');
+      },
+      get signalValue() {
+        const a = Object.entries(this.signals).filter(([,v])=>v).map(([k])=>k);
+        if (a.length===0) return 'none';
+        if (a.includes('traces')&&a.includes('logs')&&a.includes('metrics')) return 'all';
+        if (a.includes('traces')&&a.includes('logs')) return 'both';
+        if (a.includes('traces')&&a.includes('metrics')) return 'all';
+        return a[0]||'traces';
+      },
+      switchMode(m){this.mode=m;},
+      switchTab(t){this.activeTab=t;}
+    };
+  }
+  </script>
 
   <!-- Tab Bar -->
   <div class="ottl-prototyper-tabs">
-    <button class="ottl-prototyper-tab active" data-ottl-mode="transform" onclick="switchOttlMode('transform')">Transform</button>
-    <button class="ottl-prototyper-tab" data-ottl-mode="filter" onclick="switchOttlMode('filter')">Filter</button>
+    <button class="ottl-prototyper-tab" :class="{ 'active': mode === 'transform' }" x-on:click="switchMode('transform')">Transform</button>
+    <button class="ottl-prototyper-tab" :class="{ 'active': mode === 'filter' }" x-on:click="switchMode('filter')">Filter</button>
   </div>
 
   <!-- Signal Checkboxes -->
   <div style="margin-bottom:12px">
     <label style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:6px">Signals</label>
     <div class="signal-checkboxes" id="ottl-signal-checkboxes">
-      <label><input type="checkbox" value="traces" checked onchange="onOttlSignalCheckboxChange()"> Traces</label>
-      <label><input type="checkbox" value="logs" onchange="onOttlSignalCheckboxChange()"> Logs</label>
-      <label><input type="checkbox" value="metrics" onchange="onOttlSignalCheckboxChange()"> Metrics</label>
+      <label><input type="checkbox" value="traces" x-model="signals.traces"> Traces</label>
+      <label><input type="checkbox" value="logs" x-model="signals.logs"> Logs</label>
+      <label><input type="checkbox" value="metrics" x-model="signals.metrics"> Metrics</label>
     </div>
   </div>
 
   <!-- Shared Run Selector -->
   <div style="display:flex;gap:12px;align-items:center;margin:12px 0;padding:4px 0">
     <label for="ottl-run-select" style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Target Run</label>
-    <select id="ottl-run-select" onchange="onOttlRunChange()" style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;max-width:400px">
+    <select id="ottl-run-select" x-model="runId" style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;max-width:400px">
       <option value="">Select a completed run...</option>
     </select>
-    <span id="ottl-sig-badge" style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;color:#fff;background:#3b82f6;white-space:nowrap">Traces</span>
+    <span id="ottl-sig-badge" style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;color:#fff;background:#3b82f6;white-space:nowrap" x-text="signalLabel"></span>
   </div>
 
   <!-- Editor Container: Line Numbers + Textarea + Sidebar -->
@@ -281,30 +308,30 @@
         <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - keep_keys(attributes, [key1, key2])')">keep keys</div>
         <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;api.*&quot;')">set with where</div>
       </div>
-      <div class="ottl-snippet-group" id="ottl-snippets-transform-logs" style="display:none">
+      <div class="ottl-snippet-group" id="ottl-snippets-transform-logs" x-show="mode === 'transform' && signals.logs">
         <h4>Log Transform Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - set(attributes[&quot;key&quot;], &quot;value&quot;)')">set attribute</div>
         <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - delete_key(attributes, &quot;key&quot;)')">delete attribute</div>
         <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - set(severity_text, &quot;ERROR&quot;)')">set severity</div>
         <div class="ottl-snippet" onclick="insertSnippet('log_statements:\n  - context: log\n    statements:\n      - set(body, &quot;transformed log body&quot;)')">set body</div>
       </div>
-      <div class="ottl-snippet-group" id="ottl-snippets-filter" style="display:none">
+      <div class="ottl-snippet-group" id="ottl-snippets-filter" x-show="mode === 'filter' && signals.traces">
         <h4>Filter Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('traces:\n  span:\n    - kind == SPAN_KIND_INTERNAL')">kind condition</div>
         <div class="ottl-snippet" onclick="insertSnippet('traces:\n  span:\n    - attributes[&quot;key&quot;] == &quot;value&quot;')">attribute condition</div>
       </div>
-      <div class="ottl-snippet-group" id="ottl-snippets-filter-logs" style="display:none">
+      <div class="ottl-snippet-group" id="ottl-snippets-filter-logs" x-show="mode === 'filter' && signals.logs">
         <h4>Log Filter Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('logs:\n  log_record:\n    - severity_number >= SEVERITY_NUMBER_ERROR')">severity >= ERROR</div>
         <div class="ottl-snippet" onclick="insertSnippet('logs:\n  log_record:\n    - attributes[&quot;key&quot;] == &quot;value&quot;')">attribute condition</div>
       </div>
-      <div class="ottl-snippet-group" id="ottl-snippets-transform-metrics" style="display:none">
+      <div class="ottl-snippet-group" id="ottl-snippets-transform-metrics" x-show="mode === 'transform' && signals.metrics">
         <h4>Metric Transform Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('metric_statements:\n  - context: datapoint\n    statements:\n      - set(attributes[&quot;env&quot;], &quot;prod&quot;)')">set attribute</div>
         <div class="ottl-snippet" onclick="insertSnippet('metric_statements:\n  - context: datapoint\n    statements:\n      - delete_key(attributes, &quot;key&quot;)')">delete attribute</div>
         <div class="ottl-snippet" onclick="insertSnippet('metric_statements:\n  - context: datapoint\n    statements:\n      - set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;cpu.*&quot;')">set with where</div>
       </div>
-      <div class="ottl-snippet-group" id="ottl-snippets-filter-metrics" style="display:none">
+      <div class="ottl-snippet-group" id="ottl-snippets-filter-metrics" x-show="mode === 'filter' && signals.metrics">
         <h4>Metric Filter Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('metrics:\n  datapoint:\n    - attributes[&quot;env&quot;] == &quot;prod&quot;')">attribute condition</div>
         <div class="ottl-snippet" onclick="insertSnippet('metrics:\n  datapoint:\n    - metric.name == &quot;cpu.*&quot;')">metric name match</div>
@@ -313,20 +340,31 @@
   </div>
 
   <!-- Filter Controls (visible only on Filter tab) -->
-  <div id="ottl-filter-controls" class="ottl-filter-controls hidden">
+  <div id="ottl-filter-controls" class="ottl-filter-controls" x-show="mode === 'filter'">
     <div style="display:flex;gap:24px;align-items:center;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;margin:8px 0">
       <label style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em">Mode</label>
-      <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="ottl-filter-mode" value="include" checked onchange="updateFilterMode()"><span>Include</span></label>
-      <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="ottl-filter-mode" value="exclude" onchange="updateFilterMode()"><span>Exclude</span></label>
+      <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" value="include" x-model="filterMode"><span>Include</span></label>
+      <label style="font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" value="exclude" x-model="filterMode"><span>Exclude</span></label>
     </div>
   </div>
 
   <!-- Action Buttons -->
   <div class="form-actions">
-    <button class="btn btn-primary" id="ottl-validate-btn">Validate</button>
-    <button class="btn btn-primary" id="ottl-action-btn" onclick="ottlTransform()" disabled>Transform</button>
+    <button class="btn btn-primary" id="ottl-validate-btn"
+      hx-post="/api/ottl/validate-html"
+      hx-target="#ottl-result-content"
+      hx-swap="innerHTML"
+      hx-vals='{"config":document.getElementById("ottl-input").value}'>Validate</button>
+    <button class="btn btn-primary" id="ottl-action-btn"
+      x-bind:disabled="!runId"
+      x-bind:hx-post="mode === 'filter' ? '/api/ottl/filter-html' : '/api/ottl/transform-html'"
+      hx-target="#ottl-result-content"
+      hx-swap="innerHTML"
+      x-bind:hx-vals='JSON.stringify({config:document.getElementById("ottl-input").value,run_id:runId,signal_type:signalValue,mode:filterMode})'>
+      <span x-text="mode === 'filter' ? 'Filter' : 'Transform'"></span></button>
     <span id="ottl-status"></span>
-    <button class="btn btn-secondary" id="ottl-clear-btn" onclick="ottlClear()">Clear</button>
+    <button class="btn btn-secondary" id="ottl-clear-btn"
+      x-on:click="document.getElementById('ottl-input').value='';document.getElementById('ottl-result-content').innerHTML='';document.getElementById('ottl-result').classList.add('hidden')">Clear</button>
   </div>
 
   <!-- Source Data -->
@@ -335,9 +373,8 @@
   <!-- Result Panel -->
   <div id="ottl-result" class="ottl-result-panel hidden">
     <div class="ottl-result-tabs">
-      <button class="ottl-result-tab active" data-result-tab="summary" onclick="switchOttlResultTab('summary')">Summary</button>
-      <button class="ottl-result-tab" data-result-tab="spans" onclick="switchOttlResultTab('spans')">Per-Span</button>
-      <button class="ottl-result-tab" data-result-tab="json" onclick="switchOttlResultTab('json')">Raw JSON</button>
+      <button class="ottl-result-tab" :class="{ 'active': activeTab === 'summary' }" x-on:click="switchTab('summary')">Summary</button>
+      <button class="ottl-result-tab" :class="{ 'active': activeTab === 'json' }" x-on:click="switchTab('json')">Raw JSON</button>
     </div>
     <div id="ottl-result-content" class="ottl-result-content"></div>
   </div>
