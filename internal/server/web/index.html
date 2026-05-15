@@ -280,6 +280,10 @@
       },
       init() {
         this.$watch('signals', () => {
+          // Ensure at least one signal is selected (consistent with main config panel)
+          if (!this.signals.traces && !this.signals.logs && !this.signals.metrics) {
+            this.signals = {...this.signals, traces: true};
+          }
           this.$nextTick(() => updateAllPillState('ottl-signal-checkboxes'));
         }, { deep: true });
         // Auto-show summary tab after HTMX swaps result content
@@ -398,7 +402,7 @@
       hx-post="/api/ottl/validate-html"
       hx-target="#ottl-result-content"
       hx-swap="innerHTML"
-      x-bind:hx-vals='JSON.stringify({config:config,mode:mode})'>Validate</button>
+      x-bind:hx-vals='JSON.stringify({config:config,mode:mode,signal_type:signalValue})'>Validate</button>
     <button class="btn btn-primary" id="ottl-transform-btn"
       x-show="mode === 'transform'"
       x-bind:disabled="!runId"

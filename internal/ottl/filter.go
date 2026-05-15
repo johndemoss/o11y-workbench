@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -19,13 +20,19 @@ import (
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // ValidateFilterConditionsParse parses and validates OTTL filter conditions
 // without executing them. Returns which conditions are syntactically valid.
-func ValidateFilterConditionsParse(conditions []string) ValidateResult {
+// The signalType parameter selects the appropriate OTTL context(s) for validation:
+// "traces" → span, "logs" → log, "metrics" → datapoint.
+// Combined types like "both", "all", "traces+metrics", "logs+metrics" are also
+// supported — a condition is valid if it parses correctly in ANY selected context.
+func ValidateFilterConditionsParse(conditions []string, signalType string) ValidateResult {
 	if len(conditions) == 0 {
 		return ValidateResult{
 			Valid:  false,
@@ -37,10 +44,87 @@ func ValidateFilterConditionsParse(conditions []string) ValidateResult {
 		Logger: zap.NewNop(),
 	}
 
-	parser, err := ottlspan.NewParser(
-		ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
-		settings,
-	)
+	type namedParser struct {
+		name  string
+		parse func(string) error
+	}
+
+	// collectParsers creates parsers for the given signal type names.
+	collectParsers := func(sigs []string) ([]namedParser, error) {
+		var parsers []namedParser
+		for _, sig := range sigs {
+			switch sig {
+			case "traces":
+				p, err := ottlspan.NewParser(
+					ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+					settings,
+				)
+				if err != nil {
+					return nil, err
+				}
+				parsers = append(parsers, namedParser{
+					name: "span context",
+					parse: func(cond string) error {
+						_, err := p.ParseCondition(cond)
+						return err
+					},
+				})
+			case "logs":
+				p, err := ottllog.NewParser(
+					ottlfuncs.StandardFuncs[*ottllog.TransformContext](),
+					settings,
+				)
+				if err != nil {
+					return nil, err
+				}
+				parsers = append(parsers, namedParser{
+					name: "log context",
+					parse: func(cond string) error {
+						_, err := p.ParseCondition(cond)
+						return err
+					},
+				})
+			case "metrics":
+				p, err := ottldatapoint.NewParser(
+					ottlfuncs.StandardFuncs[*ottldatapoint.TransformContext](),
+					settings,
+				)
+				if err != nil {
+					return nil, err
+				}
+				parsers = append(parsers, namedParser{
+					name: "metric context",
+					parse: func(cond string) error {
+						_, err := p.ParseCondition(cond)
+						return err
+					},
+				})
+			}
+		}
+		return parsers, nil
+	}
+
+	// Map combined signal type to the set of parser contexts to check.
+	var sigs []string
+	switch signalType {
+	case "logs":
+		sigs = []string{"logs"}
+	case "metrics":
+		sigs = []string{"metrics"}
+	case "both":
+		sigs = []string{"traces", "logs"}
+	case "all":
+		sigs = []string{"traces", "logs", "metrics"}
+	case "traces+metrics":
+		sigs = []string{"traces", "metrics"}
+	case "logs+metrics":
+		sigs = []string{"logs", "metrics"}
+	default:
+		// "traces" (or unknown) — use span context
+		sigs = []string{"traces"}
+	}
+
+	parsers, err := collectParsers(sigs)
 	if err != nil {
 		return ValidateResult{
 			Valid:  false,
@@ -48,12 +132,33 @@ func ValidateFilterConditionsParse(conditions []string) ValidateResult {
 		}
 	}
 
-	// Validate each condition independently to identify which ones fail.
+	if len(parsers) == 0 {
+		return ValidateResult{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("no parsers available for signal type: %s", signalType)},
+		}
+	}
+
+	// Validate each condition against all selected contexts.
+	// A condition is valid if it parses in ANY context.
 	var allErrors []string
 	parsedCount := 0
 	for _, cond := range conditions {
-		if _, err := parser.ParseCondition(cond); err != nil {
-			allErrors = append(allErrors, fmt.Sprintf("condition %q: %v", cond, err))
+		var errs []string
+		for _, p := range parsers {
+			if err := p.parse(cond); err == nil {
+				errs = nil
+				break
+			} else {
+				errs = append(errs, fmt.Sprintf("%s: %v", p.name, err))
+			}
+		}
+		if len(errs) > 0 {
+			if len(parsers) == 1 {
+				allErrors = append(allErrors, fmt.Sprintf("condition %q: %v", cond, errs[0]))
+			} else {
+				allErrors = append(allErrors, fmt.Sprintf("condition %q: not valid for any selected context — %s", cond, strings.Join(errs, "; ")))
+			}
 		} else {
 			parsedCount++
 		}
@@ -225,17 +330,19 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 type FilterResult struct {
 	Valid              bool             `json:"valid"`
 	Errors             []string         `json:"errors,omitempty"`
-	OriginalData       *json.RawMessage `json:"original_data,omitempty"`
-	FilteredData       *json.RawMessage `json:"filtered_data,omitempty"`
-	ConditionsParsed   int              `json:"conditions_parsed,omitempty"`
-	TotalSpanCount     int              `json:"total_span_count,omitempty"`
-	FilteredSpanCount  int              `json:"filtered_span_count,omitempty"`
-	LogFilteredData      *json.RawMessage `json:"log_filtered_data,omitempty"`
-	LogConditionsParsed  int              `json:"log_conditions_parsed,omitempty"`
-	TotalLogCount        int              `json:"total_log_count,omitempty"`
-	FilteredLogCount     int              `json:"filtered_log_count,omitempty"`
-	MetricFilteredData      *json.RawMessage `json:"metric_filtered_data,omitempty"`
-	MetricConditionsParsed  int              `json:"metric_conditions_parsed,omitempty"`
-	TotalMetricCount        int              `json:"total_metric_count,omitempty"`
-	FilteredMetricCount     int              `json:"filtered_metric_count,omitempty"`
+	OriginalData          *json.RawMessage `json:"original_data,omitempty"`
+	FilteredData          *json.RawMessage `json:"filtered_data,omitempty"`
+	ConditionsParsed      int              `json:"conditions_parsed,omitempty"`
+	TotalSpanCount        int              `json:"total_span_count,omitempty"`
+	FilteredSpanCount     int              `json:"filtered_span_count,omitempty"`
+	LogOriginalData       *json.RawMessage `json:"log_original_data,omitempty"`
+	LogFilteredData       *json.RawMessage `json:"log_filtered_data,omitempty"`
+	LogConditionsParsed   int              `json:"log_conditions_parsed,omitempty"`
+	TotalLogCount         int              `json:"total_log_count,omitempty"`
+	FilteredLogCount      int              `json:"filtered_log_count,omitempty"`
+	MetricOriginalData    *json.RawMessage `json:"metric_original_data,omitempty"`
+	MetricFilteredData    *json.RawMessage `json:"metric_filtered_data,omitempty"`
+	MetricConditionsParsed int             `json:"metric_conditions_parsed,omitempty"`
+	TotalMetricCount      int              `json:"total_metric_count,omitempty"`
+	FilteredMetricCount   int              `json:"filtered_metric_count,omitempty"`
 }

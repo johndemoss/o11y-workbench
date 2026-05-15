@@ -780,8 +780,9 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config     string   `json:"config"`
+		Config     string `json:"config"`
 		Conditions []string `json:"conditions"` // backward compat
+		SignalType string `json:"signal_type"`  // OTTL context (traces/logs/metrics)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -800,7 +801,12 @@ func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request
 		conditions = req.Conditions
 	}
 
-	result := ottl.ValidateFilterConditionsParse(conditions)
+	signalType := req.SignalType
+	if signalType == "" {
+		signalType = "traces"
+	}
+
+	result := ottl.ValidateFilterConditionsParse(conditions, signalType)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest
@@ -859,7 +865,14 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 			parts = append(parts, fmt.Sprintf(`<span>✓ %d metric statement(s) parsed</span>`, result.MetricStatementsParsed))
 		}
 	} else {
-		parts = append(parts, fmt.Sprintf(`<span>✓ %d statement(s) parsed, %d spans transformed</span>`, result.StatementsParsed, result.TransformedCount))
+		switch signalType {
+		case "logs":
+			parts = append(parts, fmt.Sprintf(`<span>✓ %d log statement(s) parsed</span>`, result.LogStatementsParsed))
+		case "metrics":
+			parts = append(parts, fmt.Sprintf(`<span>✓ %d metric statement(s) parsed</span>`, result.MetricStatementsParsed))
+		default:
+			parts = append(parts, fmt.Sprintf(`<span>✓ %d statement(s) parsed, %d spans transformed</span>`, result.StatementsParsed, result.TransformedCount))
+		}
 	}
 
 	var sb strings.Builder
@@ -893,8 +906,29 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 	}
 	sb.WriteString(`</div>`)
 
-	// Embed transform data for client-side diff computation
-	if result.OriginalData != nil || result.TransformedData != nil {
+	// Always (re)set __ottlTransformData to clear stale trace data from prior transform results.
+	// For composite signal types, embed per-signal data so the client can render diffs for each.
+	if signalType == "both" || signalType == "all" {
+		var scriptBuf strings.Builder
+		scriptBuf.WriteString(`<script>window.__ottlTransformData={_composite:true`)
+		if result.OriginalData != nil || result.TransformedData != nil {
+			orig := "null"; if result.OriginalData != nil { orig = string(*result.OriginalData) }
+			trans := "null"; if result.TransformedData != nil { trans = string(*result.TransformedData) }
+			fmt.Fprintf(&scriptBuf, `,traces:{original:%s,transformed:%s}`, orig, trans)
+		}
+		if result.LogOriginalData != nil || result.LogTransformedData != nil {
+			orig := "null"; if result.LogOriginalData != nil { orig = string(*result.LogOriginalData) }
+			trans := "null"; if result.LogTransformedData != nil { trans = string(*result.LogTransformedData) }
+			fmt.Fprintf(&scriptBuf, `,logs:{original:%s,transformed:%s}`, orig, trans)
+		}
+		if result.MetricOriginalData != nil || result.MetricTransformedData != nil {
+			orig := "null"; if result.MetricOriginalData != nil { orig = string(*result.MetricOriginalData) }
+			trans := "null"; if result.MetricTransformedData != nil { trans = string(*result.MetricTransformedData) }
+			fmt.Fprintf(&scriptBuf, `,metrics:{original:%s,transformed:%s}`, orig, trans)
+		}
+		scriptBuf.WriteString(`}</script>`)
+		sb.WriteString(scriptBuf.String())
+	} else {
 		origJSON := "null"
 		transJSON := "null"
 		if result.OriginalData != nil {
@@ -902,6 +936,10 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 		}
 		if result.TransformedData != nil {
 			transJSON = string(*result.TransformedData)
+		} else if result.LogTransformedData != nil {
+			transJSON = string(*result.LogTransformedData)
+		} else if result.MetricTransformedData != nil {
+			transJSON = string(*result.MetricTransformedData)
 		}
 		sb.WriteString(fmt.Sprintf(`<script>window.__ottlTransformData={original:%s,transformed:%s}</script>`, origJSON, transJSON))
 	}
@@ -939,8 +977,17 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 				result.MetricConditionsParsed, result.FilteredMetricCount, result.TotalMetricCount, mode))
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
-			result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
+		switch signalType {
+		case "logs":
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d logs (%s mode)</div>`,
+				result.LogConditionsParsed, result.FilteredLogCount, result.TotalLogCount, mode))
+		case "metrics":
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d metrics (%s mode)</div>`,
+				result.MetricConditionsParsed, result.FilteredMetricCount, result.TotalMetricCount, mode))
+		default:
+			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
+				result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
+		}
 	}
 
 	// Filtered data preview in summary
@@ -981,8 +1028,29 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 	}
 	sb.WriteString(`</div>`) // end json tab
 
-	// Embed filter data for client-side diff computation
-	if result.OriginalData != nil || result.FilteredData != nil {
+	// Always (re)set __ottlTransformData to clear stale trace data from prior filter results.
+	// For composite signal types, embed per-signal data so the client can render diffs for each.
+	if signalType == "both" || signalType == "all" {
+		var scriptBuf strings.Builder
+		scriptBuf.WriteString(`<script>window.__ottlTransformData={_composite:true`)
+		if result.OriginalData != nil || result.FilteredData != nil {
+			orig := "null"; if result.OriginalData != nil { orig = string(*result.OriginalData) }
+			trans := "null"; if result.FilteredData != nil { trans = string(*result.FilteredData) }
+			fmt.Fprintf(&scriptBuf, `,traces:{original:%s,transformed:%s}`, orig, trans)
+		}
+		if result.LogOriginalData != nil || result.LogFilteredData != nil {
+			orig := "null"; if result.LogOriginalData != nil { orig = string(*result.LogOriginalData) }
+			trans := "null"; if result.LogFilteredData != nil { trans = string(*result.LogFilteredData) }
+			fmt.Fprintf(&scriptBuf, `,logs:{original:%s,transformed:%s}`, orig, trans)
+		}
+		if result.MetricOriginalData != nil || result.MetricFilteredData != nil {
+			orig := "null"; if result.MetricOriginalData != nil { orig = string(*result.MetricOriginalData) }
+			trans := "null"; if result.MetricFilteredData != nil { trans = string(*result.MetricFilteredData) }
+			fmt.Fprintf(&scriptBuf, `,metrics:{original:%s,transformed:%s}`, orig, trans)
+		}
+		scriptBuf.WriteString(`}</script>`)
+		sb.WriteString(scriptBuf.String())
+	} else {
 		origJSON := "null"
 		filteredJSON := "null"
 		if result.OriginalData != nil {
@@ -990,6 +1058,10 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 		}
 		if result.FilteredData != nil {
 			filteredJSON = string(*result.FilteredData)
+		} else if result.LogFilteredData != nil {
+			filteredJSON = string(*result.LogFilteredData)
+		} else if result.MetricFilteredData != nil {
+			filteredJSON = string(*result.MetricFilteredData)
 		}
 		sb.WriteString(fmt.Sprintf(`<script>window.__ottlTransformData={original:%s,transformed:%s}</script>`, origJSON, filteredJSON))
 	}
@@ -1032,7 +1104,11 @@ func (s *Server) handleOTTLValidateHTML(w http.ResponseWriter, r *http.Request) 
 			writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
 			return
 		}
-		result := ottl.ValidateFilterConditionsParse(conditions)
+		signalType := r.PostFormValue("signal_type")
+		if signalType == "" {
+			signalType = "traces"
+		}
+		result := ottl.ValidateFilterConditionsParse(conditions, signalType)
 		writeHTML(w, renderValidateHTML(result))
 		return
 	}
@@ -1099,6 +1175,12 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"log: " + err.Error()}}, signalType))
 				return
 			}
+			logOrigCopy := make(json.RawMessage, len(*run.LogData))
+			copy(logOrigCopy, *run.LogData)
+			result.LogOriginalData = &logOrigCopy
+			if result.OriginalData == nil {
+				result.OriginalData = &logOrigCopy
+			}
 			result.LogTransformedData = &transformed
 			result.LogStatementsParsed = len(logStmts)
 		}
@@ -1133,6 +1215,12 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"log: " + err.Error()}}, signalType))
 				return
 			}
+			logOrigCopy := make(json.RawMessage, len(*run.LogData))
+			copy(logOrigCopy, *run.LogData)
+			result.LogOriginalData = &logOrigCopy
+			if result.OriginalData == nil {
+				result.OriginalData = &logOrigCopy
+			}
 			result.LogTransformedData = &transformed
 			result.LogStatementsParsed = len(logStmts)
 		}
@@ -1141,6 +1229,12 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 			if err != nil {
 				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, signalType))
 				return
+			}
+			metricOrigCopy := make(json.RawMessage, len(*run.MetricData))
+			copy(metricOrigCopy, *run.MetricData)
+			result.MetricOriginalData = &metricOrigCopy
+			if result.OriginalData == nil {
+				result.OriginalData = &metricOrigCopy
 			}
 			result.MetricTransformedData = &transformed
 			result.MetricStatementsParsed = len(metricStmts)
@@ -1274,6 +1368,12 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(mode), signalType))
 				return
 			}
+			logOrigCopy := make(json.RawMessage, len(*run.LogData))
+			copy(logOrigCopy, *run.LogData)
+			result.LogOriginalData = &logOrigCopy
+			if result.OriginalData == nil {
+				result.OriginalData = &logOrigCopy
+			}
 			result.LogFilteredData = &filtered
 			result.LogConditionsParsed = len(logConds)
 			result.TotalLogCount = total
@@ -1310,6 +1410,12 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(mode), signalType))
 				return
 			}
+			logOrigCopy := make(json.RawMessage, len(*run.LogData))
+			copy(logOrigCopy, *run.LogData)
+			result.LogOriginalData = &logOrigCopy
+			if result.OriginalData == nil {
+				result.OriginalData = &logOrigCopy
+			}
 			result.LogFilteredData = &filtered
 			result.LogConditionsParsed = len(logConds)
 			result.TotalLogCount = total
@@ -1320,6 +1426,12 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, string(mode), signalType))
 				return
+			}
+			metricOrigCopy := make(json.RawMessage, len(*run.MetricData))
+			copy(metricOrigCopy, *run.MetricData)
+			result.MetricOriginalData = &metricOrigCopy
+			if result.OriginalData == nil {
+				result.OriginalData = &metricOrigCopy
 			}
 			result.MetricFilteredData = &filtered
 			result.MetricConditionsParsed = len(metricConds)
@@ -1345,8 +1457,11 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
+		origCopy := make(json.RawMessage, len(*run.LogData))
+		copy(origCopy, *run.LogData)
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{
 			Valid: true, LogFilteredData: &filtered,
+			OriginalData: &origCopy,
 			LogConditionsParsed: len(conds),
 			TotalLogCount: total, FilteredLogCount: kept,
 		}, string(mode), signalType))
@@ -1368,8 +1483,11 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 			return
 		}
+		origCopy := make(json.RawMessage, len(*run.MetricData))
+		copy(origCopy, *run.MetricData)
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{
 			Valid: true, MetricFilteredData: &filtered,
+			OriginalData: &origCopy,
 			MetricConditionsParsed: len(conds),
 			TotalMetricCount: total, FilteredMetricCount: kept,
 		}, string(mode), signalType))
