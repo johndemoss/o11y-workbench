@@ -251,12 +251,11 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .severity-row.sev-warn label { color:#eab308; }
 .severity-row.sev-error label { color:#ef4444; }
 .severity-row.sev-fatal label { color:#dc2626; }
-.sev-bar-track { flex:1; height:20px; background:#0f172a; border-radius:4px; cursor:pointer; position:relative; overflow:hidden; }
+.sev-bar-track { flex:1; height:20px; background:#0f172a; border-radius:4px; cursor:pointer; position:relative; overflow:hidden; user-select:none; -webkit-user-select:none; }
+.sev-bar-track.dragging { cursor:grabbing; }
 .sev-bar-fill { display:flex; height:100%; border-radius:4px; overflow:hidden; }
 .sev-chunk { width:5%; height:100%; flex-shrink:0; border-right:1px solid #0f172a; }
-.sev-chunk.full { background:var(--chunk-color); }
-.sev-chunk.partial { background:linear-gradient(to right, var(--chunk-color) 0% var(--chunk-fill), transparent var(--chunk-fill) 100%); }
-.sev-chunk.empty { background:transparent; }
+
 .severity-row input[type=number] { width:48px; padding:3px 6px; background:#0f172a; border:1px solid #334155; border-radius:4px; color:#e2e8f0; font-size:13px; font-weight:600; font-family:"SF Mono","Fira Code",monospace; text-align:right; }
 .severity-row input[type=number]:focus { outline:none; border-color:#3b82f6; }
 .severity-total { display:flex; justify-content:flex-end; gap:6px; margin-top:2px; margin-bottom:10px; font-size:12px; font-weight:600; color:#64748b; font-family:"SF Mono","Fira Code",monospace; }
@@ -458,28 +457,28 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       <div class="severity-grid" id="severity-grid">
         <div class="severity-row sev-info">
           <label>INFO</label>
-          <div class="sev-bar-track" onclick="clickSeverityBar('info', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'info')" ontouchstart="startBarDrag(event, 'sev', 'info')">
             <div class="sev-bar-fill" id="sev-bar-info" style="--chunk-color:#3b82f6"></div>
           </div>
           <input type="number" id="sev-info" min="0" max="100" value="60" oninput="onSeverityInput('info')">
         </div>
         <div class="severity-row sev-warn">
           <label>WARN</label>
-          <div class="sev-bar-track" onclick="clickSeverityBar('warn', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'warn')" ontouchstart="startBarDrag(event, 'sev', 'warn')">
             <div class="sev-bar-fill" id="sev-bar-warn" style="--chunk-color:#eab308"></div>
           </div>
           <input type="number" id="sev-warn" min="0" max="100" value="25" oninput="onSeverityInput('warn')">
         </div>
         <div class="severity-row sev-error">
           <label>ERROR</label>
-          <div class="sev-bar-track" onclick="clickSeverityBar('error', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'error')" ontouchstart="startBarDrag(event, 'sev', 'error')">
             <div class="sev-bar-fill" id="sev-bar-error" style="--chunk-color:#ef4444"></div>
           </div>
           <input type="number" id="sev-error" min="0" max="100" value="12" oninput="onSeverityInput('error')">
         </div>
         <div class="severity-row sev-fatal">
           <label>FATAL</label>
-          <div class="sev-bar-track" onclick="clickSeverityBar('fatal', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'fatal')" ontouchstart="startBarDrag(event, 'sev', 'fatal')">
             <div class="sev-bar-fill" id="sev-bar-fatal" style="--chunk-color:#dc2626"></div>
           </div>
           <input type="number" id="sev-fatal" min="0" max="100" value="3" oninput="onSeverityInput('fatal')">
@@ -516,21 +515,21 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       <div class="severity-grid" id="metric-type-grid">
         <div class="severity-row" style="--sev-color:#4ade80">
           <label>Gauge</label>
-          <div class="sev-bar-track" onclick="clickMetricTypeBar('gauge', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'metric', 'gauge')" ontouchstart="startBarDrag(event, 'metric', 'gauge')">
             <div class="sev-bar-fill" id="metric-bar-gauge" style="--chunk-color:#4ade80"></div>
           </div>
           <input type="number" id="metric-gauge" min="0" max="100" value="40" step="5" oninput="onMetricTypeInput('gauge')">
         </div>
         <div class="severity-row" style="--sev-color:#60a5fa">
           <label>Sum</label>
-          <div class="sev-bar-track" onclick="clickMetricTypeBar('sum', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'metric', 'sum')" ontouchstart="startBarDrag(event, 'metric', 'sum')">
             <div class="sev-bar-fill" id="metric-bar-sum" style="--chunk-color:#60a5fa"></div>
           </div>
           <input type="number" id="metric-sum" min="0" max="100" value="40" step="5" oninput="onMetricTypeInput('sum')">
         </div>
         <div class="severity-row" style="--sev-color:#f59e0b">
           <label>Histogram</label>
-          <div class="sev-bar-track" onclick="clickMetricTypeBar('histogram', event)">
+          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'metric', 'histogram')" ontouchstart="startBarDrag(event, 'metric', 'histogram')">
             <div class="sev-bar-fill" id="metric-bar-histogram" style="--chunk-color:#f59e0b"></div>
           </div>
           <input type="number" id="metric-histogram" min="0" max="100" value="20" step="5" oninput="onMetricTypeInput('histogram')">
@@ -916,11 +915,39 @@ function onSeverityInput(changed) {
   redistributeSeverity(changed, v);
 }
 
-function clickSeverityBar(changed, ev) {
-  const track = ev.currentTarget;
-  const rect = track.getBoundingClientRect();
-  const pct = Math.round(((ev.clientX - rect.left) / rect.width) * 100);
-  redistributeSeverity(changed, Math.max(0, Math.min(100, pct)));
+// --- Drag-to-set bar values ---
+var dragState = null;
+
+function startBarDrag(ev, prefix, id) {
+  ev.preventDefault();
+  document.activeElement && document.activeElement.blur();
+  var track = ev.currentTarget;
+  var callback = prefix === 'sev'
+    ? function(pct) { redistributeSeverity(id, pct); }
+    : function(pct) { redistributeMetricTypes(id, pct); };
+  track.classList.add('dragging');
+  dragState = { track: track, callback: callback };
+  updateBarDrag(ev);
+}
+
+function updateBarDrag(ev) {
+  if (!dragState) return;
+  var rect = dragState.track.getBoundingClientRect();
+  var x = ev.clientX;
+  // Touch events store coordinates in touches array
+  if (x === undefined && ev.touches && ev.touches.length) {
+    x = ev.touches[0].clientX;
+  }
+  if (x === undefined) return;
+  var pct = Math.round(((x - rect.left) / rect.width) * 100);
+  dragState.callback(Math.max(0, Math.min(100, pct)));
+}
+
+function stopBarDrag() {
+  if (dragState) {
+    dragState.track.classList.remove('dragging');
+    dragState = null;
+  }
 }
 
 function collectLogAttrs() {
@@ -1001,12 +1028,7 @@ function redistributeMetricTypes(changed, newVal) {
   updateMetricTypeBars();
 }
 
-function clickMetricTypeBar(type, event) {
-  const track = event.currentTarget;
-  const rect = track.getBoundingClientRect();
-  const pct = Math.round(((event.clientX - rect.left) / rect.width) * 100);
-  redistributeMetricTypes(type, Math.max(0, Math.min(100, pct)));
-}
+
 
 function onMetricTypeInput(type) {
   const el = document.getElementById('metric-' + type);
@@ -1022,7 +1044,7 @@ function initChunkedBars() {
     fill.innerHTML = '';
     for (var i = 0; i < 20; i++) {
       var chunk = document.createElement('div');
-      chunk.className = 'sev-chunk empty';
+      chunk.className = 'sev-chunk';
       fill.appendChild(chunk);
     }
   });
@@ -1033,17 +1055,17 @@ function updateChunkedBar(fillEl, value) {
   var fullChunks = Math.floor(v / 5);
   var remainder = v % 5;
   var chunks = fillEl.children;
+  var fillColor = (fillEl.style.getPropertyValue('--chunk-color') || '').trim();
+  if (!fillColor) fillColor = '#3b82f6';
   for (var i = 0; i < chunks.length; i++) {
+    chunks[i].className = 'sev-chunk';
     if (i < fullChunks) {
-      chunks[i].className = 'sev-chunk full';
-      chunks[i].style.setProperty('--chunk-fill', '');
+      chunks[i].style.background = fillColor;
     } else if (i === fullChunks && remainder > 0) {
-      chunks[i].className = 'sev-chunk partial';
       var fillPct = (remainder / 5) * 100;
-      chunks[i].style.setProperty('--chunk-fill', fillPct + '%');
+      chunks[i].style.background = 'linear-gradient(to right, ' + fillColor + ' 0% ' + fillPct + '%, transparent ' + fillPct + '% 100%)';
     } else {
-      chunks[i].className = 'sev-chunk empty';
-      chunks[i].style.setProperty('--chunk-fill', '');
+      chunks[i].style.background = '';
     }
   }
 }
@@ -2517,6 +2539,10 @@ loadScenarios();
   } catch(e) {}
 });
 initChunkedBars();
+document.addEventListener('mousemove', updateBarDrag);
+document.addEventListener('mouseup', stopBarDrag);
+document.addEventListener('touchmove', updateBarDrag, { passive: false });
+document.addEventListener('touchend', stopBarDrag);
 onSignalCheckboxChange();
 updateSeverityBars();
 updateMetricTypeBars();
