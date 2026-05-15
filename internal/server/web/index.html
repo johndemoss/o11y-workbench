@@ -282,6 +282,13 @@
         this.$watch('signals', () => {
           this.$nextTick(() => updateAllPillState('ottl-signal-checkboxes'));
         }, { deep: true });
+        // Auto-show summary tab after HTMX swaps result content
+        document.addEventListener('htmx:afterSettle', (e) => {
+          if (e.detail?.target?.id === 'ottl-result-content') {
+            this.activeTab = 'summary';
+            this.$nextTick(() => switchOttlResultTab('summary'));
+          }
+        });
       },
       get placeholder() {
         const sig = this.signalValue;
@@ -391,14 +398,23 @@
       hx-post="/api/ottl/validate-html"
       hx-target="#ottl-result-content"
       hx-swap="innerHTML"
-      x-bind:hx-vals='JSON.stringify({config:config})'>Validate</button>
-    <button class="btn btn-primary" id="ottl-action-btn"
+      x-bind:hx-vals='JSON.stringify({config:config,mode:mode})'>Validate</button>
+    <button class="btn btn-primary" id="ottl-transform-btn"
+      x-show="mode === 'transform'"
       x-bind:disabled="!runId"
-      x-bind:hx-post="mode === 'filter' ? '/api/ottl/filter-html' : '/api/ottl/transform-html'"
+      hx-post="/api/ottl/transform-html"
+      hx-target="#ottl-result-content"
+      hx-swap="innerHTML"
+      x-bind:hx-vals='JSON.stringify({config:config,run_id:runId,signal_type:signalValue})'>
+      Transform</button>
+    <button class="btn btn-primary" id="ottl-filter-btn"
+      x-show="mode === 'filter'"
+      x-bind:disabled="!runId"
+      hx-post="/api/ottl/filter-html"
       hx-target="#ottl-result-content"
       hx-swap="innerHTML"
       x-bind:hx-vals='JSON.stringify({config:config,run_id:runId,signal_type:signalValue,mode:filterMode})'>
-      <span x-text="mode === 'filter' ? 'Filter' : 'Transform'"></span></button>
+      Filter</button>
     <span id="ottl-status"></span>
     <button class="btn btn-secondary" id="ottl-clear-btn"
       x-on:click="config='';document.getElementById('ottl-result-content').innerHTML='';document.getElementById('ottl-result').classList.add('hidden')">Clear</button>
@@ -411,7 +427,6 @@
   <div id="ottl-result" class="ottl-result-panel hidden">
     <div class="ottl-result-tabs">
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'summary' }" x-on:click="switchTab('summary')">Summary</button>
-      <button class="ottl-result-tab" :class="{ 'active': activeTab === 'diff' }" x-on:click="switchTab('diff')">Diff</button>
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'fulldiff' }" x-on:click="switchTab('fulldiff')">Full Diff</button>
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'json' }" x-on:click="switchTab('json')">Raw JSON</button>
     </div>

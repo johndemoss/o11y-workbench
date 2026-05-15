@@ -80,6 +80,8 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-diff-table .modified { background: rgba(245, 158, 11, 0.08); }
 .ottl-diff-table .span-header td { padding: 8px 12px; border-top: 1px solid #334155; background: #0f172a; font-weight: 600; font-size: 13px; }
 .ottl-diff-table .span-header:first-child td { border-top: none; }
+.ottl-diff-table .span-header.span-removed td { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
+.ottl-diff-table .span-header.span-added td { background: rgba(34, 197, 94, 0.12); color: #86efac; }
 .ottl-diff-table .val-old { color: #ef4444; text-decoration: line-through; }
 .ottl-diff-table .val-new { color: #22c55e; }
 .ottl-save-area { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #0f172a; border-radius: 6px; margin-top: 8px; }

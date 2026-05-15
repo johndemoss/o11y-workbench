@@ -225,6 +225,7 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 type FilterResult struct {
 	Valid              bool             `json:"valid"`
 	Errors             []string         `json:"errors,omitempty"`
+	OriginalData       *json.RawMessage `json:"original_data,omitempty"`
 	FilteredData       *json.RawMessage `json:"filtered_data,omitempty"`
 	ConditionsParsed   int              `json:"conditions_parsed,omitempty"`
 	TotalSpanCount     int              `json:"total_span_count,omitempty"`

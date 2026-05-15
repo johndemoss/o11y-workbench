@@ -922,6 +922,9 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 
 	var sb strings.Builder
 
+	// Summary tab
+	sb.WriteString(`<div data-tab-content="summary">`)
+
 	if signalType == "both" || signalType == "all" {
 		if result.ConditionsParsed > 0 {
 			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
@@ -940,7 +943,7 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 			result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
 	}
 
-	// Filtered data
+	// Filtered data preview in summary
 	if result.FilteredData != nil {
 		sb.WriteString(`<div class="ottl-section"><h4>Filtered Trace Data</h4><pre class="ottl-json">`)
 		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.FilteredData)))
@@ -957,10 +960,39 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 		sb.WriteString(`</pre></div>`)
 	}
 
-	sb.WriteString(`<div class="ottl-tab-footer" style="margin-top:8px;display:flex;gap:8px">
-		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('summary')" data-result-tab="summary">Summary</button>
-		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('json')" data-result-tab="json">Raw JSON</button>
-	</div>`)
+	sb.WriteString(`</div>`) // end summary tab
+
+	// Raw JSON tab
+	sb.WriteString(`<div data-tab-content="json" style="display:none">`)
+	if result.FilteredData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Filtered Trace Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.FilteredData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	if result.LogFilteredData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Filtered Log Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.LogFilteredData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	if result.MetricFilteredData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Filtered Metric Data</h4><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricFilteredData)))
+		sb.WriteString(`</pre></div>`)
+	}
+	sb.WriteString(`</div>`) // end json tab
+
+	// Embed filter data for client-side diff computation
+	if result.OriginalData != nil || result.FilteredData != nil {
+		origJSON := "null"
+		filteredJSON := "null"
+		if result.OriginalData != nil {
+			origJSON = string(*result.OriginalData)
+		}
+		if result.FilteredData != nil {
+			filteredJSON = string(*result.FilteredData)
+		}
+		sb.WriteString(fmt.Sprintf(`<script>window.__ottlTransformData={original:%s,transformed:%s}</script>`, origJSON, filteredJSON))
+	}
 
 	return sb.String()
 }
@@ -992,6 +1024,20 @@ func (s *Server) handleOTTLValidateHTML(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	config := r.PostFormValue("config")
+	mode := r.PostFormValue("mode")
+
+	if mode == "filter" {
+		conditions, err := ottl.ParseFilterConditions(config)
+		if err != nil {
+			writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
+			return
+		}
+		result := ottl.ValidateFilterConditionsParse(conditions)
+		writeHTML(w, renderValidateHTML(result))
+		return
+	}
+
+	// Transform mode (default)
 	statements, err := ottl.ParseTransformStatements(config)
 	if err != nil {
 		writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
@@ -1209,11 +1255,14 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.FilterResult{Valid: true}
 		if len(traceConds) > 0 && run.TraceData != nil {
+			origCopy := make(json.RawMessage, len(*run.TraceData))
+			copy(origCopy, *run.TraceData)
 			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, mode)
 			if err != nil {
 				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(mode), signalType))
 				return
 			}
+			result.OriginalData = &origCopy
 			result.FilteredData = &filtered
 			result.ConditionsParsed = len(traceConds)
 			result.TotalSpanCount = total
@@ -1242,11 +1291,14 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.FilterResult{Valid: true}
 		if len(traceConds) > 0 && run.TraceData != nil {
+			origCopy := make(json.RawMessage, len(*run.TraceData))
+			copy(origCopy, *run.TraceData)
 			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, mode)
 			if err != nil {
 				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(mode), signalType))
 				return
 			}
+			result.OriginalData = &origCopy
 			result.FilteredData = &filtered
 			result.ConditionsParsed = len(traceConds)
 			result.TotalSpanCount = total
@@ -1334,13 +1386,15 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 		return
 	}
+	origCopy := make(json.RawMessage, len(*run.TraceData))
+	copy(origCopy, *run.TraceData)
 	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conds, mode)
 	if err != nil {
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
 		return
 	}
 	writeHTML(w, renderFilterHTML(ottl.FilterResult{
-		Valid: true, FilteredData: &filtered,
+		Valid: true, OriginalData: &origCopy, FilteredData: &filtered,
 		ConditionsParsed: len(conds),
 		TotalSpanCount: total, FilteredSpanCount: kept,
 	}, string(mode), signalType))

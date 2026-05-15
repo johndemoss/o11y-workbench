@@ -1163,7 +1163,8 @@ function switchOttlResultTab(tab) {
   const data = window.__ottlTransformData;
   const tabSections = content.querySelectorAll('[data-tab-content]');
 
-  if (tab === 'diff' && data && data.original && data.transformed) {
+  // Summary renders the attribute-level diff
+  if (tab === 'summary' && data && data.original && data.transformed) {
     tabSections.forEach(el => el.style.display = 'none');
     const oldDiff = content.querySelector('[data-diff-content]');
     if (oldDiff) oldDiff.remove();
@@ -1195,7 +1196,7 @@ function computeDiff(originalData, transformedData) {
   let orig, trans;
   try { orig = parse(originalData); } catch(e) { orig = null; }
   try { trans = parse(transformedData); } catch(e) { trans = null; }
-  const result = { added: 0, removed: 0, modified: 0, totalSpans: 0, spanDiffs: [] };
+  const result = { added: 0, removed: 0, modified: 0, totalSpans: 0, spanDiffs: [], spansRemoved: 0, spansAdded: 0 };
   if (!orig || !trans) return result;
   const getSpans = td => {
     const list = [];
@@ -1213,19 +1214,52 @@ function computeDiff(originalData, transformedData) {
   const origSpans = getSpans(orig);
   const transSpans = getSpans(trans);
   result.totalSpans = Math.max(origSpans.length, transSpans.length);
-  const maxLen = Math.max(origSpans.length, transSpans.length);
+
+  // When span count differs (e.g. filter removed some spans), report
+  // span-level additions/removals and skip attribute comparison (index
+  // shifting makes it unreliable). When counts match, do attribute-level
+  // diff by index (transform mode).
+  if (origSpans.length !== transSpans.length) {
+    // Trailing spans in original that don't exist in transformed = removed
+    if (origSpans.length > transSpans.length) {
+      result.spansRemoved = origSpans.length - transSpans.length;
+      for (let i = transSpans.length; i < origSpans.length; i++) {
+        const s = origSpans[i];
+        result.spanDiffs.push({
+          name: s.name, idx: i,
+          added: [], removed: [], modified: [], _removed: true
+        });
+      }
+      result.removed = result.spansRemoved;
+    }
+    // Trailing spans in transformed that don't exist in original = added
+    if (transSpans.length > origSpans.length) {
+      result.spansAdded = transSpans.length - origSpans.length;
+      for (let i = origSpans.length; i < transSpans.length; i++) {
+        const s = transSpans[i];
+        result.spanDiffs.push({
+          name: s.name, idx: i,
+          added: [], removed: [], modified: [], _added: true
+        });
+      }
+      result.added = result.spansAdded;
+    }
+    return result;
+  }
+
+  // Attribute-level diff by index (transform mode: same number of spans)
+  const maxLen = origSpans.length;
   for (let i = 0; i < maxLen; i++) {
-    const os = i < origSpans.length ? origSpans[i] : null;
-    const ts = i < transSpans.length ? transSpans[i] : null;
-    if (!os && !ts) continue;
-    const spanName = (ts || os).name;
+    const os = origSpans[i];
+    const ts = transSpans[i];
+    const spanName = os.name;
     const spanDiff = { name: spanName, idx: i, added: [], removed: [], modified: [] };
-    const origKeys = os ? Object.keys(os.attrs) : [];
-    const transKeys = ts ? Object.keys(ts.attrs) : [];
+    const origKeys = Object.keys(os.attrs);
+    const transKeys = Object.keys(ts.attrs);
     const allKeys = [...new Set([...origKeys, ...transKeys])];
     for (const key of allKeys) {
-      const ov = os && key in os.attrs ? os.attrs[key] : undefined;
-      const tv = ts && key in ts.attrs ? ts.attrs[key] : undefined;
+      const ov = key in os.attrs ? os.attrs[key] : undefined;
+      const tv = key in ts.attrs ? ts.attrs[key] : undefined;
       if (ov === undefined && tv !== undefined) {
         spanDiff.added.push({ key, value: tv });
         result.added++;
@@ -1260,6 +1294,14 @@ function renderDiffTable(diff) {
   }
   let html = '<table class="ottl-diff-table"><tr><th style="width:30%">Attribute</th><th style="width:35%">Original</th><th style="width:35%">Transformed</th></tr>';
   for (const sd of diff.spanDiffs) {
+    if (sd._removed) {
+      html += '<tr class="span-header span-removed"><td colspan="3">' + escapeHtml(sd.name) + ' (span ' + sd.idx + ') — removed</td></tr>';
+      continue;
+    }
+    if (sd._added) {
+      html += '<tr class="span-header span-added"><td colspan="3">' + escapeHtml(sd.name) + ' (span ' + sd.idx + ') — added</td></tr>';
+      continue;
+    }
     html += '<tr class="span-header"><td colspan="3">' + escapeHtml(sd.name) + ' (span ' + sd.idx + ')</td></tr>';
     for (const item of sd.removed) {
       const v = formatAttrValue(item.value);
@@ -1366,7 +1408,7 @@ function renderInlineDiff(originalData, transformedData) {
       transLine++;
       lineNum = '<span class="ln">' + origLine + '</span><span class="ln">' + transLine + '</span>';
     }
-    html += '<div class="ottl-diff-line' + cls + '"><span class="marker">' + marker + '</span>' + lineNum + '<span class="text">' + escapeHtml(hunk.text) + '</span></div>';
+    html += '<div class="diff-line' + cls + '"><span class="marker">' + marker + '</span>' + lineNum + '<span class="text">' + escapeHtml(hunk.text) + '</span></div>';
   }
   html += '</div>';
   return html;

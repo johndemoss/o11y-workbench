@@ -81,6 +81,10 @@ func ParseTransformStatements(configYAML string) ([]string, error) {
 		return flat, nil
 	}
 
+	if LooksLikeFilterConfig(cleaned) {
+		return nil, ErrLooksLikeFilterConfig
+	}
+
 	stmts := parseLines(cleaned)
 	if len(stmts) > 0 {
 		return stmts, nil
@@ -181,6 +185,9 @@ func ParseCombinedTransformConfig(configYAML string) (traceStmts, logStmts []str
 	}
 
 	// Fallback to generic parse (all statements treated as trace for backward compat)
+	if LooksLikeFilterConfig(cleaned) {
+		return nil, nil, ErrLooksLikeFilterConfig
+	}
 	stmts, err := ParseTransformStatements(configYAML)
 	if err != nil {
 		return nil, nil, err
@@ -220,6 +227,9 @@ func ParseCombinedTransformConfigAll(configYAML string) (traceStmts, logStmts, m
 	}
 
 	// Fallback to generic parse (all statements treated as trace for backward compat)
+	if LooksLikeFilterConfig(cleaned) {
+		return nil, nil, nil, ErrLooksLikeFilterConfig
+	}
 	stmts, err := ParseTransformStatements(configYAML)
 	if err != nil {
 		return nil, nil, nil, err
@@ -278,6 +288,38 @@ func ParseCombinedFilterConfigAll(configYAML string) (traceConditions, logCondit
 	}
 	return conds, nil, nil, nil
 }
+
+// LooksLikeFilterConfig checks whether the given YAML config matches the
+// filter configuration structure (traces → span conditions, logs → log_record
+// conditions, metrics → datapoint conditions). This is used to provide
+// helpful error messages when users accidentally enter filter-format YAML
+// in the Transform handler.
+func LooksLikeFilterConfig(configYAML string) bool {
+	configYAML = strings.TrimSpace(configYAML)
+	if configYAML == "" {
+		return false
+	}
+
+	var cfg FilterConfig
+	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
+		if len(cfg.Traces.SpanConditions) > 0 || len(cfg.Logs.LogRecordConditions) > 0 || len(cfg.Metrics.Conditions) > 0 {
+			return true
+		}
+	}
+
+	var wrapped filterWrapper
+	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
+		if len(wrapped.Filter.Traces.SpanConditions) > 0 || len(wrapped.Filter.Logs.LogRecordConditions) > 0 || len(wrapped.Filter.Metrics.Conditions) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ErrLooksLikeFilterConfig is returned when the input YAML matches the filter
+// configuration structure but was submitted to a transform parser.
+var ErrLooksLikeFilterConfig = fmt.Errorf("configuration appears to use filter format (uses 'traces:', 'span:', or 'log_record:' keys). Switch to Filter mode in the OTTL Prototyper, or reformat as transform statements")
 
 func trimTrailingSpaces(s string) string {
 	lines := strings.Split(s, "\n")
