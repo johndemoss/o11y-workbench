@@ -223,9 +223,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .toggle-label { font-size:13px; color:#e2e8f0; cursor:pointer; }
 
 /* === LOG/METRIC CONFIG PANEL === */
-.log-config-panel { display:none; margin-top:16px; padding:16px; background:#1e293b; border:1px solid #334155; border-radius:6px; }
-.log-config-panel.open { display:block; }
-.log-config-panel h3 { font-size:13px; font-weight:600; color:#94a3b8; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.05em; }
+/* (log-config-panel styles removed - now uses signal-config structure) */
 /* Metric config panel wrapper — lives outside <section> so needs its own styling */
 /* Checkbox signal selector */
 .signal-checkboxes { display:flex; gap:16px; flex-wrap:wrap; padding:4px 0; }
@@ -236,11 +234,15 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .trace-fields-group { display:contents; }
 .trace-fields-group.hidden { display:none; }
 
-/* Collapse config section */
-.config-collapsed #config-body { display:none; }
-.config-collapsed .collapse-btn { transform:rotate(-90deg); }
-.collapse-btn { background:none; border:none; color:#64748b; font-size:16px; cursor:pointer; padding:0 4px; line-height:1; transition:transform 0.2s; vertical-align:middle; }
-.collapse-btn:hover { color:#e2e8f0; }
+/* Per-signal collapsible config panels */
+.signal-config { margin-top:16px; border:1px solid #334155; border-radius:6px; overflow:hidden; background:#1e293b; }
+.signal-config-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#0f172a; cursor:pointer; user-select:none; }
+.signal-config-header span { font-size:13px; font-weight:600; color:#e2e8f0; }
+.signal-config-body { padding:16px; }
+.signal-config.collapsed .signal-config-body { display:none; }
+.signal-config.collapsed .signal-collapse-btn { transform:rotate(-90deg); }
+.signal-collapse-btn { background:none; border:none; color:#64748b; font-size:16px; cursor:pointer; padding:0; line-height:1; transition:transform 0.2s; }
+.signal-collapse-btn:hover { color:#e2e8f0; }
 
 .severity-grid { display:flex; flex-direction:column; gap:6px; margin-bottom:4px; }
 .severity-row { display:flex; align-items:center; gap:8px; }
@@ -342,55 +344,12 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </header>
 
 <section id="config-section">
-  <h2 style="display:flex;align-items:center;gap:8px">
-    Configuration
-    <button class="collapse-btn" id="config-collapse-btn" onclick="toggleConfig()" title="Collapse / Expand">▾</button>
-  </h2>
-  <div id="config-body">
+  <h2>Configuration</h2>
+
   <div class="form-grid">
     <div class="field">
       <label>Seed</label>
       <input type="number" id="seed" value="42">
-    </div>
-    <div class="trace-fields-group" id="trace-fields-group">
-    <div class="field">
-      <label>Trace Count</label>
-      <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite">
-    </div>
-    <div class="field">
-      <label>Rate (0 = unlimited)</label>
-      <input type="number" id="rate" value="0" min="0">
-    </div>
-    <div class="field">
-      <label>Scenario</label>
-      <select id="scenario">
-        <option value="">None (use topology)</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Topology</label>
-      <select id="topology">
-        <option value="flat">Flat</option>
-        <option value="branching">Branching</option>
-        <option value="split">Split</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Span Count</label>
-      <input type="number" id="span-count" value="10" min="1">
-    </div>
-    <div class="field">
-      <label>Scenario Span Count</label>
-      <input type="number" id="scenario-span-count" value="0" min="0">
-    </div>
-    <div class="field">
-      <label>Max Depth</label>
-      <input type="number" id="max-depth" value="5" min="1">
-    </div>
-    <div class="field">
-      <label>Service Name</label>
-      <input type="text" id="service-name" value="mock-service">
-    </div>
     </div>
     <div class="field">
       <label>Output</label>
@@ -414,7 +373,6 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       <input type="checkbox" id="insecure" checked style="width:18px;height:18px">
       <label for="insecure" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Insecure gRPC</label>
     </div>
-    <!-- Signal Type -->
     <div class="field" style="grid-column:1/-1">
       <label>Signals</label>
       <div class="signal-checkboxes" id="signal-type">
@@ -423,74 +381,135 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
         <label><input type="checkbox" value="metrics" onchange="onSignalCheckboxChange()"> Metrics</label>
       </div>
     </div>
-    <!-- Log Config Toggle & Panel -->
-    <div class="field" style="grid-column:1/-1" id="log-config-area">
-      <div class="log-config-panel open" id="log-config-panel">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-          <div class="field" id="log-per-span-field">
-            <label>Logs per Span</label>
-            <input type="number" id="logs-per-span" value="3" min="1">
-          </div>
-          <div class="field" id="log-count-field">
-            <label>Log Count</label>
-            <input type="number" id="log-count" value="10" min="1">
-          </div>
+  </div>
+
+  <div class="signal-config" id="trace-config-area">
+    <div class="signal-config-header" onclick="toggleSignalConfig('trace')">
+      <span>Trace Config</span>
+      <button class="signal-collapse-btn">▾</button>
+    </div>
+    <div class="signal-config-body" id="trace-config-body">
+      <div class="trace-fields-group" id="trace-fields-group">
+      <div class="form-grid" style="margin-bottom:0">
+        <div class="field">
+          <label>Trace Count</label>
+          <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite">
         </div>
-        <h3>Severity Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be 100)</span></h3>
-        <div class="severity-grid" id="severity-grid">
-          <div class="severity-row sev-info">
-            <label>INFO</label>
-            <div class="sev-bar-track" onclick="clickSeverityBar('info', event)">
-              <div class="sev-bar-fill sev-info" id="sev-bar-info" style="width:60%"></div>
-            </div>
-            <input type="number" id="sev-info" min="0" max="100" value="60" oninput="onSeverityInput('info')">
-          </div>
-          <div class="severity-row sev-warn">
-            <label>WARN</label>
-            <div class="sev-bar-track" onclick="clickSeverityBar('warn', event)">
-              <div class="sev-bar-fill sev-warn" id="sev-bar-warn" style="width:25%"></div>
-            </div>
-            <input type="number" id="sev-warn" min="0" max="100" value="25" oninput="onSeverityInput('warn')">
-          </div>
-          <div class="severity-row sev-error">
-            <label>ERROR</label>
-            <div class="sev-bar-track" onclick="clickSeverityBar('error', event)">
-              <div class="sev-bar-fill sev-error" id="sev-bar-error" style="width:12%"></div>
-            </div>
-            <input type="number" id="sev-error" min="0" max="100" value="12" oninput="onSeverityInput('error')">
-          </div>
-          <div class="severity-row sev-fatal">
-            <label>FATAL</label>
-            <div class="sev-bar-track" onclick="clickSeverityBar('fatal', event)">
-              <div class="sev-bar-fill sev-fatal" id="sev-bar-fatal" style="width:3%"></div>
-            </div>
-            <input type="number" id="sev-fatal" min="0" max="100" value="3" oninput="onSeverityInput('fatal')">
-          </div>
+        <div class="field">
+          <label>Rate (0 = unlimited)</label>
+          <input type="number" id="rate" value="0" min="0">
         </div>
-        <div class="severity-total" id="severity-total">Total: <span class="ok">100</span> / 100</div>
-        <h3>Body Template</h3>
-        <div class="field" style="margin-bottom:12px">
-          <textarea id="body-template" rows="3" style="width:100%;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical">{"message":"{{.Message}}","service":"{{.ServiceName}}","severity":"{{.Severity}}","component":"{{.Component}}"}</textarea>
+        <div class="field">
+          <label>Scenario</label>
+          <select id="scenario">
+            <option value="">None (use topology)</option>
+          </select>
         </div>
-        <h3>Custom Attributes</h3>
-        <table class="attr-table" id="attr-table">
-          <thead><tr><th>Key</th><th>Value</th><th style="width:32px"></th></tr></thead>
-          <tbody id="attr-body"></tbody>
-        </table>
-        <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px" onclick="addLogAttr()">+ Add Attribute</button>
+        <div class="field">
+          <label>Topology</label>
+          <select id="topology">
+            <option value="flat">Flat</option>
+            <option value="branching">Branching</option>
+            <option value="split">Split</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Span Count</label>
+          <input type="number" id="span-count" value="10" min="1">
+        </div>
+        <div class="field">
+          <label>Scenario Span Count</label>
+          <input type="number" id="scenario-span-count" value="0" min="0">
+        </div>
+        <div class="field">
+          <label>Max Depth</label>
+          <input type="number" id="max-depth" value="5" min="1">
+        </div>
+        <div class="field">
+          <label>Service Name</label>
+          <input type="text" id="service-name" value="mock-service">
+        </div>
+      </div>
       </div>
     </div>
   </div>
-  <!-- Metric Config Panel -->
-  <div class="field" style="grid-column:1/-1;display:none" id="metric-config-area">
-    <div class="log-config-panel open" id="metric-config-panel">
+
+  <div class="signal-config" id="log-config-area" style="display:none">
+    <div class="signal-config-header" onclick="toggleSignalConfig('log')">
+      <span>Log Config</span>
+      <button class="signal-collapse-btn">▾</button>
+    </div>
+    <div class="signal-config-body" id="log-config-body">
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Log Settings</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="field" id="log-per-span-field">
+          <label>Logs per Span</label>
+          <input type="number" id="logs-per-span" value="3" min="1">
+        </div>
+        <div class="field" id="log-count-field">
+          <label>Log Count</label>
+          <input type="number" id="log-count" value="10" min="1">
+        </div>
+      </div>
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Severity Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be 100)</span></h3>
+      <div class="severity-grid" id="severity-grid">
+        <div class="severity-row sev-info">
+          <label>INFO</label>
+          <div class="sev-bar-track" onclick="clickSeverityBar('info', event)">
+            <div class="sev-bar-fill sev-info" id="sev-bar-info" style="width:60%"></div>
+          </div>
+          <input type="number" id="sev-info" min="0" max="100" value="60" oninput="onSeverityInput('info')">
+        </div>
+        <div class="severity-row sev-warn">
+          <label>WARN</label>
+          <div class="sev-bar-track" onclick="clickSeverityBar('warn', event)">
+            <div class="sev-bar-fill sev-warn" id="sev-bar-warn" style="width:25%"></div>
+          </div>
+          <input type="number" id="sev-warn" min="0" max="100" value="25" oninput="onSeverityInput('warn')">
+        </div>
+        <div class="severity-row sev-error">
+          <label>ERROR</label>
+          <div class="sev-bar-track" onclick="clickSeverityBar('error', event)">
+            <div class="sev-bar-fill sev-error" id="sev-bar-error" style="width:12%"></div>
+          </div>
+          <input type="number" id="sev-error" min="0" max="100" value="12" oninput="onSeverityInput('error')">
+        </div>
+        <div class="severity-row sev-fatal">
+          <label>FATAL</label>
+          <div class="sev-bar-track" onclick="clickSeverityBar('fatal', event)">
+            <div class="sev-bar-fill sev-fatal" id="sev-bar-fatal" style="width:3%"></div>
+          </div>
+          <input type="number" id="sev-fatal" min="0" max="100" value="3" oninput="onSeverityInput('fatal')">
+        </div>
+      </div>
+      <div class="severity-total" id="severity-total">Total: <span class="ok">100</span> / 100</div>
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Body Template</h3>
+      <div class="field" style="margin-bottom:12px">
+        <textarea id="body-template" rows="3" style="width:100%;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical">{"message":"{{.Message}}","service":"{{.ServiceName}}","severity":"{{.Severity}}","component":"{{.Component}}"}</textarea>
+      </div>
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Custom Attributes</h3>
+      <table class="attr-table" id="attr-table">
+        <thead><tr><th>Key</th><th>Value</th><th style="width:32px"></th></tr></thead>
+        <tbody id="attr-body"></tbody>
+      </table>
+      <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px" onclick="addLogAttr()">+ Add Attribute</button>
+    </div>
+  </div>
+
+  <div class="signal-config" id="metric-config-area" style="display:none">
+    <div class="signal-config-header" onclick="toggleSignalConfig('metric')">
+      <span>Metric Config</span>
+      <button class="signal-collapse-btn">▾</button>
+    </div>
+    <div class="signal-config-body" id="metric-config-body">
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Metric Settings</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div class="field">
           <label>Metric Count</label>
           <input type="number" id="metric-count" value="20" min="1">
         </div>
       </div>
-      <h3>Type Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be ~1.0)</span></h3>
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Type Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be ~1.0)</span></h3>
       <div class="severity-grid" id="metric-type-grid">
         <div class="severity-row" style="--sev-color:#4ade80">
           <label>Gauge</label>
@@ -525,7 +544,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
           <input type="number" id="metric-value-max" value="100" step="0.1">
         </div>
       </div>
-      <h3>Custom Attributes</h3>
+      <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Custom Attributes</h3>
       <table class="attr-table">
         <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
         <tbody id="metric-attr-body">
@@ -534,14 +553,14 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px;margin-top:6px" onclick="addMetricAttr('','')">+ Add Attribute</button>
     </div>
   </div>
-  <div class="form-actions">
+
+  <div class="form-actions" style="margin-top:16px">
     <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
     <span id="run-status"></span>
     <span style="flex:1"></span>
     <button class="btn btn-secondary" onclick="openImportModal()">Import OTLP JSON</button>
     <button class="btn btn-secondary" onclick="openScenarioModal()">Upload Scenarios</button>
   </div>
-</div>
 </section>
 
 <section id="ottl-prototyper">
@@ -821,13 +840,11 @@ function onSignalCheckboxChange() {
   // Show/hide trace-specific fields
   document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
   // Show/hide log config area
-  document.getElementById('log-config-area').style.display = hasLogs ? 'block' : 'none';
-  document.getElementById('log-config-panel').classList.toggle('open', hasLogs);
+  document.getElementById('log-config-area').style.display = hasLogs ? '' : 'none';
   document.getElementById('log-per-span-field').style.display = (hasTraces && hasLogs) ? 'block' : 'none';
   document.getElementById('log-count-field').style.display = hasLogs ? 'block' : 'none';
   // Show/hide metric config area
-  document.getElementById('metric-config-area').style.display = hasMetrics ? 'block' : 'none';
-  document.getElementById('metric-config-panel').classList.toggle('open', hasMetrics);
+  document.getElementById('metric-config-area').style.display = hasMetrics ? '' : 'none';
 }
 
 function updateSeverityBars() {
@@ -949,12 +966,12 @@ function onMetricTypeInput(type) {
   updateMetricTypeBars();
 }
 
-function toggleConfig() {
-  const section = document.getElementById('config-section');
-  const isCollapsed = section.classList.toggle('config-collapsed');
-  const btn = document.getElementById('config-collapse-btn');
-  btn.title = isCollapsed ? 'Expand' : 'Collapse';
-  try { localStorage.setItem('otel-workbench-config-collapsed', isCollapsed ? '1' : ''); } catch(e) {}
+function toggleSignalConfig(signal) {
+  const area = document.getElementById(signal + '-config-area');
+  if (!area) return;
+  const isCollapsed = area.classList.toggle('collapsed');
+  const key = 'otel-workbench-config-' + signal + '-collapsed';
+  try { localStorage.setItem(key, isCollapsed ? '1' : ''); } catch(e) {}
 }
 
 function setSignalFilter(type) {
@@ -2383,6 +2400,15 @@ function escapeHtml(s) {
 }
 
 loadScenarios();
+// Restore per-signal collapse states
+['trace', 'log', 'metric'].forEach(function(signal) {
+  try {
+    if (localStorage.getItem('otel-workbench-config-' + signal + '-collapsed') === '1') {
+      var el = document.getElementById(signal + '-config-area');
+      if (el) el.classList.add('collapsed');
+    }
+  } catch(e) {}
+});
 onSignalCheckboxChange();
 
 // Load existing runs from the server so the run list and OTTL selector
