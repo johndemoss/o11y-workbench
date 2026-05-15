@@ -424,8 +424,8 @@
     <div class="signal-pills" id="run-filter-signals">
       <button class="pill-all" onclick="resetSignalFilter()" type="button">All</button>
       <label><input type="checkbox" value="traces" checked onchange="onFilterSignalChange()"> Traces</label>
-      <label><input type="checkbox" value="logs" onchange="onFilterSignalChange()"> Logs</label>
-      <label><input type="checkbox" value="metrics" onchange="onFilterSignalChange()"> Metrics</label>
+      <label><input type="checkbox" value="logs" checked onchange="onFilterSignalChange()"> Logs</label>
+      <label><input type="checkbox" value="metrics" checked onchange="onFilterSignalChange()"> Metrics</label>
     </div>
     <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs..." oninput="renderRunList()">
   </div>

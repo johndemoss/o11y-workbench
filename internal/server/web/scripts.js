@@ -384,12 +384,21 @@ function updateToggleAllBtn() {
 function resetSignalFilter() {
   const checks = document.querySelectorAll('#run-filter-signals input[type="checkbox"]');
   const allChecked = Array.from(checks).every(c => c.checked);
-  checks.forEach(c => c.checked = !allChecked);
+  if (allChecked) {
+    checks.forEach(c => c.checked = c.value === 'traces');
+  } else {
+    checks.forEach(c => c.checked = true);
+  }
   renderRunList();
   updateAllPillState('run-filter-signals');
 }
 
 function onFilterSignalChange() {
+  const checks = document.querySelectorAll('#run-filter-signals input[type="checkbox"]');
+  const anyChecked = Array.from(checks).some(c => c.checked);
+  if (!anyChecked) {
+    document.querySelector('#run-filter-signals input[value="traces"]').checked = true;
+  }
   renderRunList();
   updateAllPillState('run-filter-signals');
 }
@@ -1107,6 +1116,21 @@ function updateOttlRunSelector() {
       }
     }
   }
+}
+
+function updateOttlLineNumbers() {
+  const textarea = document.getElementById('ottl-input');
+  const numbers = document.getElementById('ottl-line-numbers');
+  if (!textarea || !numbers) return;
+  const lines = textarea.value.split('\n').length;
+  numbers.innerHTML = Array.from({length: lines}, (_, i) => '<span>' + (i + 1) + '</span>').join('');
+}
+
+function insertSnippet(content) {
+  const textarea = document.getElementById('ottl-input');
+  if (!textarea) return;
+  textarea.value = content;
+  textarea.dispatchEvent(new Event('input'));
 }
 
 // Load existing runs from the server so the run list and OTTL selector
