@@ -218,3 +218,145 @@ func TestSingleStatement(t *testing.T) {
 		t.Fatalf("got %d statements, want 1", len(stmts))
 	}
 }
+
+func TestLooksLikeFilterConfig_TracesSpan(t *testing.T) {
+	yamlStr := `
+traces:
+  span:
+    - kind == SPAN_KIND_INTERNAL
+`
+	if !LooksLikeFilterConfig(yamlStr) {
+		t.Error("LooksLikeFilterConfig should detect traces/span filter config")
+	}
+}
+
+func TestLooksLikeFilterConfig_LogsLogRecord(t *testing.T) {
+	yamlStr := `
+logs:
+  log_record:
+    - severity == "ERROR"
+`
+	if !LooksLikeFilterConfig(yamlStr) {
+		t.Error("LooksLikeFilterConfig should detect logs/log_record filter config")
+	}
+}
+
+func TestLooksLikeFilterConfig_MetricsDatapoint(t *testing.T) {
+	yamlStr := `
+metrics:
+  datapoint:
+    - value > 100
+`
+	if !LooksLikeFilterConfig(yamlStr) {
+		t.Error("LooksLikeFilterConfig should detect metrics/datapoint filter config")
+	}
+}
+
+func TestLooksLikeFilterConfig_Wrapped(t *testing.T) {
+	yamlStr := `
+filter:
+  traces:
+    span:
+      - kind == SPAN_KIND_INTERNAL
+`
+	if !LooksLikeFilterConfig(yamlStr) {
+		t.Error("LooksLikeFilterConfig should detect wrapped filter config")
+	}
+}
+
+func TestLooksLikeFilterConfig_TransformNotDetected(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "full transform config",
+			yaml: `
+trace_statements:
+  - context: span
+    statements:
+      - set(attributes["env"], "prod")
+`,
+		},
+		{
+			name: "wrapped transform",
+			yaml: `
+transform:
+  trace_statements:
+    - context: span
+      statements:
+        - set(attributes["env"], "prod")
+`,
+		},
+		{
+			name: "statements key",
+			yaml: `
+statements:
+  - set(attributes["env"], "prod")
+`,
+		},
+		{
+			name: "flat yaml list",
+			yaml: `
+- set(attributes["env"], "prod")
+- delete_key(attributes, "secret")
+`,
+		},
+		{
+			name: "plain statements per line",
+			yaml: `set(attributes["env"], "prod")`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if LooksLikeFilterConfig(tc.yaml) {
+				t.Errorf("LooksLikeFilterConfig should not detect transform config")
+			}
+		})
+	}
+}
+
+func TestLooksLikeFilterConfig_Empty(t *testing.T) {
+	if LooksLikeFilterConfig("") {
+		t.Error("LooksLikeFilterConfig should return false for empty input")
+	}
+	if LooksLikeFilterConfig("  ") {
+		t.Error("LooksLikeFilterConfig should return false for whitespace-only input")
+	}
+}
+
+func TestParseTransformStatements_RejectsFilterConfig(t *testing.T) {
+	yamlStr := `
+traces:
+  span:
+    - kind == SPAN_KIND_INTERNAL
+`
+	_, err := ParseTransformStatements(yamlStr)
+	if err != ErrLooksLikeFilterConfig {
+		t.Fatalf("expected ErrLooksLikeFilterConfig, got: %v", err)
+	}
+}
+
+func TestParseCombinedTransformConfig_RejectsFilterConfig(t *testing.T) {
+	yamlStr := `
+traces:
+  span:
+    - kind == SPAN_KIND_INTERNAL
+`
+	_, _, err := ParseCombinedTransformConfig(yamlStr)
+	if err != ErrLooksLikeFilterConfig {
+		t.Fatalf("expected ErrLooksLikeFilterConfig, got: %v", err)
+	}
+}
+
+func TestParseCombinedTransformConfigAll_RejectsFilterConfig(t *testing.T) {
+	yamlStr := `
+traces:
+  span:
+    - kind == SPAN_KIND_INTERNAL
+`
+	_, _, _, err := ParseCombinedTransformConfigAll(yamlStr)
+	if err != ErrLooksLikeFilterConfig {
+		t.Fatalf("expected ErrLooksLikeFilterConfig, got: %v", err)
+	}
+}

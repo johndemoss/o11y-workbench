@@ -313,7 +313,9 @@ func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter, traceSpa
 func pickSeverity(dist SeverityDistribution, rng *rand.Rand) (logsv1.SeverityNumber, string) {
 	total := dist.Info + dist.Warn + dist.Error + dist.Fatal
 	if total == 0 {
-		return logsv1.SeverityNumber_SEVERITY_NUMBER_INFO, "INFO"
+		// No distribution specified — use the default distribution.
+		def := DefaultLogConfig().SeverityDist
+		return pickSeverity(def, rng)
 	}
 	roll := rng.Intn(total)
 	cutoff := 0

@@ -1,0 +1,27 @@
+{
+  "name": "otel-workbench",
+  "version": "1.0.0",
+  "description": "**Deterministic mock OTLP trace generator** for testing distributed system scenarios, trace-ID-aware load balancing, and OpenTelemetry Transformation Language (OTTL) prototyping.",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:report": "playwright test --reporter=html",
+    "test:ui": "playwright test --ui"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johndemoss/otel-workbench.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/johndemoss/otel-workbench/issues"
+  },
+  "homepage": "https://github.com/johndemoss/otel-workbench#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}
