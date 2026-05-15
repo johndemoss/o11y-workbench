@@ -250,6 +250,7 @@
       mode: 'transform',
       filterMode: 'include',
       runId: '',
+      config: '',
       activeTab: 'summary',
       signals: {traces: true, logs: false, metrics: false},
       get signalLabel() {
@@ -332,7 +333,7 @@
   <!-- Editor Container: Line Numbers + Textarea + Sidebar -->
   <div class="ottl-editor-container">
     <div class="ottl-line-numbers" id="ottl-line-numbers"><span>1</span></div>
-    <textarea id="ottl-input" class="ottl-textarea" style="padding:12px;background:#0f172a;border:none;color:#e2e8f0;resize:vertical;min-height:130px" :placeholder="placeholder"></textarea>
+    <textarea id="ottl-input" class="ottl-textarea" x-model="config" style="padding:12px;background:#0f172a;border:none;color:#e2e8f0;resize:vertical;min-height:130px" :placeholder="placeholder"></textarea>
     <div class="ottl-sidebar">
       <div class="ottl-snippet-group" id="ottl-snippets-transform" x-show="mode === 'transform' && signals.traces">
         <h4>Transform Snippets</h4>
@@ -387,17 +388,17 @@
       hx-post="/api/ottl/validate-html"
       hx-target="#ottl-result-content"
       hx-swap="innerHTML"
-      x-bind:hx-vals='JSON.stringify({config:document.getElementById("ottl-input").value})'>Validate</button>
+      x-bind:hx-vals='JSON.stringify({config:config})'>Validate</button>
     <button class="btn btn-primary" id="ottl-action-btn"
       x-bind:disabled="!runId"
       x-bind:hx-post="mode === 'filter' ? '/api/ottl/filter-html' : '/api/ottl/transform-html'"
       hx-target="#ottl-result-content"
       hx-swap="innerHTML"
-      x-bind:hx-vals='JSON.stringify({config:document.getElementById("ottl-input").value,run_id:runId,signal_type:signalValue,mode:filterMode})'>
+      x-bind:hx-vals='JSON.stringify({config:config,run_id:runId,signal_type:signalValue,mode:filterMode})'>
       <span x-text="mode === 'filter' ? 'Filter' : 'Transform'"></span></button>
     <span id="ottl-status"></span>
     <button class="btn btn-secondary" id="ottl-clear-btn"
-      x-on:click="document.getElementById('ottl-input').value='';document.getElementById('ottl-result-content').innerHTML='';document.getElementById('ottl-result').classList.add('hidden')">Clear</button>
+      x-on:click="config='';document.getElementById('ottl-result-content').innerHTML='';document.getElementById('ottl-result').classList.add('hidden')">Clear</button>
   </div>
 
   <!-- Source Data -->
