@@ -39,7 +39,7 @@ func DefaultConfig() Config {
 		SpanCount:     10,
 		MaxDepth:      5,
 		ServiceName:   "mock-service",
-		BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		BaseTime:      time.Now(),
 		TraceDuration: 5 * time.Second,
 	}
 }

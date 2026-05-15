@@ -238,7 +238,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate,
 		Topology: topoType, SpanCount: body.SpanCount, MaxDepth: body.MaxDepth,
 		ServiceName: body.ServiceName,
-		BaseTime:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		BaseTime:    time.Now(),
 		TraceDuration: 5 * time.Second,
 		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
 		SignalType:   signalType,

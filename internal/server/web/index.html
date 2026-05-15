@@ -266,7 +266,23 @@
         return a[0]||'traces';
       },
       switchMode(m){this.mode=m;},
-      switchTab(t){this.activeTab=t;}
+      switchTab(t){this.activeTab=t;},
+      get placeholder() {
+        const sig = this.signalValue;
+        if (this.mode === 'transform') {
+          if (sig === 'traces') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
+          if (sig === 'logs') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")";
+          if (sig === 'metrics') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
+          if (sig === 'both') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes[\"env\"], \"prod\")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")";
+          return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes[\"env\"], \"prod\")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
+        } else {
+          if (sig === 'traces') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL";
+          if (sig === 'logs') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR";
+          if (sig === 'metrics') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  metrics:\n    datapoint:\n      - attributes[\"env\"] == \"prod\"";
+          if (sig === 'both') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR";
+          return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR\n  metrics:\n    datapoint:\n      - attributes[\"env\"] == \"prod\"";
+        }
+      }
     };
   }
   </script>
@@ -299,9 +315,9 @@
   <!-- Editor Container: Line Numbers + Textarea + Sidebar -->
   <div class="ottl-editor-container">
     <div class="ottl-line-numbers" id="ottl-line-numbers"><span>1</span></div>
-    <textarea id="ottl-input" class="ottl-textarea" style="padding:12px;background:#0f172a;border:none;color:#e2e8f0;resize:vertical;min-height:130px" placeholder="Paste OTel Collector processor config (YAML)&#10;&#10;transform:&#10;  trace_statements:&#10;    - context: span&#10;      statements:&#10;        - set(attributes[&quot;env&quot;], &quot;prod&quot;)"></textarea>
+    <textarea id="ottl-input" class="ottl-textarea" style="padding:12px;background:#0f172a;border:none;color:#e2e8f0;resize:vertical;min-height:130px" :placeholder="placeholder"></textarea>
     <div class="ottl-sidebar">
-      <div class="ottl-snippet-group" id="ottl-snippets-transform">
+      <div class="ottl-snippet-group" id="ottl-snippets-transform" x-show="mode === 'transform' && signals.traces">
         <h4>Transform Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - set(attributes[&quot;key&quot;], &quot;value&quot;)')">set attribute</div>
         <div class="ottl-snippet" onclick="insertSnippet('trace_statements:\n  - context: span\n    statements:\n      - delete_key(attributes, &quot;key&quot;)')">delete attribute</div>
