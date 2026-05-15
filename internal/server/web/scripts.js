@@ -1,0 +1,1830 @@
+const API = '';
+
+async function api(path, opts) {
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || (Array.isArray(data.errors) && data.errors[0]) || res.statusText);
+  return data;
+}
+
+let scenarios = [];
+
+// --- Modal toggles ---
+function openModal(overlayId) {
+  document.getElementById(overlayId).classList.add('open');
+}
+function closeModal(overlayId) {
+  document.getElementById(overlayId).classList.remove('open');
+}
+function openImportModal() {
+  document.getElementById('import-file').value = '';
+  document.getElementById('import-status').textContent = '';
+  openModal('import-modal-overlay');
+}
+function closeImportModal(e) {
+  if (e && e.target !== e.currentTarget) return; // only close when overlay itself is clicked
+  closeModal('import-modal-overlay');
+}
+function openScenarioModal() {
+  document.getElementById('scenario-file-input').value = '';
+  document.getElementById('scenario-upload-status').textContent = '';
+  openModal('scenario-modal-overlay');
+}
+function closeScenarioModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  closeModal('scenario-modal-overlay');
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeModal('import-modal-overlay');
+    closeModal('scenario-modal-overlay');
+  }
+});
+
+async function loadScenarios() {
+  try {
+    const data = await api('/api/scenarios');
+    scenarios = data.scenarios;
+    const sel = document.getElementById('scenario');
+    scenarios.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error('load scenarios:', e); }
+}
+
+function statusClass(status) {
+  return 'status-' + status;
+}
+
+function formatTime(t) {
+  if (!t) return '-';
+  return new Date(t).toLocaleTimeString();
+}
+
+function formatDuration(ns) {
+  if (!ns) return '-';
+  if (ns < 1000) return ns + 'ns';
+  if (ns < 1e6) return (ns / 1e3).toFixed(1) + '&#956;s';
+  if (ns < 1e9) return (ns / 1e6).toFixed(1) + 'ms';
+  return (ns / 1e9).toFixed(2) + 's';
+}
+
+// --- Signal type UI ---
+let signalFilter = 'all';
+
+function getSignalType() {
+  const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
+  const checked = [];
+  checks.forEach(c => { if (c.checked) checked.push(c.value); });
+  if (checked.length === 0) return 'traces'; // default — shouldn't happen since traces can't be unchecked alone
+  if (checked.length === 1) return checked[0]; // 'traces', 'logs', or 'metrics'
+  if (checked.includes('traces') && checked.includes('logs') && checked.includes('metrics')) return 'all';
+  if (checked.includes('traces') && checked.includes('logs')) return 'both';
+  if (checked.includes('traces') && checked.includes('metrics')) return 'traces+metrics';
+  if (checked.includes('logs') && checked.includes('metrics')) return 'logs+metrics';
+  return 'traces';
+}
+
+function onSignalCheckboxChange(changed) {
+  const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
+  // Ensure at least one checkbox is checked
+  let anyChecked = false;
+  checks.forEach(c => { if (c.checked) anyChecked = true; });
+  if (!anyChecked) {
+    // Re-check traces — always need at least one signal
+    document.querySelector('#signal-type input[value="traces"]').checked = true;
+  }
+  const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
+  const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
+  const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
+  // Show/hide trace config area — only auto-expand when this signal was just toggled on
+  var traceArea = document.getElementById('trace-config-area');
+  traceArea.style.display = hasTraces ? '' : 'none';
+  if (changed === 'traces' && hasTraces && traceArea.classList.contains('collapsed')) {
+    traceArea.classList.remove('collapsed');
+    try { localStorage.removeItem('otel-workbench-config-trace-collapsed'); } catch(e) {}
+  }
+  // Show/hide trace-specific fields
+  document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
+  // Show/hide log config area — only auto-expand when this signal was just toggled on
+  var logArea = document.getElementById('log-config-area');
+  logArea.style.display = hasLogs ? '' : 'none';
+  if (changed === 'logs' && hasLogs && logArea.classList.contains('collapsed')) {
+    logArea.classList.remove('collapsed');
+    try { localStorage.removeItem('otel-workbench-config-log-collapsed'); } catch(e) {}
+  }
+  document.getElementById('log-per-span-field').style.display = (hasTraces && hasLogs) ? 'block' : 'none';
+  document.getElementById('log-count-field').style.display = hasLogs ? 'block' : 'none';
+  // Show/hide metric config area — only auto-expand when this signal was just toggled on
+  var metricArea = document.getElementById('metric-config-area');
+  metricArea.style.display = hasMetrics ? '' : 'none';
+  if (changed === 'metrics' && hasMetrics && metricArea.classList.contains('collapsed')) {
+    metricArea.classList.remove('collapsed');
+    try { localStorage.removeItem('otel-workbench-config-metric-collapsed'); } catch(e) {}
+  }
+  updateSeverityBars();
+  updateMetricTypeBars();
+  updateToggleAllBtn();
+}
+
+function updateSeverityBars() {
+  const ids = ['info', 'warn', 'error', 'fatal'];
+  ids.forEach(s => {
+    const v = parseInt(document.getElementById('sev-' + s).value) || 0;
+    updateChunkedBar(document.getElementById('sev-bar-' + s), v);
+  });
+  const total = ids.reduce((sum, s) => sum + (parseInt(document.getElementById('sev-' + s).value) || 0), 0);
+  const el = document.getElementById('severity-total');
+  el.innerHTML = 'Total: <span class="' + (total === 100 ? 'ok' : 'over') + '">' + total + '</span> / 100';
+}
+
+function redistributeSeverity(changed, newVal) {
+  const ids = ['info', 'warn', 'error', 'fatal'];
+  const clamped = Math.max(0, Math.min(100, newVal));
+  const remaining = 100 - clamped;
+  const others = ids.filter(s => s !== changed);
+  const otherSum = others.reduce((sum, s) => sum + (parseInt(document.getElementById('sev-' + s).value) || 0), 0);
+  let newOthers = {};
+  if (otherSum === 0) {
+    const each = Math.floor(remaining / 3);
+    let leftover = remaining - each * 3;
+    others.forEach((s, i) => { newOthers[s] = each + (i < leftover ? 1 : 0); });
+  } else {
+    let assigned = 0;
+    others.forEach((s, i) => {
+      const cur = parseInt(document.getElementById('sev-' + s).value) || 0;
+      let v = i === others.length - 1
+        ? remaining - assigned
+        : Math.round(remaining * cur / otherSum);
+      newOthers[s] = v;
+      assigned += v;
+    });
+  }
+  document.getElementById('sev-' + changed).value = clamped;
+  others.forEach(s => { document.getElementById('sev-' + s).value = Math.max(0, Math.min(100, newOthers[s])); });
+  updateSeverityBars();
+}
+
+function onSeverityInput(changed) {
+  const el = document.getElementById('sev-' + changed);
+  let v = parseInt(el.value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 100) v = 100;
+  redistributeSeverity(changed, v);
+}
+
+// --- Drag-to-set bar values ---
+var dragState = null;
+
+function startBarDrag(ev, prefix, id) {
+  ev.preventDefault();
+  document.activeElement && document.activeElement.blur();
+  var track = ev.currentTarget;
+  var callback = prefix === 'sev'
+    ? function(pct) { redistributeSeverity(id, pct); }
+    : function(pct) { redistributeMetricTypes(id, pct); };
+  track.classList.add('dragging');
+  dragState = { track: track, callback: callback };
+  updateBarDrag(ev);
+}
+
+function updateBarDrag(ev) {
+  if (!dragState) return;
+  var rect = dragState.track.getBoundingClientRect();
+  var x = ev.clientX;
+  // Touch events store coordinates in touches array
+  if (x === undefined && ev.touches && ev.touches.length) {
+    x = ev.touches[0].clientX;
+  }
+  if (x === undefined) return;
+  var pct = Math.round(((x - rect.left) / rect.width) * 100);
+  dragState.callback(Math.max(0, Math.min(100, pct)));
+}
+
+function stopBarDrag() {
+  if (dragState) {
+    dragState.track.classList.remove('dragging');
+    dragState = null;
+  }
+}
+
+function collectLogAttrs() {
+  const rows = document.querySelectorAll('#attr-body tr');
+  const attrs = [];
+  rows.forEach(tr => {
+    const key = tr.querySelector('.attr-key').value.trim();
+    const val = tr.querySelector('.attr-val').value.trim();
+    if (key) attrs.push({ key: key, value: val });
+  });
+  return attrs;
+}
+
+function addLogAttr(key, val) {
+  const tbody = document.getElementById('attr-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" class="attr-key" placeholder="key" value="' + escapeHtml(key || '') + '"></td>' +
+    '<td><input type="text" class="attr-val" placeholder="value" value="' + escapeHtml(val || '') + '"></td>' +
+    '<td><button class="btn-danger" style="font-size:14px;padding:2px 6px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+  tbody.appendChild(tr);
+}
+
+function getMetricAttrs() {
+  const tbody = document.getElementById('metric-attr-body');
+  const attrs = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const key = tr.querySelector('.attr-key').value.trim();
+    const val = tr.querySelector('.attr-val').value.trim();
+    if (key) attrs.push({ key: key, value: val });
+  });
+  return attrs;
+}
+
+function addMetricAttr(key, val) {
+  const tbody = document.getElementById('metric-attr-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" class="attr-key" placeholder="key" value="' + escapeHtml(key || '') + '"></td>' +
+    '<td><input type="text" class="attr-val" placeholder="value" value="' + escapeHtml(val || '') + '"></td>' +
+    '<td><button class="btn-danger" style="font-size:14px;padding:2px 6px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+  tbody.appendChild(tr);
+}
+
+function updateMetricTypeBars() {
+  const ids = ['gauge', 'sum', 'histogram'];
+  const total = ids.reduce((sum, s) => sum + (parseFloat(document.getElementById('metric-' + s).value) || 0), 0);
+  ids.forEach(s => {
+    const v = parseFloat(document.getElementById('metric-' + s).value) || 0;
+    updateChunkedBar(document.getElementById('metric-bar-' + s), v);
+  });
+  const el = document.getElementById('metric-type-total');
+  el.innerHTML = 'Total: <span class="' + (Math.abs(total - 100) < 0.5 ? 'ok' : 'over') + '">' + (total / 100).toFixed(1) + '</span>';
+}
+
+function redistributeMetricTypes(changed, newVal) {
+  const ids = ['gauge', 'sum', 'histogram'];
+  const clamped = Math.max(0, Math.min(100, newVal));
+  const remaining = 100 - clamped;
+  const others = ids.filter(s => s !== changed);
+  const otherSum = others.reduce((sum, s) => sum + (parseFloat(document.getElementById('metric-' + s).value) || 0), 0);
+  let newOthers = {};
+  if (otherSum === 0) {
+    const each = Math.floor(remaining / 2);
+    let leftover = remaining - each * 2;
+    others.forEach((s, i) => { newOthers[s] = each + (i < leftover ? 1 : 0); });
+  } else {
+    let assigned = 0;
+    others.forEach((s, i) => {
+      const cur = parseFloat(document.getElementById('metric-' + s).value) || 0;
+      let v = i === others.length - 1
+        ? remaining - assigned
+        : Math.round(remaining * cur / otherSum);
+      newOthers[s] = v;
+      assigned += v;
+    });
+  }
+  document.getElementById('metric-' + changed).value = clamped;
+  others.forEach(s => { document.getElementById('metric-' + s).value = Math.max(0, Math.min(100, newOthers[s])); });
+  updateMetricTypeBars();
+}
+
+
+
+function onMetricTypeInput(type) {
+  const el = document.getElementById('metric-' + type);
+  let v = parseInt(el.value);
+  if (isNaN(v) || v < 0) v = 0;
+  if (v > 100) v = 100;
+  redistributeMetricTypes(type, v);
+}
+
+function initChunkedBars() {
+  // Create 20 chunk divs inside each .sev-bar-fill element
+  document.querySelectorAll('.sev-bar-fill').forEach(function(fill) {
+    fill.innerHTML = '';
+    for (var i = 0; i < 20; i++) {
+      var chunk = document.createElement('div');
+      chunk.className = 'sev-chunk';
+      fill.appendChild(chunk);
+    }
+  });
+}
+
+function updateChunkedBar(fillEl, value) {
+  var v = Math.max(0, Math.min(100, value));
+  var fullChunks = Math.floor(v / 5);
+  var remainder = v % 5;
+  var chunks = fillEl.children;
+  var fillColor = (fillEl.style.getPropertyValue('--chunk-color') || '').trim();
+  if (!fillColor) fillColor = '#3b82f6';
+  for (var i = 0; i < chunks.length; i++) {
+    chunks[i].className = 'sev-chunk';
+    if (i < fullChunks) {
+      chunks[i].style.background = fillColor;
+    } else if (i === fullChunks && remainder > 0) {
+      var fillPct = (remainder / 5) * 100;
+      chunks[i].style.background = 'linear-gradient(to right, ' + fillColor + ' 0% ' + fillPct + '%, transparent ' + fillPct + '% 100%)';
+    } else {
+      chunks[i].style.background = '';
+    }
+  }
+}
+
+function toggleAllSignalConfigs() {
+  var areas = ['trace-config-area', 'log-config-area', 'metric-config-area'];
+  var visibleAreas = areas.map(function(id) { return document.getElementById(id); }).filter(function(el) { return el && el.style.display !== 'none'; });
+  var anyCollapsed = visibleAreas.some(function(el) { return el.classList.contains('collapsed'); });
+  visibleAreas.forEach(function(el) {
+    var signal = el.id.replace('-config-area', '');
+    if (anyCollapsed) {
+      el.classList.remove('collapsed');
+      try { localStorage.removeItem('otel-workbench-config-' + signal + '-collapsed'); } catch(e) {}
+    } else {
+      el.classList.add('collapsed');
+      try { localStorage.setItem('otel-workbench-config-' + signal + '-collapsed', '1'); } catch(e) {}
+    }
+  });
+  document.getElementById('toggle-all-btn').textContent = anyCollapsed ? 'Collapse All' : 'Expand All';
+}
+
+function toggleSignalConfig(signal) {
+  const area = document.getElementById(signal + '-config-area');
+  if (!area) return;
+  const isCollapsed = area.classList.toggle('collapsed');
+  const key = 'otel-workbench-config-' + signal + '-collapsed';
+  try { localStorage.setItem(key, isCollapsed ? '1' : ''); } catch(e) {}
+  updateToggleAllBtn();
+}
+
+function updateToggleAllBtn() {
+  var areas = ['trace-config-area', 'log-config-area', 'metric-config-area'];
+  var visibleAreas = areas.map(function(id) { return document.getElementById(id); }).filter(function(el) { return el && el.style.display !== 'none'; });
+  var anyCollapsed = visibleAreas.some(function(el) { return el.classList.contains('collapsed'); });
+  document.getElementById('toggle-all-btn').textContent = anyCollapsed ? 'Expand All' : 'Collapse All';
+}
+
+function setSignalFilter(type) {
+  signalFilter = type;
+  document.querySelectorAll('.filter-chip').forEach(b => b.classList.toggle('active', b.getAttribute('data-filter') === type));
+  renderRunList();
+}
+
+let runs = {};
+let pollTimer = null;
+
+async function startRun() {
+  const runBtn = document.getElementById('run-btn');
+  runBtn.disabled = true;
+  const statusEl = document.getElementById('run-status');
+  statusEl.textContent = 'Starting...';
+
+  const signalType = getSignalType();
+  const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
+  const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
+  const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
+
+  var body = {
+    seed: parseInt(document.getElementById('seed').value) || 42,
+    output: document.getElementById('output').value,
+    format: document.getElementById('format').value,
+    insecure: document.getElementById('insecure').checked,
+    endpoints: document.getElementById('endpoints').value.split(',').map(s => s.trim()).filter(s => s),
+    signal_type: signalType
+  };
+
+  if (hasTraces) {
+    body.trace_count = (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })();
+    body.rate = parseInt(document.getElementById('rate').value) || 0;
+    body.topology = document.getElementById('topology').value;
+    body.scenario = document.getElementById('scenario').value;
+    body.span_count = parseInt(document.getElementById('span-count').value) || 10;
+    body.scenario_span_count = parseInt(document.getElementById('scenario-span-count').value) || 0;
+    body.max_depth = parseInt(document.getElementById('max-depth').value) || 5;
+    body.service_name = document.getElementById('service-name').value || 'mock-service';
+  }
+
+  if (hasMetrics) {
+    body.metric_config = {
+      enabled: true,
+      metric_count: parseInt(document.getElementById('metric-count').value) || 20,
+      gauge_ratio: (parseFloat(document.getElementById('metric-gauge').value) || 0) / 100,
+      sum_ratio: (parseFloat(document.getElementById('metric-sum').value) || 0) / 100,
+      value_min: parseFloat(document.getElementById('metric-value-min').value) || 0,
+      value_max: parseFloat(document.getElementById('metric-value-max').value) || 100,
+      attributes: getMetricAttrs()
+    };
+  }
+
+  if (hasLogs) {
+    body.log_config = {
+      enabled: true,
+      logs_per_span: parseInt(document.getElementById('logs-per-span').value) || 3,
+      log_count: parseInt(document.getElementById('log-count').value) || 10,
+      severity_dist: {
+        info: parseInt(document.getElementById('sev-info').value) || 0,
+        warn: parseInt(document.getElementById('sev-warn').value) || 0,
+        error: parseInt(document.getElementById('sev-error').value) || 0,
+        fatal: parseInt(document.getElementById('sev-fatal').value) || 0
+      },
+      body_template: document.getElementById('body-template').value || '',
+      attributes: collectLogAttrs()
+    };
+  }
+
+  try {
+    const run = await api('/api/runs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    runs[run.id] = run;
+    if (!pollTimer) startPolling();
+    statusEl.textContent = 'Run queued';
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  }
+  runBtn.disabled = false;
+}
+
+async function importTraces() {
+  const fileInput = document.getElementById('import-file');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('import-btn');
+  const status = document.getElementById('import-status');
+  btn.disabled = true;
+  status.textContent = 'Importing...';
+  try {
+    const text = await file.text();
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: text
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
+    setTimeout(() => closeImportModal(), 800);
+  } catch(e) {
+    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
+async function uploadScenarios() {
+  const fileInput = document.getElementById('scenario-file-input');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('scenario-upload-btn');
+  const status = document.getElementById('scenario-upload-status');
+  btn.disabled = true;
+  status.textContent = 'Uploading...';
+  try {
+    const text = await file.text();
+    const ct = file.name.endsWith('.yaml') || file.name.endsWith('.yml') ? 'application/x-yaml' : 'application/json';
+    const data = await api('/api/scenarios', {
+      method: 'POST',
+      headers: {'Content-Type': ct},
+      body: text
+    });
+    status.innerHTML = '<span style="color:#22c55e">Registered: ' + (data.registered || []).join(', ') + '</span>';
+    setTimeout(() => closeScenarioModal(), 800);
+    // Reload scenario dropdown
+    const sel = document.getElementById('scenario');
+    while (sel.options.length > 1) sel.remove(1);
+    await loadScenarios();
+  } catch(e) {
+    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+  btn.disabled = false;
+}
+
+async function ottlValidate() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-validate-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  btn.disabled = true;
+  status.textContent = 'Validating...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to validate</div>';
+    resultPanel.classList.remove('hidden');
+    switchOttlResultTab('summary');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  try {
+    const data = await api('/api/ottl/validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ config: config })
+    });
+    if (data.valid) {
+      resultContent.innerHTML = '<div class="ottl-success">All ' + data.statements_parsed + ' statement(s) valid.</div>';
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+// --- Transform / Diff state ---
+let lastTransform = { original: null, transformed: null, activeTab: 'transformed' };
+let ottlMode = 'transform';
+let ottlSignal = 'traces';
+
+async function ottlTransform() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-action-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  const runSelect = document.getElementById('ottl-run-select');
+  const runId = runSelect.value;
+  if (!runId) {
+    resultContent.innerHTML = '<div class="ottl-error">Select a target run first</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Transforming...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to execute</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  const run = runs[runId];
+  const sigType = ottlSignal;
+  try {
+    const data = await api('/api/ottl/transform', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, config: config, signal_type: sigType })
+    });
+    if (data.valid && (data.transformed_data || data.log_transformed_data || data.metric_transformed_data)) {
+        const originalData = run && (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) ? (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) : null;
+        lastTransform.original = originalData;
+        lastTransform.transformed = data.transformed_data || null;
+        lastTransform.activeTab = 'transformed';
+        renderTransformResult(data.transformed_data, data.statements_parsed, data.log_transformed_data, data.log_statements_parsed, data.metric_transformed_data, data.metric_statements_parsed);
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+      resultPanel.classList.remove('hidden');
+    
+      switchOttlResultTab('summary');
+    }
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function renderTransformResult(transformed, statementsParsed, logTransformed, logStmtsParsed, metricTransformed, metricStmtsParsed) {
+    const resultPanel = document.getElementById('ottl-result');
+    lastResult = {
+        type: 'transform',
+        transformed: transformed,
+        original: lastTransform.original,
+        statementsParsed: statementsParsed,
+        logTransformed: logTransformed || null,
+        logStmtsParsed: logStmtsParsed || 0,
+        metricTransformed: metricTransformed || null,
+        metricStmtsParsed: metricStmtsParsed || 0
+    };
+    resultPanel.classList.remove('hidden');
+    switchOttlResultTab('summary');
+}
+
+function switchOttlTab(tab) {
+  if (!lastTransform.transformed) return;
+  lastTransform.activeTab = tab;
+  // Update tab button states
+  document.querySelectorAll('.ottl-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  const content = document.getElementById('ottl-tab-content');
+  if (tab === 'transformed') {
+    const formatted = JSON.stringify(lastTransform.transformed, null, 2);
+    content.innerHTML = '<pre>' + escapeHtml(formatted) + '</pre>';
+  } else if (tab === 'diff' && lastTransform.original) {
+    const diff = computeDiff(lastTransform.original, lastTransform.transformed);
+    content.innerHTML = renderDiffTable(diff);
+  } else if (tab === 'fulldiff' && lastTransform.original) {
+    content.innerHTML = renderInlineDiff(lastTransform.original, lastTransform.transformed);
+  }
+}
+
+function computeDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  const result = { added: 0, removed: 0, modified: 0, totalSpans: 0, spanDiffs: [] };
+  if (!orig || !trans) return result;
+  const getSpans = td => {
+    const list = [];
+    if (td.resource_spans) td.resource_spans.forEach((rs, ri) => {
+      if (rs.scope_spans) rs.scope_spans.forEach((ss, si) => {
+        if (ss.spans) ss.spans.forEach((sp, pi) => {
+          const attrs = {};
+          if (sp.attributes) sp.attributes.forEach(a => { attrs[a.key] = a.value; });
+          list.push({ resourceIdx: ri, scopeIdx: si, spanIdx: pi, name: sp.name || 'span-' + pi, attrs });
+        });
+      });
+    });
+    return list;
+  };
+  const origSpans = getSpans(orig);
+  const transSpans = getSpans(trans);
+  result.totalSpans = Math.max(origSpans.length, transSpans.length);
+  const maxLen = Math.max(origSpans.length, transSpans.length);
+  for (let i = 0; i < maxLen; i++) {
+    const os = i < origSpans.length ? origSpans[i] : null;
+    const ts = i < transSpans.length ? transSpans[i] : null;
+    if (!os && !ts) continue;
+    const spanName = (ts || os).name;
+    const spanDiff = { name: spanName, idx: i, added: [], removed: [], modified: [] };
+    const origKeys = os ? Object.keys(os.attrs) : [];
+    const transKeys = ts ? Object.keys(ts.attrs) : [];
+    const allKeys = [...new Set([...origKeys, ...transKeys])];
+    for (const key of allKeys) {
+      const ov = os && key in os.attrs ? os.attrs[key] : undefined;
+      const tv = ts && key in ts.attrs ? ts.attrs[key] : undefined;
+      if (ov === undefined && tv !== undefined) {
+        spanDiff.added.push({ key, value: tv });
+        result.added++;
+      } else if (ov !== undefined && tv === undefined) {
+        spanDiff.removed.push({ key, value: ov });
+        result.removed++;
+      } else if (JSON.stringify(ov) !== JSON.stringify(tv)) {
+        spanDiff.modified.push({ key, oldValue: ov, newValue: tv });
+        result.modified++;
+      }
+    }
+    if (spanDiff.added.length > 0 || spanDiff.removed.length > 0 || spanDiff.modified.length > 0) {
+      result.spanDiffs.push(spanDiff);
+    }
+  }
+  return result;
+}
+
+function renderDiffTable(diff) {
+  if (diff.spanDiffs.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found between original and transformed data.</div>';
+  }
+  let html = '<table class="ottl-diff-table"><tr><th style="width:30%">Attribute</th><th style="width:35%">Original</th><th style="width:35%">Transformed</th></tr>';
+  for (const sd of diff.spanDiffs) {
+    html += '<tr class="span-header"><td colspan="3">' + escapeHtml(sd.name) + ' (span ' + sd.idx + ')</td></tr>';
+    for (const item of sd.removed) {
+      const v = formatAttrValue(item.value);
+      html += '<tr class="removed"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(v) + '</td><td></td></tr>';
+    }
+    for (const item of sd.added) {
+      const v = formatAttrValue(item.value);
+      html += '<tr class="added"><td>' + escapeHtml(item.key) + '</td><td></td><td class="val-new">' + escapeHtml(v) + '</td></tr>';
+    }
+    for (const item of sd.modified) {
+      const ov = formatAttrValue(item.oldValue);
+      const nv = formatAttrValue(item.newValue);
+      html += '<tr class="modified"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(ov) + '</td><td class="val-new">' + escapeHtml(nv) + '</td></tr>';
+    }
+  }
+  html += '</table>';
+  return html;
+}
+
+function formatAttrValue(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    for (const key of ['stringValue', 'intValue', 'doubleValue', 'boolValue', 'arrayValue', 'kvlistValue']) {
+      if (key in v) {
+        const inner = v[key];
+        return typeof inner === 'object' ? JSON.stringify(inner) : String(inner);
+      }
+    }
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+// --- Full inline diff (unified diff of full JSON) ---
+
+function computeInlineDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  if (!orig || !trans) return [];
+
+  const origLines = JSON.stringify(orig, null, 2).split('\n');
+  const transLines = JSON.stringify(trans, null, 2).split('\n');
+
+  // Simple unified diff: walk both line arrays, matching lines forward.
+  // When lines differ, scan ahead in both arrays to find the next match.
+  const hunks = [];
+  let oi = 0, ti = 0;
+  while (oi < origLines.length && ti < transLines.length) {
+    if (origLines[oi] === transLines[ti]) {
+      hunks.push({ type: 'same', text: origLines[oi] });
+      oi++; ti++;
+      continue;
+    }
+    // Lines differ — look ahead in orig and trans for the next match.
+    let found = false;
+    const lookAhead = Math.min(10, Math.max(origLines.length - oi, transLines.length - ti));
+    for (let ahead = 1; ahead <= lookAhead; ahead++) {
+      // Check if orig[oi + ahead] matches trans[ti]
+      if (oi + ahead < origLines.length && origLines[oi + ahead] === transLines[ti]) {
+        // orig has extra lines
+        for (let r = 0; r < ahead; r++) hunks.push({ type: 'removed', text: origLines[oi + r] });
+        oi += ahead;
+        found = true;
+        break;
+      }
+      // Check if orig[oi] matches trans[ti + ahead]
+      if (ti + ahead < transLines.length && origLines[oi] === transLines[ti + ahead]) {
+        // trans has extra lines
+        for (let a = 0; a < ahead; a++) hunks.push({ type: 'added', text: transLines[ti + a] });
+        ti += ahead;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      // No match found within lookAhead — mark as changed
+      if (origLines[oi] !== undefined) hunks.push({ type: 'removed', text: origLines[oi] });
+      if (transLines[ti] !== undefined) hunks.push({ type: 'added', text: transLines[ti] });
+      oi++; ti++;
+    }
+  }
+  // Remaining lines
+  while (oi < origLines.length) hunks.push({ type: 'removed', text: origLines[oi++] });
+  while (ti < transLines.length) hunks.push({ type: 'added', text: transLines[ti++] });
+  return hunks;
+}
+
+function renderInlineDiff(originalData, transformedData) {
+  const hunks = computeInlineDiff(originalData, transformedData);
+  if (hunks.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found.</div>';
+  }
+  let html = '<div class="ottl-inline-diff">';
+  let origLine = 0, transLine = 0;
+  for (const hunk of hunks) {
+    const type = hunk.type;
+    const cls = type === 'added' ? ' added' : type === 'removed' ? ' removed' : '';
+    let marker = ' ';
+    let lineNum = '';
+    if (type === 'added') {
+      marker = '+';
+      transLine++;
+      lineNum = '<span class="ln"></span><span class="ln" style="color:#22c55e">' + transLine + '</span>';
+    } else if (type === 'removed') {
+      marker = '-';
+      origLine++;
+      lineNum = '<span class="ln" style="color:#ef4444">' + origLine + '</span><span class="ln"></span>';
+    } else {
+      origLine++;
+      transLine++;
+      lineNum = '<span class="ln">' + origLine + '</span><span class="ln">' + transLine + '</span>';
+    }
+    html += '<div class="diff-line' + cls + '">' + lineNum + '<span class="marker">' + marker + '</span><span>' + escapeHtml(hunk.text) + '</span></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function saveTransformedRun() {
+  if (!lastTransform.transformed) return;
+  const statusEl = document.getElementById('ottl-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '#94a3b8';
+  try {
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(lastTransform.transformed)
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    statusEl.innerHTML = '<span style="color:#22c55e">Saved as <a href="#" onclick="showDetail(\'' + run.id + '\');return false" style="color:#3b82f6;text-decoration:underline">' + run.id + '</a></span>';
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+function updateOttlRunSelector() {
+  const select = document.getElementById('ottl-run-select');
+  const currentVal = select.value;
+  const actionBtn = document.getElementById('ottl-action-btn');
+  // Remove all options except the placeholder
+  while (select.options.length > 1) {
+    select.remove(1);
+  }
+  const entries = Object.values(runs).filter(r => r.status === 'completed' && (r.span_count > 0 || r.log_count > 0 || r.metric_count > 0));
+  entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  let hasData = false;
+  entries.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    // Detect run signal type from all available signals:
+    //  1. presence of trace_data / log_data / metric_data (actual telemetry),
+    //  2. log_count / log_count_completed / metric_count (run-level counters),
+    //  3. config.signal_type (the original run config).
+    const hasTrace = !!r.trace_data;
+    const hasLog = !!(r.log_data || r.log_count || r.log_count_completed || r.config?.log_config?.enabled);
+    const hasMetric = !!(r.metric_data || r.metric_count || r.metric_count_completed);
+    const sig = hasTrace && hasLog ? 'T+L' : hasTrace && hasMetric ? 'T+M' : hasTrace ? 'T' : hasLog ? 'L' : 'M';
+    opt.dataset.signal = hasTrace && hasLog ? 'both' : hasTrace && hasMetric ? 'traces+metrics' : hasTrace ? 'traces' : hasLog ? 'logs' : 'metrics';
+    const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
+    opt.textContent = label + ' — ' + sig + ' ' + (r.span_count || 0) + ' spans' + (hasLog ? ', ' + (r.log_count || r.log_count_completed || 0) + ' logs' : '') + (hasMetric ? ', ' + (r.metric_count || r.metric_count_completed || 0) + ' metrics' : '');
+    select.appendChild(opt);
+    hasData = true;
+  });
+  actionBtn.disabled = !hasData;
+  if (currentVal) {
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === currentVal) {
+        select.selectedIndex = i;
+        break;
+      }
+    }
+  }
+  onOttlRunChange();
+}
+
+function onOttlRunChange() {
+    const select = document.getElementById('ottl-run-select');
+    const opt = select.options[select.selectedIndex];
+    const signal = opt && opt.dataset ? opt.dataset.signal : '';
+    renderRunSourceData(select.value, 'ottl-source-data');
+    const badgeEl = document.getElementById('ottl-sig-badge');
+    if (!badgeEl) return;
+    if (!signal) {
+        badgeEl.textContent = '\u2014';
+        badgeEl.style.background = '#475569';
+        return;
+    }
+    if (signal === 'logs') {
+        badgeEl.textContent = 'Logs';
+        badgeEl.style.background = '#8b5cf6';
+    } else if (signal === 'both') {
+        badgeEl.textContent = 'T+L';
+        badgeEl.style.background = '#f59e0b';
+    } else if (signal === 'metrics') {
+        badgeEl.textContent = 'Metrics';
+        badgeEl.style.background = '#4ade80';
+    } else if (signal === 'traces+metrics') {
+        badgeEl.textContent = 'T+M';
+        badgeEl.style.background = '#22d3ee';
+    } else if (signal === 'logs+metrics') {
+        badgeEl.textContent = 'L+M';
+        badgeEl.style.background = '#c084fc';
+    } else if (signal === 'all') {
+        badgeEl.textContent = 'All';
+        badgeEl.style.background = '#f97316';
+    } else {
+        badgeEl.textContent = 'Traces';
+        badgeEl.style.background = '#3b82f6';
+    }
+}
+
+function ottlClear() {
+  document.getElementById('ottl-input').value = '';
+  document.getElementById('ottl-result').classList.add('hidden');
+  document.getElementById('ottl-result-content').innerHTML = '';
+  document.getElementById('ottl-status').textContent = '';
+  lastTransform = { original: null, transformed: null, activeTab: 'transformed' };
+  lastFilterResult = { filtered: null, total: 0, kept: 0 };
+  updateOttlLineNumbers();
+}
+
+// --- OTTL Mode + Signal Switching ---
+function switchOttlMode(mode) {
+  ottlMode = mode;
+  document.querySelectorAll('.ottl-prototyper-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.ottlMode === mode);
+  });
+  const actionBtn = document.getElementById('ottl-action-btn');
+  actionBtn.textContent = mode === 'transform' ? 'Transform' : 'Filter';
+  actionBtn.onclick = mode === 'transform' ? ottlTransform : ottlFilter;
+  const validateBtn = document.getElementById('ottl-validate-btn');
+  validateBtn.onclick = mode === 'transform' ? ottlValidate : ottlFilterValidate;
+  document.getElementById('ottl-filter-controls').classList.toggle('hidden', mode !== 'filter');
+  updateSnippetVisibility();
+  updateOttlPlaceholder();
+  ottlClear();
+}
+
+function onOttlSignalCheckboxChange() {
+  const checks = document.querySelectorAll('#ottl-signal-checkboxes input[type="checkbox"]');
+  let anyChecked = false;
+  checks.forEach(c => { if (c.checked) anyChecked = true; });
+  if (!anyChecked) {
+    document.querySelector('#ottl-signal-checkboxes input[value="traces"]').checked = true;
+  }
+  const checked = [];
+  checks.forEach(c => { if (c.checked) checked.push(c.value); });
+  if (checked.length === 1) ottlSignal = checked[0];
+  else if (checked.includes('traces') && checked.includes('logs') && checked.includes('metrics')) ottlSignal = 'all';
+  else if (checked.includes('traces') && checked.includes('logs')) ottlSignal = 'both';
+  else if (checked.includes('traces') && checked.includes('metrics')) ottlSignal = 'traces+metrics';
+  else if (checked.includes('logs') && checked.includes('metrics')) ottlSignal = 'logs+metrics';
+  else ottlSignal = 'traces';
+  updateSnippetVisibility();
+  updateOttlPlaceholder();
+  ottlClear();
+}
+
+function updateSnippetVisibility() {
+    const showTrace = ottlSignal === 'traces' || ottlSignal === 'both' || ottlSignal === 'all';
+    const showLog = ottlSignal === 'logs' || ottlSignal === 'both' || ottlSignal === 'all';
+    const showMetric = ottlSignal === 'metrics' || ottlSignal === 'all';
+    document.getElementById('ottl-snippets-transform').style.display = ottlMode === 'transform' && showTrace ? '' : 'none';
+    document.getElementById('ottl-snippets-transform-logs').style.display = ottlMode === 'transform' && showLog ? '' : 'none';
+    document.getElementById('ottl-snippets-transform-metrics').style.display = ottlMode === 'transform' && showMetric ? '' : 'none';
+    document.getElementById('ottl-snippets-filter').style.display = ottlMode === 'filter' && showTrace ? '' : 'none';
+    document.getElementById('ottl-snippets-filter-logs').style.display = ottlMode === 'filter' && showLog ? '' : 'none';
+    document.getElementById('ottl-snippets-filter-metrics').style.display = ottlMode === 'filter' && showMetric ? '' : 'none';
+}
+
+function updateOttlPlaceholder() {
+    const ta = document.getElementById('ottl-input');
+    if (ottlMode === 'transform') {
+        if (ottlSignal === 'traces') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")';
+        } else if (ottlSignal === 'logs') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+        } else if (ottlSignal === 'metrics') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes["env"], "prod")';
+        } else if (ottlSignal === 'both') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+        } else {
+            // all
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes["env"], "prod")';
+        }
+    } else {
+        if (ottlSignal === 'traces') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL';
+        } else if (ottlSignal === 'logs') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
+        } else if (ottlSignal === 'metrics') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  metrics:\n    datapoint:\n      - attributes["env"] == "prod"';
+        } else if (ottlSignal === 'both') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - attributes["key"] == "value"\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
+        } else {
+            // all
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - attributes["key"] == "value"\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR\n  metrics:\n    datapoint:\n      - attributes["env"] == "prod"';
+        }
+    }
+}
+
+function insertSnippet(code) {
+  const ta = document.getElementById('ottl-input');
+  ta.value = code + '\n';
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+  ta.focus();
+  updateOttlLineNumbers();
+}
+
+function updateOttlLineNumbers() {
+  const ta = document.getElementById('ottl-input');
+  const lines = ta.value.split('\n');
+  const count = Math.max(lines.length, 10);
+  let html = '';
+  for (let i = 1; i <= count; i++) {
+    html += '<span>' + i + '</span>';
+  }
+  document.getElementById('ottl-line-numbers').innerHTML = html;
+}
+
+// --- Result tab state ---
+let lastResult = null; // { type: 'transform', ... } or { type: 'filter', ... }
+
+function switchOttlResultTab(tab) {
+  document.querySelectorAll('.ottl-result-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.resultTab === tab);
+  });
+  renderOttlResultContent(tab);
+}
+
+function renderOttlResultContent(tab) {
+  const content = document.getElementById('ottl-result-content');
+  const r = lastResult;
+  if (!r) { content.innerHTML = ''; return; }
+
+  if (r.type === 'transform') {
+    if (tab === 'summary') {
+      let summaryHtml = '';
+      if (r.original) {
+        const diff = computeDiff(r.original, r.transformed);
+        summaryHtml = '<div class="ottl-diff-summary">'
+          + '<div class="ottl-diff-stat ottl-diff-added"><div class="count">' + diff.added + '</div><div class="label">Added</div></div>'
+          + '<div class="ottl-diff-stat ottl-diff-removed"><div class="count">' + diff.removed + '</div><div class="label">Removed</div></div>'
+          + '<div class="ottl-diff-stat ottl-diff-modified"><div class="count">' + diff.modified + '</div><div class="label">Modified</div></div>'
+          + '<div class="ottl-diff-stat ottl-diff-unchanged"><div class="count">' + diff.totalSpans + '</div><div class="label">Spans</div></div>'
+          + '</div>';
+      }
+      const activeInnerTab = lastTransform.activeTab || 'transformed';
+      let innerTabContent;
+      if (activeInnerTab === 'transformed') {
+        innerTabContent = '<pre>' + escapeHtml(JSON.stringify(r.transformed, null, 2)) + '</pre>';
+      } else if (activeInnerTab === 'diff' && r.original) {
+        const diff = computeDiff(r.original, r.transformed);
+        innerTabContent = renderDiffTable(diff);
+      } else if (activeInnerTab === 'fulldiff' && r.original) {
+        innerTabContent = renderInlineDiff(r.original, r.transformed);
+      } else {
+        innerTabContent = '<pre>' + escapeHtml(JSON.stringify(r.transformed, null, 2)) + '</pre>';
+      }
+      var html = '<div class="ottl-transform-result">'
+        + '<div class="header"><span class="badge">' + r.statementsParsed + ' statements</span>Transform succeeded</div>'
+        + summaryHtml
+        + '<div class="ottl-tabs">'
+        + '<button class="ottl-tab' + (activeInnerTab === 'transformed' ? ' active' : '') + '" data-tab="transformed" onclick="switchOttlTab(\'transformed\')">Transformed</button>'
+        + (r.original ? '<button class="ottl-tab' + (activeInnerTab === 'diff' ? ' active' : '') + '" data-tab="diff" onclick="switchOttlTab(\'diff\')">Diff</button>' : '')
+        + (r.original ? '<button class="ottl-tab' + (activeInnerTab === 'fulldiff' ? ' active' : '') + '" data-tab="fulldiff" onclick="switchOttlTab(\'fulldiff\')">Full Diff</button>' : '')
+        + '</div>'
+        + '<div id="ottl-tab-content">' + innerTabContent + '</div>'
+        + '<div class="ottl-save-area">'
+        + '<button class="btn btn-primary" onclick="saveTransformedRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
+        + '<span class="ottl-save-status" id="ottl-save-status"></span>'
+        + '</div></div>';
+      if (r.logTransformed) {
+        html += '<div class="ottl-transform-result" style="margin-top:12px">'
+          + '<div class="header" style="background:#2a1f4a"><span class="badge" style="background:#8b5cf6">' + r.logStmtsParsed + ' statements</span>Log Transform Results</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.logTransformed, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      if (r.metricTransformed) {
+        html += '<div class="ottl-transform-result" style="margin-top:12px">'
+          + '<div class="header" style="background:#0a3d1a"><span class="badge" style="background:#4ade80">' + r.metricStmtsParsed + ' statements</span>Metric Transform Results</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.metricTransformed, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      content.innerHTML = html;
+    } else if (tab === 'spans') {
+      if (r.original) {
+        const diff = computeDiff(r.original, r.transformed);
+        content.innerHTML = '<div class="ottl-transform-result">' + renderDiffTable(diff) + '</div>';
+      } else {
+        content.innerHTML = '<div class="ottl-message" style="padding:24px;color:#94a3b8;font-size:14px;text-align:center">No original data available for per-span comparison.</div>';
+      }
+    } else if (tab === 'json') {
+      var formatted = JSON.stringify(r.transformed, null, 2);
+      if (r.logTransformed) {
+        formatted = '// --- Trace Transformed Data ---\n\n' + formatted + '\n\n// --- Log Transformed Data ---\n\n' + JSON.stringify(r.logTransformed, null, 2);
+      }
+      if (r.metricTransformed) {
+        formatted = (r.transformed ? '// --- Trace Transformed Data ---\n\n' + formatted + '\n\n' : '') + '// --- Metric Transformed Data ---\n\n' + JSON.stringify(r.metricTransformed, null, 2);
+      }
+      content.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>';
+    }
+  } else if (r.type === 'filter') {
+    if (tab === 'summary') {
+      const removed = r.total - r.kept;
+      const modeLabel = r.mode === 'include' ? 'Kept' : 'Removed';
+      const modeColor = r.mode === 'include' ? '#22c55e' : '#ef4444';
+      const formatted = JSON.stringify(r.filtered, null, 2);
+      var filterHtml = '<div class="ottl-transform-result">'
+        + '<div class="header"><span class="badge">' + r.conditionsParsed + ' condition(s)</span>Filter ' + r.mode + 'd</div>'
+        + '<div class="ottl-filter-summary">'
+        + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.kept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+        + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + removed + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+        + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.total + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+        + '</div>'
+        + '<pre style="margin:12px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>'
+        + '<div class="ottl-save-area" style="display:flex;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid #334155;margin-top:12px">'
+        + '<button class="btn btn-primary" onclick="saveFilteredRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
+        + '<span class="ottl-save-status" id="ottl-save-status"></span>'
+        + '</div></div>';
+      if (r.logFiltered) {
+        const logRemoved = r.logTotal - r.logKept;
+        filterHtml += '<div class="ottl-transform-result" style="margin-top:12px">'
+          + '<div class="header" style="background:#2a1f4a"><span class="badge" style="background:#8b5cf6">' + r.logCondsParsed + ' condition(s)</span>Log Filter Results</div>'
+          + '<div class="ottl-filter-summary">'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.logKept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + logRemoved + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.logTotal + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+          + '</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.logFiltered, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      if (r.metricFiltered) {
+        const metricRemoved = r.metricTotal - r.metricKept;
+        filterHtml += '<div class="ottl-transform-result" style="margin-top:12px;border-color:#166534">'
+          + '<div class="header" style="background:#0a3d1a"><span class="badge" style="background:#4ade80">' + r.metricCondsParsed + ' condition(s)</span>Metric Filter Results</div>'
+          + '<div class="ottl-filter-summary">'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.metricKept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + metricRemoved + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.metricTotal + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+          + '</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.metricFiltered, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      content.innerHTML = filterHtml;
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+    }
+  }
+}
+
+async function ottlFilter() {
+  const input = document.getElementById('ottl-input');
+  const btn = document.getElementById('ottl-action-btn');
+  const status = document.getElementById('ottl-status');
+  const resultContent = document.getElementById('ottl-result-content');
+  const resultPanel = document.getElementById('ottl-result');
+  const runSelect = document.getElementById('ottl-run-select');
+  const runId = runSelect.value;
+  if (!runId) {
+    resultContent.innerHTML = '<div class="ottl-error">Select a target run first</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Filtering...';
+  resultPanel.classList.add('hidden');
+  const config = input.value.trim();
+  if (!config) {
+    resultContent.innerHTML = '<div class="ottl-error">No config to evaluate</div>';
+    resultPanel.classList.remove('hidden');
+  
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  const mode = updateFilterMode();
+  const run = runs[runId];
+  const sigType = ottlSignal;
+  try {
+    const data = await api('/api/ottl/filter', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ run_id: runId, config: config, mode: mode, signal_type: sigType })
+    });
+    if (data.valid && (data.filtered_data || data.log_filtered_data || data.metric_filtered_data)) {
+        lastFilterResult.filtered = data.filtered_data || null;
+        lastFilterResult.total = data.total_span_count || 0;
+        lastFilterResult.kept = data.filtered_span_count || 0;
+        renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode, data.log_filtered_data, data.log_conditions_parsed, data.total_log_count, data.filtered_log_count, data.metric_filtered_data, data.metric_conditions_parsed, data.total_metric_count, data.filtered_metric_count);
+    } else {
+      const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
+      resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
+      resultPanel.classList.remove('hidden');
+    
+      switchOttlResultTab('summary');
+    }
+    status.textContent = '';
+  } catch(e) {
+    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
+    resultPanel.classList.remove('hidden');
+  
+    switchOttlResultTab('summary');
+    status.textContent = '';
+  }
+  btn.disabled = false;
+}
+
+function renderFilterResult(filtered, conditionsParsed, total, kept, mode, logFiltered, logCondsParsed, logTotal, logKept, metricFiltered, metricCondsParsed, metricTotal, metricKept) {
+    const resultPanel = document.getElementById('ottl-result');
+    lastResult = {
+        type: 'filter',
+        filtered: filtered,
+        total: total,
+        kept: kept,
+        conditionsParsed: conditionsParsed,
+        mode: mode,
+        logFiltered: logFiltered || null,
+        logCondsParsed: logCondsParsed || 0,
+        logTotal: logTotal || 0,
+        logKept: logKept || 0,
+        metricFiltered: metricFiltered || null,
+        metricCondsParsed: metricCondsParsed || 0,
+        metricTotal: metricTotal || 0,
+        metricKept: metricKept || 0
+    };
+    resultPanel.classList.remove('hidden');
+    switchOttlResultTab('summary');
+}
+
+async function saveFilteredRun() {
+  if (!lastFilterResult.filtered) return;
+  const statusEl = document.getElementById('ottl-save-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '#94a3b8';
+  try {
+    const run = await api('/api/runs/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(lastFilterResult.filtered)
+    });
+    runs[run.id] = run;
+    renderRunList();
+    updateOttlRunSelector();
+    statusEl.innerHTML = '<span style="color:#22c55e">Saved as <a href="#" onclick="showDetail(\'' + run.id + '\');return false" style="color:#3b82f6;text-decoration:underline">' + run.id + '</a></span>';
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+async function stopRun(id) {
+  try {
+    await api('/api/runs/' + id + '/stop', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('stop run:', e);
+  }
+}
+
+async function pauseRun(id) {
+  try {
+    await api('/api/runs/' + id + '/pause', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('pause run:', e);
+  }
+}
+
+async function resumeRun(id) {
+  try {
+    await api('/api/runs/' + id + '/resume', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('resume run:', e);
+  }
+}
+
+async function stopAllRuns() {
+  const active = Object.values(runs).filter(r => r.status === 'running' || r.status === 'pending' || r.status === 'paused');
+  if (active.length === 0) return;
+  const btn = document.getElementById('stop-all-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await Promise.all(active.map(r => api('/api/runs/' + r.id + '/stop', { method: 'POST' })));
+  } catch(e) {
+    console.error('stop all runs:', e);
+  }
+  if (btn) btn.disabled = false;
+  renderRunList();
+}
+
+async function pauseAllRuns() {
+  const active = Object.values(runs).filter(r => r.status === 'running');
+  if (active.length === 0) return;
+  const btn = document.getElementById('pause-all-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await Promise.all(active.map(r => api('/api/runs/' + r.id + '/pause', { method: 'POST' })));
+  } catch(e) {
+    console.error('pause all runs:', e);
+  }
+  if (btn) btn.disabled = false;
+  renderRunList();
+}
+
+async function resumeAllRuns() {
+  const active = Object.values(runs).filter(r => r.status === 'paused');
+  if (active.length === 0) return;
+  const btn = document.getElementById('resume-all-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await Promise.all(active.map(r => api('/api/runs/' + r.id + '/resume', { method: 'POST' })));
+  } catch(e) {
+    console.error('resume all runs:', e);
+  }
+  if (btn) btn.disabled = false;
+  renderRunList();
+}
+
+function startPolling() {
+  const announcedCompleted = new Set();
+  pollTimer = setInterval(async () => {
+    try {
+      const data = await api('/api/runs');
+      data.runs.forEach(r => {
+        const prevStatus = runs[r.id]?.status;
+        runs[r.id] = r;
+        // Show brief "Completed!" when a run transitions to completed
+        if (r.status === 'completed' && prevStatus && prevStatus !== 'completed' && !announcedCompleted.has(r.id)) {
+          announcedCompleted.add(r.id);
+          const el = document.getElementById('run-status');
+          el.textContent = 'Completed!';
+          setTimeout(() => { if (el.textContent === 'Completed!') el.textContent = ''; }, 3000);
+        }
+      });
+      renderRunList();
+      updateOttlRunSelector();
+      // Show detail if viewing one
+      const detail = document.getElementById('detail-section');
+      if (!detail.classList.contains('hidden')) {
+        const id = detail.querySelector('#detail-id').textContent;
+        const r = runs[id];
+        if (r) renderDetail(r);
+      }
+    } catch(e) { /* ignore polling errors */ }
+  }, 1000);
+}
+
+let lastDetailKey = '';
+
+function getRunSignalType(r) {
+  if (r.output === 'import') return 'traces';
+  return r.config?.signal_type || 'traces';
+}
+
+function getSignalBadge(signalType) {
+  if (signalType === 'both') return '<span class="signal-badge both">TL</span>';
+  if (signalType === 'logs') return '<span class="signal-badge logs">L</span>';
+  if (signalType === 'metrics') return '<span class="signal-badge metrics">M</span>';
+  if (signalType === 'all') return '<span class="signal-badge all">A</span>';
+  if (signalType === 'traces+metrics') return '<span class="signal-badge both" style="background:rgba(34,197,94,0.2);color:#4ade80">TM</span>';
+  if (signalType === 'logs+metrics') return '<span class="signal-badge both" style="background:rgba(139,92,246,0.2);color:#c084fc">LM</span>';
+  return '<span class="signal-badge traces">T</span>';
+}
+
+function renderRunList() {
+  const list = document.getElementById('run-list');
+  const search = (document.getElementById('filter-search').value || '').toLowerCase();
+  let entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+
+  // Apply filters
+  if (signalFilter !== 'all') {
+    entries = entries.filter(r => getRunSignalType(r) === signalFilter);
+  }
+  if (search) {
+    entries = entries.filter(r => r.id.toLowerCase().includes(search) || (r.scenario || '').toLowerCase().includes(search));
+  }
+
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="empty"><p>No jobs match the current filter.</p></div>';
+    return;
+  }
+  list.innerHTML = entries.map(r => {
+    const signalType = getRunSignalType(r);
+    const signalBadge = getSignalBadge(signalType);
+    const scenario = r.scenario || r.config?.Scenario || '';
+    const scenarioTag = scenario ? ' &middot; ' + scenario : '';
+    const isImported = r.output === 'import';
+    const metaParts = [formatTime(r.started_at)];
+    if (isImported) {
+      metaParts.push('imported');
+    } else {
+      if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
+      var tc = r.config?.TraceCount;
+      if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
+    }
+    var statsHtml = '<span>' + (r.span_count || 0) + ' spans</span>';
+    if (r.log_count || r.log_count_completed) {
+      var lc = r.log_count || r.log_count_completed;
+      statsHtml += '<span>' + lc + ' logs</span>';
+    }
+    if (r.metric_count || r.metric_count_completed) {
+      var mc = r.metric_count || r.metric_count_completed;
+      statsHtml += '<span>' + mc + ' metrics</span>';
+    }
+    statsHtml += '<span>' + formatDuration(r.duration_ns) + '</span>';
+    return `<div class="run-card" onclick="showDetail('${r.id}')">
+      ${signalBadge}
+      <div class="status ${statusClass(r.status)}"></div>
+      <div class="info">
+        <div class="id">${r.id}${scenarioTag}</div>
+        <div class="meta">${metaParts.join(' &middot; ')}</div>
+      </div>
+      <div class="stats">
+        ${statsHtml}
+      </div>
+      ${r.status === 'running' ? `<button class="btn-pause" onclick="event.stopPropagation();pauseRun('${r.id}')">Pause</button>` : ''}
+      ${r.status === 'paused' ? `<button class="btn-pause" onclick="event.stopPropagation();resumeRun('${r.id}')">Resume</button>` : ''}
+      ${r.status === 'running' || r.status === 'pending' || r.status === 'paused' ? `<button class="btn-danger" onclick="event.stopPropagation();stopRun('${r.id}')">Stop</button>` : ''}
+    </div>`;
+  }).join('');
+  const pauseAllBtn = document.getElementById('pause-all-btn');
+  const resumeAllBtn = document.getElementById('resume-all-btn');
+  const stopAllBtn = document.getElementById('stop-all-btn');
+  const hasRunning = entries.some(r => r.status === 'running');
+  const hasPaused = entries.some(r => r.status === 'paused');
+  const hasActive = hasRunning || hasPaused || entries.some(r => r.status === 'pending');
+  if (pauseAllBtn) pauseAllBtn.style.display = hasRunning ? '' : 'none';
+  if (resumeAllBtn) resumeAllBtn.style.display = hasPaused ? '' : 'none';
+  if (stopAllBtn) stopAllBtn.style.display = hasActive ? '' : 'none';
+}
+
+function showDetail(id) {
+  const r = runs[id];
+  if (!r) return;
+  const section = document.getElementById('detail-section');
+  section.classList.remove('hidden');
+  document.getElementById('detail-id').textContent = r.id;
+  lastDetailKey = '';
+  renderDetail(r);
+  section.scrollIntoView({ behavior: 'smooth' });
+}
+
+let detailTab = 'traces';
+
+function renderDetail(r) {
+  // Build a key from the run's mutable fields. If unchanged since last
+  // render, skip DOM replacement to preserve scroll position in <pre>.
+  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.log_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + (typeof r.trace_data === 'string' ? r.trace_data.substring(0, 100) : '') + '|' + detailTab;
+  if (key === lastDetailKey) return;
+  lastDetailKey = key;
+
+  const el = document.getElementById('detail-content');
+  const signalType = getRunSignalType(r);
+  const hasLogs = r.log_data || (r.log_count && r.log_count > 0);
+
+  // Running state
+  if (r.status === 'running') {
+    const done = r.trace_count_completed || 0;
+    const total = r.trace_count;
+    const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
+    var progressHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
+    if (hasLogs || r.config?.log_config?.enabled) {
+      var logDone = r.log_count_completed || 0;
+      var logTotal = r.log_count || 0;
+      progressHtml += '<div class="stat"><div class="value">' + logDone + ' / ' + (logTotal || '?') + '</div><div class="label">Logs</div></div>';
+    }
+    if (r.metric_count && r.metric_count > 0) {
+      var metricDone = r.metric_count_completed || 0;
+      progressHtml += '<div class="stat"><div class="value">' + metricDone + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
+    }
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>' + progressHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="pauseRun(\'' + r.id + '\')">Pause</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
+    return;
+  }
+
+  // Paused state
+  if (r.status === 'paused') {
+    const done = r.trace_count_completed || 0;
+    const total = r.trace_count;
+    const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
+    var pausedHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
+    if (hasLogs) {
+      pausedHtml += '<div class="stat"><div class="value">' + (r.log_count_completed || 0) + ' / ' + (r.log_count || '?') + '</div><div class="label">Logs</div></div>';
+    }
+    if (r.metric_count) {
+      pausedHtml += '<div class="stat"><div class="value">' + (r.metric_count_completed || 0) + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
+    }
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>' + pausedHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="resumeRun(\'' + r.id + '\')">Resume</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
+    return;
+  }
+
+  // Failed state
+  if (r.status === 'failed') {
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div></div><div class="error">' + (r.error || 'Unknown error') + '</div>';
+    return;
+  }
+
+  // Stopped state
+  if (r.status === 'stopped') {
+    var stoppedStats = '<div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div><div class="stat"><div class="value">' + (r.span_count || 0) + '</div><div class="label">Spans</div></div>';
+    if (r.log_count_completed) {
+      stoppedStats += '<div class="stat"><div class="value">' + r.log_count_completed + '</div><div class="label">Logs</div></div>';
+    }
+    if (r.metric_count_completed) {
+      stoppedStats += '<div class="stat"><div class="value">' + r.metric_count_completed + '</div><div class="label">Metrics</div></div>';
+    }
+    el.innerHTML = '<div class="stat-row">' + stoppedStats + '</div>';
+    return;
+  }
+
+  // ===== Completed status =====
+  let spanCountTotal = 0, traceCount = 0;
+  if (r.trace_data) {
+    try {
+      const td = typeof r.trace_data === 'string' ? JSON.parse(r.trace_data) : r.trace_data;
+      if (td.resource_spans) {
+        traceCount = td.resource_spans.length;
+        td.resource_spans.forEach(rs => {
+          if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+            if (ss.spans) spanCountTotal += ss.spans.length;
+          });
+        });
+      }
+    } catch(e) { /* use r.span_count */ }
+  }
+
+  // Count log records
+  let logRecordCount = 0, logSeverities = {};
+  if (r.log_data) {
+    try {
+      const ld = typeof r.log_data === 'string' ? JSON.parse(r.log_data) : r.log_data;
+      if (ld.resource_logs) {
+        ld.resource_logs.forEach(rl => {
+          if (rl.scope_logs) rl.scope_logs.forEach(sl => {
+            if (sl.log_records) {
+              sl.log_records.forEach(lr => {
+                logRecordCount++;
+                var sev = (lr.severity_text || 'INFO').toLowerCase();
+                logSeverities[sev] = (logSeverities[sev] || 0) + 1;
+              });
+            }
+          });
+        });
+      }
+    } catch(e) {}
+  }
+
+  // Count metric data points
+  let metricRecordCount = 0, metricTypes = {};
+  if (r.metric_data) {
+    try {
+      const md = typeof r.metric_data === 'string' ? JSON.parse(r.metric_data) : r.metric_data;
+      if (md.resource_metrics) {
+        md.resource_metrics.forEach(rm => {
+          if (rm.scope_metrics) rm.scope_metrics.forEach(sm => {
+            if (sm.metrics) {
+              sm.metrics.forEach(m => { metricRecordCount++; });
+            }
+          });
+        });
+      }
+    } catch(e) {}
+  }
+
+  const isImported = r.output === 'import';
+  var summaryHtml = '<div class="stat-row">';
+  summaryHtml += '<div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (spanCountTotal || r.span_count || 0) + '</div><div class="label">Spans</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (traceCount || r.trace_count || 0) + '</div><div class="label">Traces</div></div>';
+  if (logRecordCount > 0) {
+    summaryHtml += '<div class="stat"><div class="value">' + logRecordCount + '</div><div class="label">Logs</div></div>';
+  }
+  if (metricRecordCount > 0) {
+    summaryHtml += '<div class="stat"><div class="value">' + metricRecordCount + '</div><div class="label">Metrics</div></div>';
+  }
+  summaryHtml += '<div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed || '-')) + '</div><div class="label">Seed</div></div>';
+  summaryHtml += '</div>';
+
+  // Severity mini tiles — below stat row, each severity as a small stat tile
+  if (logRecordCount > 0) {
+    summaryHtml += '<div class="sev-tiles">';
+    var sevOrder = ['info', 'warn', 'error', 'fatal'];
+    sevOrder.forEach(function(s) {
+      var count = logSeverities[s] || 0;
+      summaryHtml += '<div class="sev-tile"><div class="count sev-' + s + '">' + count + '</div><div class="lbl sev-' + s + '">' + s.toUpperCase() + '</div></div>';
+    });
+    summaryHtml += '</div>';
+  }
+
+  // Build tab bar
+  var hasTraceData = !!r.trace_data;
+  var hasLogData = logRecordCount > 0;
+  var hasMetricData = metricRecordCount > 0;
+  var tabHtml = '<div class="detail-tabs">';
+  if (hasTraceData) {
+    tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Traces<span class="tab-badge">' + (traceCount || r.trace_count || 0) + '</span></button>';
+  }
+  if (hasLogData) {
+    tabHtml += '<button class="detail-tab' + (detailTab === 'logs' ? ' active' : '') + '" onclick="switchDetailTab(\'logs\')">Logs<span class="tab-badge">' + logRecordCount + '</span></button>';
+  }
+  if (hasMetricData) {
+    tabHtml += '<button class="detail-tab' + (detailTab === 'metrics' ? ' active' : '') + '" onclick="switchDetailTab(\'metrics\')">Metrics<span class="tab-badge">' + metricRecordCount + '</span></button>';
+  }
+  tabHtml += '</div>';
+
+  el.innerHTML = summaryHtml + tabHtml;
+
+  if (detailTab === 'logs' && hasLogData) {
+    el.innerHTML += renderLogTable(r.log_data);
+  } else if (detailTab === 'traces' && r.trace_data) {
+    const pretty = typeof r.trace_data === 'string' ? r.trace_data : JSON.stringify(r.trace_data, null, 2);
+    el.innerHTML += '<h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#94a3b8">Trace Data</h3>';
+    el.innerHTML += '<pre>' + escapeHtml(pretty) + '</pre>';
+  } else if (detailTab === 'metrics' && r.metric_data) {
+    el.innerHTML += renderMetricTable(r.metric_data);
+  }
+}
+
+function switchDetailTab(tab) {
+  detailTab = tab;
+  // Re-render will fire via polling or we can manually trigger
+  const detailId = document.getElementById('detail-id').textContent;
+  const r = runs[detailId];
+  if (r) renderDetail(r);
+}
+
+function renderLogTable(logData) {
+  let logs;
+  try {
+    logs = typeof logData === 'string' ? JSON.parse(logData) : logData;
+  } catch(e) { return '<div class="error">Failed to parse log data</div>'; }
+
+  var html = '<table class="log-table"><thead><tr><th style="width:52px">Severity</th><th style="width:140px">Timestamp</th><th>Body</th><th style="width:80px">Trace ID</th></tr></thead><tbody>';
+
+  if (logs.resource_logs) {
+    var allRecords = [];
+    logs.resource_logs.forEach(function(rl) {
+      if (rl.scope_logs) rl.scope_logs.forEach(function(sl) {
+        if (sl.log_records) sl.log_records.forEach(function(lr) {
+          allRecords.push(lr);
+        });
+      });
+    });
+
+    allRecords.slice(0, 200).forEach(function(lr, idx) {
+      var sev = (lr.severity_text || 'info').toLowerCase();
+      var sevClass = sev === 'warn' ? 'warn' : sev === 'error' ? 'error' : sev === 'fatal' ? 'fatal' : 'info';
+      var ts = lr.time_unix_nano ? new Date(lr.time_unix_nano / 1e6).toLocaleTimeString() : '-';
+
+      var bodyStr = '';
+      if (lr.body) {
+        bodyStr = lr.body.stringValue || JSON.stringify(lr.body);
+      }
+
+      var traceIdStr = '';
+      if (lr.trace_id) {
+        traceIdStr = typeof lr.trace_id === 'string' ? lr.trace_id.substring(0, 16) : '';
+      }
+
+      html += '<tr onclick="toggleLogDetail(this, ' + idx + ')" class="log-row" data-idx="' + idx + '">';
+      html += '<td><span class="severity-tag ' + sevClass + '">' + (lr.severity_text || 'INFO') + '</span></td>';
+      html += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
+      html += '<td><div class="log-body">' + escapeHtml(bodyStr) + '</div></td>';
+      html += '<td style="font-family:monospace;font-size:10px;color:#475569">' + escapeHtml(traceIdStr) + '...</td>';
+      html += '</tr>';
+
+      // Detail row (hidden)
+      html += '<tr class="log-detail" id="log-detail-' + idx + '"><td colspan="4">';
+      html += '<pre>' + escapeHtml(JSON.stringify(lr, null, 2)) + '</pre>';
+      if (lr.attributes && lr.attributes.length) {
+        html += '<div class="attr-list">';
+        lr.attributes.forEach(function(attr) {
+          var av = '';
+          if (attr.value) av = attr.value.stringValue || attr.value.intValue || attr.value.doubleValue || JSON.stringify(attr.value);
+          html += '<span class="attr-item"><strong>' + escapeHtml(attr.key) + ':</strong> ' + escapeHtml(String(av)) + '</span>';
+        });
+        html += '</div>';
+      }
+      html += '</td></tr>';
+    });
+  }
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function toggleLogDetail(row, idx) {
+  var detail = document.getElementById('log-detail-' + idx);
+  if (!detail) return;
+  var isOpen = detail.classList.contains('open');
+  // Close all
+  document.querySelectorAll('.log-detail.open').forEach(function(el) { el.classList.remove('open'); });
+  document.querySelectorAll('.log-table tr.expanded').forEach(function(el) { el.classList.remove('expanded'); });
+  if (!isOpen) {
+    detail.classList.add('open');
+    row.classList.add('expanded');
+  }
+}
+
+function renderMetricTable(metricData) {
+  let metrics;
+  try {
+    metrics = typeof metricData === 'string' ? JSON.parse(metricData) : metricData;
+  } catch(e) { return '<div class="error">Failed to parse metric data</div>'; }
+
+  var html = '<table class="log-table"><thead><tr><th style="width:80px">Type</th><th>Name</th><th>Value(s)</th><th style="width:140px">Timestamp</th></tr></thead><tbody>';
+
+  if (metrics.resource_metrics) {
+    var allMetrics = [];
+    metrics.resource_metrics.forEach(function(rm) {
+      if (rm.scope_metrics) rm.scope_metrics.forEach(function(sm) {
+        if (sm.metrics) sm.metrics.forEach(function(m) {
+          allMetrics.push(m);
+        });
+      });
+    });
+
+    allMetrics.slice(0, 200).forEach(function(m) {
+      var type = 'gauge';
+      var dataPoints = [];
+      if (m.gauge) { type = 'gauge'; dataPoints = m.gauge.data_points || []; }
+      else if (m.sum) { type = 'sum'; dataPoints = m.sum.data_points || []; }
+      else if (m.histogram) { type = 'histogram'; dataPoints = m.histogram.data_points || []; }
+
+      var typeClass = type === 'sum' ? 'warn' : type === 'histogram' ? 'fatal' : 'info';
+
+      html += '<tr class="log-row">';
+      html += '<td><span class="severity-tag ' + typeClass + '">' + type.toUpperCase() + '</span></td>';
+      html += '<td><strong>' + escapeHtml(m.name || '') + '</strong>';
+      if (m.description) {
+        html += '<br><span style="font-size:11px;color:#64748b">' + escapeHtml(m.description) + '</span>';
+      }
+      html += '</td>';
+      html += '<td style="font-family:monospace;font-size:11px">';
+
+      if (type === 'histogram') {
+        var hCount = 0, hSum = 0;
+        dataPoints.forEach(function(dp) {
+          hCount += dp.count || 0;
+          hSum += dp.sum || 0;
+        });
+        html += 'count: ' + hCount + ', sum: ' + hSum;
+        if (dataPoints.length > 0 && dataPoints[0].bucket_counts) {
+          html += '<br>buckets: [' + dataPoints[0].bucket_counts.join(', ') + ']';
+        }
+      } else {
+        dataPoints.slice(0, 3).forEach(function(dp, idx) {
+          if (idx > 0) html += '<br>';
+          var val = dp.as_int !== undefined ? dp.as_int : (dp.as_double !== undefined ? dp.as_double : (dp.asInt !== undefined ? dp.asInt : (dp.asDouble !== undefined ? dp.asDouble : '?')));
+          html += val;
+        });
+        if (dataPoints.length > 3) {
+          html += '<br><span style="color:#64748b">...and ' + (dataPoints.length - 3) + ' more</span>';
+        }
+      }
+
+      html += '</td>';
+      var ts = dataPoints.length > 0 && dataPoints[0].time_unix_nano
+        ? new Date(Number(dataPoints[0].time_unix_nano) / 1e6).toLocaleTimeString()
+        : '-';
+      html += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
+      html += '</tr>';
+    });
+  }
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+loadScenarios();
+// Restore per-signal collapse states
+['trace', 'log', 'metric'].forEach(function(signal) {
+  try {
+    if (localStorage.getItem('otel-workbench-config-' + signal + '-collapsed') === '1') {
+      var el = document.getElementById(signal + '-config-area');
+      if (el) el.classList.add('collapsed');
+    }
+  } catch(e) {}
+});
+initChunkedBars();
+document.addEventListener('mousemove', updateBarDrag);
+document.addEventListener('mouseup', stopBarDrag);
+document.addEventListener('touchmove', updateBarDrag, { passive: false });
+document.addEventListener('touchend', stopBarDrag);
+onSignalCheckboxChange();
+updateSeverityBars();
+updateMetricTypeBars();
+updateToggleAllBtn();
+
+// Load existing runs from the server so the run list and OTTL selector
+// are populated immediately on page load (not just after the first new run).
+(async function loadExistingRuns() {
+  try {
+    const data = await api('/api/runs');
+    if (data.runs) {
+      data.runs.forEach(r => { runs[r.id] = r; });
+      renderRunList();
+      updateOttlRunSelector();
+    }
+  } catch(e) { /* page may load before any runs exist */ }
+  if (!pollTimer) startPolling();
+})();
+
+// Initialize OTTL Prototyper
+document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);
+document.getElementById('ottl-validate-btn').onclick = ottlValidate;
+onOttlSignalCheckboxChange();
+updateOttlLineNumbers();
