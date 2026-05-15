@@ -1015,12 +1015,12 @@ async function ottlTransform() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ run_id: runId, config: config, signal_type: sigType })
     });
-    if (data.valid && data.transformed_data) {
-      const originalData = run && (sigType === 'logs' ? run.log_data : run.trace_data) ? (sigType === 'logs' ? run.log_data : run.trace_data) : null;
+    if (data.valid && (data.transformed_data || data.log_transformed_data)) {
+      const originalData = run && (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) ? (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) : null;
       lastTransform.original = originalData;
-      lastTransform.transformed = data.transformed_data;
+      lastTransform.transformed = data.transformed_data || null;
       lastTransform.activeTab = 'transformed';
-      renderTransformResult(data.transformed_data, data.statements_parsed);
+      renderTransformResult(data.transformed_data, data.statements_parsed, data.log_transformed_data, data.log_statements_parsed);
     } else {
       const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
       resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
@@ -1039,13 +1039,15 @@ async function ottlTransform() {
   btn.disabled = false;
 }
 
-function renderTransformResult(transformed, statementsParsed) {
+function renderTransformResult(transformed, statementsParsed, logTransformed, logStmtsParsed) {
   const resultPanel = document.getElementById('ottl-result');
   lastResult = {
     type: 'transform',
     transformed: transformed,
     original: lastTransform.original,
-    statementsParsed: statementsParsed
+    statementsParsed: statementsParsed,
+    logTransformed: logTransformed || null,
+    logStmtsParsed: logStmtsParsed || 0
   };
   resultPanel.classList.remove('hidden');
   switchOttlResultTab('summary');
@@ -1463,7 +1465,7 @@ function renderOttlResultContent(tab) {
       } else {
         innerTabContent = '<pre>' + escapeHtml(JSON.stringify(r.transformed, null, 2)) + '</pre>';
       }
-      content.innerHTML = '<div class="ottl-transform-result">'
+      var html = '<div class="ottl-transform-result">'
         + '<div class="header"><span class="badge">' + r.statementsParsed + ' statements</span>Transform succeeded</div>'
         + summaryHtml
         + '<div class="ottl-tabs">'
@@ -1476,6 +1478,13 @@ function renderOttlResultContent(tab) {
         + '<button class="btn btn-primary" onclick="saveTransformedRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
         + '<span class="ottl-save-status" id="ottl-save-status"></span>'
         + '</div></div>';
+      if (r.logTransformed) {
+        html += '<div class="ottl-transform-result" style="margin-top:12px">'
+          + '<div class="header" style="background:#2a1f4a"><span class="badge" style="background:#8b5cf6">' + r.logStmtsParsed + ' statements</span>Log Transform Results</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.logTransformed, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      content.innerHTML = html;
     } else if (tab === 'spans') {
       if (r.original) {
         const diff = computeDiff(r.original, r.transformed);
@@ -1484,7 +1493,10 @@ function renderOttlResultContent(tab) {
         content.innerHTML = '<div class="ottl-message" style="padding:24px;color:#94a3b8;font-size:14px;text-align:center">No original data available for per-span comparison.</div>';
       }
     } else if (tab === 'json') {
-      const formatted = JSON.stringify(r.transformed, null, 2);
+      var formatted = JSON.stringify(r.transformed, null, 2);
+      if (r.logTransformed) {
+        formatted = '// --- Trace Transformed Data ---\n\n' + formatted + '\n\n// --- Log Transformed Data ---\n\n' + JSON.stringify(r.logTransformed, null, 2);
+      }
       content.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>';
     }
   } else if (r.type === 'filter') {
@@ -1493,7 +1505,7 @@ function renderOttlResultContent(tab) {
       const modeLabel = r.mode === 'include' ? 'Kept' : 'Removed';
       const modeColor = r.mode === 'include' ? '#22c55e' : '#ef4444';
       const formatted = JSON.stringify(r.filtered, null, 2);
-      content.innerHTML = '<div class="ottl-transform-result">'
+      var filterHtml = '<div class="ottl-transform-result">'
         + '<div class="header"><span class="badge">' + r.conditionsParsed + ' condition(s)</span>Filter ' + r.mode + 'd</div>'
         + '<div class="ottl-filter-summary">'
         + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.kept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
@@ -1505,149 +1517,19 @@ function renderOttlResultContent(tab) {
         + '<button class="btn btn-primary" onclick="saveFilteredRun()" style="padding:6px 14px;font-size:12px">Save as New Run</button>'
         + '<span class="ottl-save-status" id="ottl-save-status"></span>'
         + '</div></div>';
-    } else if (tab === 'spans') {
-      content.innerHTML = renderFilteredSpans(r.filtered);
-    } else if (tab === 'json') {
-      const formatted = JSON.stringify(r.filtered, null, 2);
-      content.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>';
-    }
-  }
-}
-
-function renderFilteredSpans(filtered) {
-  const td = typeof filtered === 'string' ? JSON.parse(filtered) : filtered;
-  if (!td.resource_spans || td.resource_spans.length === 0) {
-    return '<div class="ottl-message" style="padding:24px;color:#94a3b8;font-size:14px;text-align:center">No spans in filtered result.</div>';
-  }
-  let html = '<div class="ottl-transform-result"><table class="ottl-diff-table"><tr><th>Resource</th><th>Span Name</th><th>Span ID</th><th>Attributes</th></tr>';
-  td.resource_spans.forEach((rs, ri) => {
-    const svc = rs.resource && rs.resource.attributes ? rs.resource.attributes.find(a => a.key === 'service.name') : null;
-    const svcName = svc ? (svc.value.stringValue || 'service-' + ri) : 'resource-' + ri;
-    if (rs.scope_spans) rs.scope_spans.forEach(ss => {
-      if (ss.spans) ss.spans.forEach(sp => {
-        const attrs = sp.attributes ? sp.attributes.map(a => escapeHtml(a.key) + '=' + escapeHtml(formatAttrValue(a.value))).join('<br>') : '';
-        html += '<tr><td>' + escapeHtml(svcName) + '</td><td>' + escapeHtml(sp.name || '') + '</td><td style="font-family:monospace;font-size:11px">' + escapeHtml(sp.span_id || '') + '</td><td style="font-size:11px">' + attrs + '</td></tr>';
-      });
-    });
-  });
-  html += '</table></div>';
-  return html;
-}
-
-// --- Filter state ---
-let lastFilterResult = { filtered: null, total: 0, kept: 0 };
-
-function updateFilterMode() {
-  const mode = document.querySelector('input[name="ottl-filter-mode"]:checked');
-  return mode ? mode.value : 'include';
-}
-
-// --- Source data display for OTTL panels ---
-
-function renderRunSourceData(runId, containerId) {
-  const container = document.getElementById(containerId);
-  if (!runId || !runs[runId]) {
-    container.classList.add('hidden');
-    return;
-  }
-  const run = runs[runId];
-
-  // Trace data available
-  if (run.trace_data) {
-    container.classList.remove('hidden');
-    let traceCount = 0, spanCount = 0;
-    const td = typeof run.trace_data === 'string' ? JSON.parse(run.trace_data) : run.trace_data;
-    if (td.resource_spans) {
-      traceCount = td.resource_spans.length;
-      td.resource_spans.forEach(rs => {
-        if (rs.scope_spans) rs.scope_spans.forEach(ss => {
-          if (ss.spans) spanCount += ss.spans.length;
-        });
-      });
-    }
-    const isOpen = container.dataset.open === 'true';
-    const pretty = typeof run.trace_data === 'string' ? run.trace_data : JSON.stringify(run.trace_data, null, 2);
-    container.innerHTML =
-      '<div class="header" onclick="toggleSourceData(this)">'
-      + '<span class="arrow' + (isOpen ? ' expanded' : '') + '">&#9654;</span>'
-      + '<strong>Source Data</strong>'
-      + ' <span class="summary">' + spanCount + ' spans, ' + traceCount + ' trace group(s)</span>'
-      + '</div>'
-      + '<div class="stats">'
-      + '<span>Spans: <strong>' + spanCount + '</strong></span>'
-      + '<span>Trace groups: <strong>' + traceCount + '</strong></span>'
-      + '<span>Run: <strong>' + escapeHtml(run.id) + '</strong></span>'
-      + '</div>'
-      + '<div class="body' + (isOpen ? ' open' : '') + '"><pre>' + escapeHtml(pretty) + '</pre></div>';
-    return;
-  }
-
-  // Log data available (log-only run)
-  if (run.log_data) {
-    container.classList.remove('hidden');
-    let logRecordCount = 0;
-    const ld = typeof run.log_data === 'string' ? JSON.parse(run.log_data) : run.log_data;
-    if (ld.resource_logs) {
-      ld.resource_logs.forEach(rl => {
-        if (rl.scope_logs) rl.scope_logs.forEach(sl => {
-          if (sl.log_records) logRecordCount += sl.log_records.length;
-        });
-      });
-    }
-    const isOpen = container.dataset.open === 'true';
-    const pretty = typeof run.log_data === 'string' ? run.log_data : JSON.stringify(run.log_data, null, 2);
-    container.innerHTML =
-      '<div class="header" onclick="toggleSourceData(this)">'
-      + '<span class="arrow' + (isOpen ? ' expanded' : '') + '">&#9654;</span>'
-      + '<strong>Source Data</strong>'
-      + ' <span class="summary">' + logRecordCount + ' log records</span>'
-      + '</div>'
-      + '<div class="stats">'
-      + '<span>Log records: <strong>' + logRecordCount + '</strong></span>'
-      + '<span>Run: <strong>' + escapeHtml(run.id) + '</strong></span>'
-      + '</div>'
-      + '<div class="body' + (isOpen ? ' open' : '') + '"><pre>' + escapeHtml(pretty) + '</pre></div>';
-    return;
-  }
-
-  // No source data available at all
-  container.classList.add('hidden');
-}
-
-function toggleSourceData(headerEl) {
-  const container = headerEl.closest('.ottl-source-data');
-  const arrow = headerEl.querySelector('.arrow');
-  const body = container.querySelector('.body');
-  const isOpen = body.classList.toggle('open');
-  arrow.classList.toggle('expanded', isOpen);
-  container.dataset.open = isOpen ? 'true' : 'false';
-}
-
-async function ottlFilterValidate() {
-  const input = document.getElementById('ottl-input');
-  const btn = document.getElementById('ottl-validate-btn');
-  const status = document.getElementById('ottl-status');
-  const resultContent = document.getElementById('ottl-result-content');
-  const resultPanel = document.getElementById('ottl-result');
-  btn.disabled = true;
-  status.textContent = 'Validating...';
-  resultPanel.classList.add('hidden');
-  const config = input.value.trim();
-  if (!config) {
-    resultContent.innerHTML = '<div class="ottl-error">No config to validate</div>';
-    resultPanel.classList.remove('hidden');
-    status.textContent = '';
-    btn.disabled = false;
-    return;
-  }
-  try {
-    const data = await api('/api/ottl/filter-validate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ config: config })
-    });
-    if (data.valid) {
-      resultContent.innerHTML = '<div class="ottl-success">All ' + data.statements_parsed + ' condition(s) valid.</div>';
+      if (r.logFiltered) {
+        const logRemoved = r.logTotal - r.logKept;
+        filterHtml += '<div class="ottl-transform-result" style="margin-top:12px">'
+          + '<div class="header" style="background:#2a1f4a"><span class="badge" style="background:#8b5cf6">' + r.logCondsParsed + ' condition(s)</span>Log Filter Results</div>'
+          + '<div class="ottl-filter-summary">'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.logKept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + logRemoved + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.logTotal + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+          + '</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.logFiltered, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      content.innerHTML = filterHtml;
     } else {
       const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
       resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
@@ -1700,11 +1582,11 @@ async function ottlFilter() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ run_id: runId, config: config, mode: mode, signal_type: sigType })
     });
-    if (data.valid && data.filtered_data) {
-      lastFilterResult.filtered = data.filtered_data;
-      lastFilterResult.total = data.total_span_count;
-      lastFilterResult.kept = data.filtered_span_count;
-      renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode);
+    if (data.valid && (data.filtered_data || data.log_filtered_data)) {
+      lastFilterResult.filtered = data.filtered_data || null;
+      lastFilterResult.total = data.total_span_count || 0;
+      lastFilterResult.kept = data.filtered_span_count || 0;
+      renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode, data.log_filtered_data, data.log_conditions_parsed, data.total_log_count, data.filtered_log_count);
     } else {
       const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
       resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
@@ -1723,7 +1605,7 @@ async function ottlFilter() {
   btn.disabled = false;
 }
 
-function renderFilterResult(filtered, conditionsParsed, total, kept, mode) {
+function renderFilterResult(filtered, conditionsParsed, total, kept, mode, logFiltered, logCondsParsed, logTotal, logKept) {
   const resultPanel = document.getElementById('ottl-result');
   lastResult = {
     type: 'filter',
@@ -1731,7 +1613,11 @@ function renderFilterResult(filtered, conditionsParsed, total, kept, mode) {
     total: total,
     kept: kept,
     conditionsParsed: conditionsParsed,
-    mode: mode
+    mode: mode,
+    logFiltered: logFiltered || null,
+    logCondsParsed: logCondsParsed || 0,
+    logTotal: logTotal || 0,
+    logKept: logKept || 0
   };
   resultPanel.classList.remove('hidden');
   switchOttlResultTab('summary');
