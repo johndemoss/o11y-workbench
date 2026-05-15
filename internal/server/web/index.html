@@ -253,7 +253,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .severity-row.sev-fatal label { color:#dc2626; }
 .sev-bar-track { flex:1; height:20px; background:#0f172a; border-radius:4px; cursor:pointer; position:relative; overflow:hidden; }
 .sev-bar-fill { display:flex; height:100%; border-radius:4px; overflow:hidden; }
-.sev-chunk { width:5%; height:100%; flex-shrink:0; transition:background 0.12s ease; }
+.sev-chunk { width:5%; height:100%; flex-shrink:0; border-right:1px solid #0f172a; transition:background 0.12s ease; }
 .sev-chunk.full { background:var(--chunk-color); }
 .sev-chunk.partial { background:linear-gradient(to right, var(--chunk-color) 0% var(--chunk-fill), transparent var(--chunk-fill) 100%); }
 .sev-chunk.empty { background:transparent; }
@@ -865,6 +865,8 @@ function onSignalCheckboxChange(changed) {
     metricArea.classList.remove('collapsed');
     try { localStorage.removeItem('otel-workbench-config-metric-collapsed'); } catch(e) {}
   }
+  updateSeverityBars();
+  updateMetricTypeBars();
   updateToggleAllBtn();
 }
 
@@ -2516,6 +2518,8 @@ loadScenarios();
 });
 initChunkedBars();
 onSignalCheckboxChange();
+updateSeverityBars();
+updateMetricTypeBars();
 updateToggleAllBtn();
 
 // Load existing runs from the server so the run list and OTTL selector
