@@ -863,6 +863,8 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 	}
 
 	var sb strings.Builder
+
+	sb.WriteString(`<div data-tab-content="summary">`)
 	sb.WriteString(`<div class="ottl-summary">`)
 	for i, p := range parts {
 		if i > 0 {
@@ -871,7 +873,9 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 		sb.WriteString(p)
 	}
 	sb.WriteString(`</div>`)
+	sb.WriteString(`</div>`)
 
+	sb.WriteString(`<div data-tab-content="json" style="display:none">`)
 	if result.TransformedData != nil {
 		sb.WriteString(`<div class="ottl-section"><h4>Transformed Trace Data</h4><pre class="ottl-json">`)
 		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.TransformedData)))
@@ -887,18 +891,19 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricTransformedData)))
 		sb.WriteString(`</pre></div>`)
 	}
+	sb.WriteString(`</div>`)
 
-	// Diff view: original vs transformed side by side
-	if result.OriginalData != nil && result.TransformedData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Diff: Original vs Transformed</h4>`)
-		sb.WriteString(`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">`)
-		sb.WriteString(`<div><h5 style="color:#94a3b8;margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Original</h5><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.OriginalData)))
-		sb.WriteString(`</pre></div>`)
-		sb.WriteString(`<div><h5 style="color:#94a3b8;margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Transformed</h5><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.TransformedData)))
-		sb.WriteString(`</pre></div>`)
-		sb.WriteString(`</div></div>`)
+	// Embed transform data for client-side diff computation
+	if result.OriginalData != nil || result.TransformedData != nil {
+		origJSON := "null"
+		transJSON := "null"
+		if result.OriginalData != nil {
+			origJSON = string(*result.OriginalData)
+		}
+		if result.TransformedData != nil {
+			transJSON = string(*result.TransformedData)
+		}
+		sb.WriteString(fmt.Sprintf(`<script>window.__ottlTransformData={original:%s,transformed:%s}</script>`, origJSON, transJSON))
 	}
 
 	return sb.String()

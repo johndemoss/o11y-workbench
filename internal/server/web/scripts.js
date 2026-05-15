@@ -1153,3 +1153,221 @@ updateOttlLineNumbers();
 updateAllPillState('signal-type');
 updateAllPillState('ottl-signal-checkboxes');
 updateAllPillState('run-filter-signals');
+
+// --- OTTL Prototyper: Diff & Tab Switching ---
+
+function switchOttlResultTab(tab) {
+  const content = document.getElementById('ottl-result-content');
+  if (!content) return;
+
+  const data = window.__ottlTransformData;
+  const tabSections = content.querySelectorAll('[data-tab-content]');
+
+  if (tab === 'diff' && data && data.original && data.transformed) {
+    tabSections.forEach(el => el.style.display = 'none');
+    const oldDiff = content.querySelector('[data-diff-content]');
+    if (oldDiff) oldDiff.remove();
+    const diff = computeDiff(data.original, data.transformed);
+    const div = document.createElement('div');
+    div.setAttribute('data-diff-content', '');
+    div.innerHTML = renderDiffSummary(diff) + renderDiffTable(diff);
+    content.appendChild(div);
+  } else if (tab === 'fulldiff' && data && data.original && data.transformed) {
+    tabSections.forEach(el => el.style.display = 'none');
+    const oldDiff = content.querySelector('[data-diff-content]');
+    if (oldDiff) oldDiff.remove();
+    const div = document.createElement('div');
+    div.setAttribute('data-diff-content', '');
+    div.innerHTML = renderInlineDiff(data.original, data.transformed);
+    content.appendChild(div);
+  } else {
+    // Show/hide server-rendered tab sections
+    tabSections.forEach(el => {
+      el.style.display = el.getAttribute('data-tab-content') === tab ? '' : 'none';
+    });
+    const oldDiff = content.querySelector('[data-diff-content]');
+    if (oldDiff) oldDiff.remove();
+  }
+}
+
+function computeDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  const result = { added: 0, removed: 0, modified: 0, totalSpans: 0, spanDiffs: [] };
+  if (!orig || !trans) return result;
+  const getSpans = td => {
+    const list = [];
+    if (td.resource_spans) td.resource_spans.forEach((rs, ri) => {
+      if (rs.scope_spans) rs.scope_spans.forEach((ss, si) => {
+        if (ss.spans) ss.spans.forEach((sp, pi) => {
+          const attrs = {};
+          if (sp.attributes) sp.attributes.forEach(a => { attrs[a.key] = a.value; });
+          list.push({ resourceIdx: ri, scopeIdx: si, spanIdx: pi, name: sp.name || 'span-' + pi, attrs });
+        });
+      });
+    });
+    return list;
+  };
+  const origSpans = getSpans(orig);
+  const transSpans = getSpans(trans);
+  result.totalSpans = Math.max(origSpans.length, transSpans.length);
+  const maxLen = Math.max(origSpans.length, transSpans.length);
+  for (let i = 0; i < maxLen; i++) {
+    const os = i < origSpans.length ? origSpans[i] : null;
+    const ts = i < transSpans.length ? transSpans[i] : null;
+    if (!os && !ts) continue;
+    const spanName = (ts || os).name;
+    const spanDiff = { name: spanName, idx: i, added: [], removed: [], modified: [] };
+    const origKeys = os ? Object.keys(os.attrs) : [];
+    const transKeys = ts ? Object.keys(ts.attrs) : [];
+    const allKeys = [...new Set([...origKeys, ...transKeys])];
+    for (const key of allKeys) {
+      const ov = os && key in os.attrs ? os.attrs[key] : undefined;
+      const tv = ts && key in ts.attrs ? ts.attrs[key] : undefined;
+      if (ov === undefined && tv !== undefined) {
+        spanDiff.added.push({ key, value: tv });
+        result.added++;
+      } else if (ov !== undefined && tv === undefined) {
+        spanDiff.removed.push({ key, value: ov });
+        result.removed++;
+      } else if (JSON.stringify(ov) !== JSON.stringify(tv)) {
+        spanDiff.modified.push({ key, oldValue: ov, newValue: tv });
+        result.modified++;
+      }
+    }
+    if (spanDiff.added.length > 0 || spanDiff.removed.length > 0 || spanDiff.modified.length > 0) {
+      result.spanDiffs.push(spanDiff);
+    }
+  }
+  return result;
+}
+
+function renderDiffSummary(diff) {
+  let html = '<div class="ottl-diff-summary">';
+  html += '<div class="ottl-diff-stat ottl-diff-added"><div class="count">' + diff.added + '</div><div class="label">Added</div></div>';
+  html += '<div class="ottl-diff-stat ottl-diff-removed"><div class="count">' + diff.removed + '</div><div class="label">Removed</div></div>';
+  html += '<div class="ottl-diff-stat ottl-diff-modified"><div class="count">' + diff.modified + '</div><div class="label">Modified</div></div>';
+  html += '<div class="ottl-diff-stat" style="min-width:80px"><div class="count">' + diff.totalSpans + '</div><div class="label">Spans</div></div>';
+  html += '</div>';
+  return html;
+}
+
+function renderDiffTable(diff) {
+  if (diff.spanDiffs.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found between original and transformed data.</div>';
+  }
+  let html = '<table class="ottl-diff-table"><tr><th style="width:30%">Attribute</th><th style="width:35%">Original</th><th style="width:35%">Transformed</th></tr>';
+  for (const sd of diff.spanDiffs) {
+    html += '<tr class="span-header"><td colspan="3">' + escapeHtml(sd.name) + ' (span ' + sd.idx + ')</td></tr>';
+    for (const item of sd.removed) {
+      const v = formatAttrValue(item.value);
+      html += '<tr class="removed"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(v) + '</td><td></td></tr>';
+    }
+    for (const item of sd.added) {
+      const v = formatAttrValue(item.value);
+      html += '<tr class="added"><td>' + escapeHtml(item.key) + '</td><td></td><td class="val-new">' + escapeHtml(v) + '</td></tr>';
+    }
+    for (const item of sd.modified) {
+      const ov = formatAttrValue(item.oldValue);
+      const nv = formatAttrValue(item.newValue);
+      html += '<tr class="modified"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(ov) + '</td><td class="val-new">' + escapeHtml(nv) + '</td></tr>';
+    }
+  }
+  html += '</table>';
+  return html;
+}
+
+function formatAttrValue(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    for (const key of ['stringValue', 'intValue', 'doubleValue', 'boolValue', 'arrayValue', 'kvlistValue']) {
+      if (key in v) {
+        const inner = v[key];
+        return typeof inner === 'object' ? JSON.stringify(inner) : String(inner);
+      }
+    }
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+// --- Full inline diff (unified diff of full JSON) ---
+
+function computeInlineDiff(originalData, transformedData) {
+  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
+  let orig, trans;
+  try { orig = parse(originalData); } catch(e) { orig = null; }
+  try { trans = parse(transformedData); } catch(e) { trans = null; }
+  if (!orig || !trans) return [];
+
+  const origLines = JSON.stringify(orig, null, 2).split('\n');
+  const transLines = JSON.stringify(trans, null, 2).split('\n');
+
+  // Simple unified diff: walk both line arrays, matching lines forward.
+  const hunks = [];
+  let oi = 0, ti = 0;
+  while (oi < origLines.length && ti < transLines.length) {
+    if (origLines[oi] === transLines[ti]) {
+      hunks.push({ type: 'same', text: origLines[oi] });
+      oi++; ti++;
+      continue;
+    }
+    let found = false;
+    const lookAhead = Math.min(10, Math.max(origLines.length - oi, transLines.length - ti));
+    for (let ahead = 1; ahead <= lookAhead; ahead++) {
+      if (oi + ahead < origLines.length && origLines[oi + ahead] === transLines[ti]) {
+        for (let r = 0; r < ahead; r++) hunks.push({ type: 'removed', text: origLines[oi + r] });
+        oi += ahead;
+        found = true;
+        break;
+      }
+      if (ti + ahead < transLines.length && origLines[oi] === transLines[ti + ahead]) {
+        for (let a = 0; a < ahead; a++) hunks.push({ type: 'added', text: transLines[ti + a] });
+        ti += ahead;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      if (origLines[oi] !== undefined) hunks.push({ type: 'removed', text: origLines[oi] });
+      if (transLines[ti] !== undefined) hunks.push({ type: 'added', text: transLines[ti] });
+      oi++; ti++;
+    }
+  }
+  while (oi < origLines.length) hunks.push({ type: 'removed', text: origLines[oi++] });
+  while (ti < transLines.length) hunks.push({ type: 'added', text: transLines[ti++] });
+  return hunks;
+}
+
+function renderInlineDiff(originalData, transformedData) {
+  const hunks = computeInlineDiff(originalData, transformedData);
+  if (hunks.length === 0) {
+    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found.</div>';
+  }
+  let html = '<div class="ottl-inline-diff">';
+  let origLine = 0, transLine = 0;
+  for (const hunk of hunks) {
+    const type = hunk.type;
+    const cls = type === 'added' ? ' added' : type === 'removed' ? ' removed' : '';
+    let marker = ' ';
+    let lineNum = '';
+    if (type === 'added') {
+      marker = '+';
+      transLine++;
+      lineNum = '<span class="ln"></span><span class="ln" style="color:#22c55e">' + transLine + '</span>';
+    } else if (type === 'removed') {
+      marker = '-';
+      origLine++;
+      lineNum = '<span class="ln" style="color:#ef4444">' + origLine + '</span><span class="ln"></span>';
+    } else {
+      origLine++;
+      transLine++;
+      lineNum = '<span class="ln">' + origLine + '</span><span class="ln">' + transLine + '</span>';
+    }
+    html += '<div class="ottl-diff-line' + cls + '"><span class="marker">' + marker + '</span>' + lineNum + '<span class="text">' + escapeHtml(hunk.text) + '</span></div>';
+  }
+  html += '</div>';
+  return html;
+}

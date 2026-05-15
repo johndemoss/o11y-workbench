@@ -203,6 +203,10 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-result-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; }
 .ottl-result-content { padding:4px; background:transparent; }
 .ottl-result-content pre { margin:0; padding:12px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; overflow-x:auto; max-height:400px; overflow-y:auto; white-space:pre; background:transparent; }
+.ottl-summary { padding:8px 12px; color:#94a3b8; font-size:13px; }
+.ottl-section { margin:8px 4px; }
+.ottl-section h4 { font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin:0 0 6px; }
+.ottl-json { background:#0f172a; border:1px solid #334155; border-radius:4px; }
 
 /* === TOGGLE === */
 .toggle-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }

@@ -269,7 +269,10 @@
         return a[0];
       },
       switchMode(m){this.mode=m;},
-      switchTab(t){this.activeTab=t;},
+      switchTab(t){
+        this.activeTab=t;
+        this.$nextTick(() => switchOttlResultTab(t));
+      },
       toggleAllSignals() {
         const allSelected = this.signals.traces && this.signals.logs && this.signals.metrics;
         this.signals = {traces: !allSelected, logs: !allSelected, metrics: !allSelected};
@@ -409,6 +412,7 @@
     <div class="ottl-result-tabs">
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'summary' }" x-on:click="switchTab('summary')">Summary</button>
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'diff' }" x-on:click="switchTab('diff')">Diff</button>
+      <button class="ottl-result-tab" :class="{ 'active': activeTab === 'fulldiff' }" x-on:click="switchTab('fulldiff')">Full Diff</button>
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'json' }" x-on:click="switchTab('json')">Raw JSON</button>
     </div>
     <div id="ottl-result-content" class="ottl-result-content"></div>
