@@ -837,6 +837,8 @@ function onSignalCheckboxChange() {
   const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
   const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
   const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
+  // Show/hide trace config area
+  document.getElementById('trace-config-area').style.display = hasTraces ? '' : 'none';
   // Show/hide trace-specific fields
   document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
   // Show/hide log config area
