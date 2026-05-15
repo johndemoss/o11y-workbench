@@ -344,7 +344,10 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </header>
 
 <section id="config-section">
-  <h2>Configuration</h2>
+  <h2 style="display:flex;align-items:center;justify-content:space-between">
+    Configuration
+    <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;font-weight:400" onclick="toggleAllSignalConfigs()" id="toggle-all-btn">Collapse All</button>
+  </h2>
 
   <div class="form-grid">
     <div class="field">
@@ -376,9 +379,9 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     <div class="field" style="grid-column:1/-1">
       <label>Signals</label>
       <div class="signal-checkboxes" id="signal-type">
-        <label><input type="checkbox" value="traces" checked onchange="onSignalCheckboxChange()"> Traces</label>
-        <label><input type="checkbox" value="logs" onchange="onSignalCheckboxChange()"> Logs</label>
-        <label><input type="checkbox" value="metrics" onchange="onSignalCheckboxChange()"> Metrics</label>
+        <label><input type="checkbox" value="traces" checked onchange="onSignalCheckboxChange('traces')"> Traces</label>
+        <label><input type="checkbox" value="logs" onchange="onSignalCheckboxChange('logs')"> Logs</label>
+        <label><input type="checkbox" value="metrics" onchange="onSignalCheckboxChange('metrics')"> Metrics</label>
       </div>
     </div>
   </div>
@@ -825,7 +828,7 @@ function getSignalType() {
   return 'traces';
 }
 
-function onSignalCheckboxChange() {
+function onSignalCheckboxChange(changed) {
   const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
   // Ensure at least one checkbox is checked
   let anyChecked = false;
@@ -837,31 +840,32 @@ function onSignalCheckboxChange() {
   const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
   const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
   const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
-  // Show/hide trace config area — default to expanded when selected
+  // Show/hide trace config area — only auto-expand when this signal was just toggled on
   var traceArea = document.getElementById('trace-config-area');
   traceArea.style.display = hasTraces ? '' : 'none';
-  if (hasTraces && traceArea.classList.contains('collapsed')) {
+  if (changed === 'traces' && hasTraces && traceArea.classList.contains('collapsed')) {
     traceArea.classList.remove('collapsed');
     try { localStorage.removeItem('otel-workbench-config-trace-collapsed'); } catch(e) {}
   }
   // Show/hide trace-specific fields
   document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
-  // Show/hide log config area — default to expanded when selected
+  // Show/hide log config area — only auto-expand when this signal was just toggled on
   var logArea = document.getElementById('log-config-area');
   logArea.style.display = hasLogs ? '' : 'none';
-  if (hasLogs && logArea.classList.contains('collapsed')) {
+  if (changed === 'logs' && hasLogs && logArea.classList.contains('collapsed')) {
     logArea.classList.remove('collapsed');
     try { localStorage.removeItem('otel-workbench-config-log-collapsed'); } catch(e) {}
   }
   document.getElementById('log-per-span-field').style.display = (hasTraces && hasLogs) ? 'block' : 'none';
   document.getElementById('log-count-field').style.display = hasLogs ? 'block' : 'none';
-  // Show/hide metric config area — default to expanded when selected
+  // Show/hide metric config area — only auto-expand when this signal was just toggled on
   var metricArea = document.getElementById('metric-config-area');
   metricArea.style.display = hasMetrics ? '' : 'none';
-  if (hasMetrics && metricArea.classList.contains('collapsed')) {
+  if (changed === 'metrics' && hasMetrics && metricArea.classList.contains('collapsed')) {
     metricArea.classList.remove('collapsed');
     try { localStorage.removeItem('otel-workbench-config-metric-collapsed'); } catch(e) {}
   }
+  updateToggleAllBtn();
 }
 
 function updateSeverityBars() {
@@ -1010,12 +1014,37 @@ function onMetricTypeInput(type) {
   redistributeMetricTypes(type, v);
 }
 
+function toggleAllSignalConfigs() {
+  var areas = ['trace-config-area', 'log-config-area', 'metric-config-area'];
+  var visibleAreas = areas.map(function(id) { return document.getElementById(id); }).filter(function(el) { return el && el.style.display !== 'none'; });
+  var anyCollapsed = visibleAreas.some(function(el) { return el.classList.contains('collapsed'); });
+  visibleAreas.forEach(function(el) {
+    var signal = el.id.replace('-config-area', '');
+    if (anyCollapsed) {
+      el.classList.remove('collapsed');
+      try { localStorage.removeItem('otel-workbench-config-' + signal + '-collapsed'); } catch(e) {}
+    } else {
+      el.classList.add('collapsed');
+      try { localStorage.setItem('otel-workbench-config-' + signal + '-collapsed', '1'); } catch(e) {}
+    }
+  });
+  document.getElementById('toggle-all-btn').textContent = anyCollapsed ? 'Collapse All' : 'Expand All';
+}
+
 function toggleSignalConfig(signal) {
   const area = document.getElementById(signal + '-config-area');
   if (!area) return;
   const isCollapsed = area.classList.toggle('collapsed');
   const key = 'otel-workbench-config-' + signal + '-collapsed';
   try { localStorage.setItem(key, isCollapsed ? '1' : ''); } catch(e) {}
+  updateToggleAllBtn();
+}
+
+function updateToggleAllBtn() {
+  var areas = ['trace-config-area', 'log-config-area', 'metric-config-area'];
+  var visibleAreas = areas.map(function(id) { return document.getElementById(id); }).filter(function(el) { return el && el.style.display !== 'none'; });
+  var anyCollapsed = visibleAreas.some(function(el) { return el.classList.contains('collapsed'); });
+  document.getElementById('toggle-all-btn').textContent = anyCollapsed ? 'Expand All' : 'Collapse All';
 }
 
 function setSignalFilter(type) {
@@ -2454,6 +2483,7 @@ loadScenarios();
   } catch(e) {}
 });
 onSignalCheckboxChange();
+updateToggleAllBtn();
 
 // Load existing runs from the server so the run list and OTTL selector
 // are populated immediately on page load (not just after the first new run).
