@@ -408,6 +408,7 @@
   <div id="ottl-result" class="ottl-result-panel hidden">
     <div class="ottl-result-tabs">
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'summary' }" x-on:click="switchTab('summary')">Summary</button>
+      <button class="ottl-result-tab" :class="{ 'active': activeTab === 'diff' }" x-on:click="switchTab('diff')">Diff</button>
       <button class="ottl-result-tab" :class="{ 'active': activeTab === 'json' }" x-on:click="switchTab('json')">Raw JSON</button>
     </div>
     <div id="ottl-result-content" class="ottl-result-content"></div>

@@ -394,7 +394,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.TransformResult{Valid: true}
 		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -404,6 +404,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			}
 			result.TransformedData = &transformed
 			result.StatementsParsed = len(traceStmts)
+			result.SpanCount = spanCount
+			result.TransformedCount = spanCount
 		}
 		if len(logStmts) > 0 && run.LogData != nil {
 			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
@@ -429,7 +431,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.TransformResult{Valid: true}
 		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -439,6 +441,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			}
 			result.TransformedData = &transformed
 			result.StatementsParsed = len(traceStmts)
+			result.SpanCount = spanCount
+			result.TransformedCount = spanCount
 		}
 		if len(logStmts) > 0 && run.LogData != nil {
 			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
@@ -548,7 +552,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	} else {
 		statements = req.Statements
 	}
-	transformed, err := ottl.TransformRunData(*run.TraceData, statements)
+	transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, statements)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 			Valid:  false,
@@ -560,6 +564,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		Valid:            true,
 		TransformedData:  &transformed,
 		StatementsParsed: len(statements),
+		SpanCount:        spanCount,
+		TransformedCount: spanCount,
 	})
 }
 
@@ -882,10 +888,18 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 		sb.WriteString(`</pre></div>`)
 	}
 
-	sb.WriteString(`<div class="ottl-tab-footer" style="margin-top:8px;display:flex;gap:8px">
-		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('summary')" data-result-tab="summary">Summary</button>
-		<button class="btn btn-sm btn-outline" onclick="switchOttlResultTab('json')" data-result-tab="json">Raw JSON</button>
-	</div>`)
+	// Diff view: original vs transformed side by side
+	if result.OriginalData != nil && result.TransformedData != nil {
+		sb.WriteString(`<div class="ottl-section"><h4>Diff: Original vs Transformed</h4>`)
+		sb.WriteString(`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">`)
+		sb.WriteString(`<div><h5 style="color:#94a3b8;margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Original</h5><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.OriginalData)))
+		sb.WriteString(`</pre></div>`)
+		sb.WriteString(`<div><h5 style="color:#94a3b8;margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Transformed</h5><pre class="ottl-json">`)
+		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.TransformedData)))
+		sb.WriteString(`</pre></div>`)
+		sb.WriteString(`</div></div>`)
+	}
 
 	return sb.String()
 }
@@ -1015,13 +1029,18 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 		}
 		result = ottl.TransformResult{Valid: true}
 		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			origCopy := make(json.RawMessage, len(*run.TraceData))
+			copy(origCopy, *run.TraceData)
+			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
 			if err != nil {
 				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, signalType))
 				return
 			}
+			result.OriginalData = &origCopy
 			result.TransformedData = &transformed
 			result.StatementsParsed = len(traceStmts)
+			result.SpanCount = spanCount
+			result.TransformedCount = spanCount
 		}
 		if len(logStmts) > 0 && run.LogData != nil {
 			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
@@ -1044,13 +1063,18 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 		}
 		result = ottl.TransformResult{Valid: true}
 		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			origCopy := make(json.RawMessage, len(*run.TraceData))
+			copy(origCopy, *run.TraceData)
+			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
 			if err != nil {
 				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, signalType))
 				return
 			}
+			result.OriginalData = &origCopy
 			result.TransformedData = &transformed
 			result.StatementsParsed = len(traceStmts)
+			result.SpanCount = spanCount
+			result.TransformedCount = spanCount
 		}
 		if len(logStmts) > 0 && run.LogData != nil {
 			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
@@ -1091,7 +1115,9 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 			return
 		}
-		result = ottl.TransformResult{Valid: true, LogTransformedData: &transformed, LogStatementsParsed: len(statements)}
+		origCopy := make(json.RawMessage, len(*run.LogData))
+		copy(origCopy, *run.LogData)
+		result = ottl.TransformResult{Valid: true, OriginalData: &origCopy, LogTransformedData: &transformed, LogStatementsParsed: len(statements)}
 		writeHTML(w, renderTransformHTML(result, signalType))
 		return
 	}
@@ -1113,7 +1139,9 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 			return
 		}
-		result = ottl.TransformResult{Valid: true, MetricTransformedData: &transformed, MetricStatementsParsed: len(statements)}
+		origCopy := make(json.RawMessage, len(*run.MetricData))
+		copy(origCopy, *run.MetricData)
+		result = ottl.TransformResult{Valid: true, OriginalData: &origCopy, MetricTransformedData: &transformed, MetricStatementsParsed: len(statements)}
 		writeHTML(w, renderTransformHTML(result, signalType))
 		return
 	}
@@ -1130,12 +1158,14 @@ func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request)
 		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 		return
 	}
-	transformed, err := ottl.TransformRunData(*run.TraceData, statements)
+	origCopy := make(json.RawMessage, len(*run.TraceData))
+	copy(origCopy, *run.TraceData)
+	transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, statements)
 	if err != nil {
 		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
 		return
 	}
-	result = ottl.TransformResult{Valid: true, TransformedData: &transformed, StatementsParsed: len(statements)}
+	result = ottl.TransformResult{Valid: true, OriginalData: &origCopy, TransformedData: &transformed, StatementsParsed: len(statements), SpanCount: spanCount, TransformedCount: spanCount}
 	writeHTML(w, renderTransformHTML(result, signalType))
 }
 

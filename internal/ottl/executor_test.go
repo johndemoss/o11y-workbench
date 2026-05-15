@@ -65,7 +65,7 @@ func TestTransformRunData_SetAttribute(t *testing.T) {
 	}
 
 	statements := []string{`set(attributes["new.key"], "new-value")`}
-	result, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestTransformRunData_InvalidStatement(t *testing.T) {
 	}
 
 	statements := []string{`not_a_real_function()`}
-	_, err = TransformRunData(traceData, statements)
+	_, _, err = TransformRunData(traceData, statements)
 	if err == nil {
 		t.Fatal("expected error for invalid function, got nil")
 	}
@@ -126,19 +126,19 @@ func TestTransformRunData_NoStatements(t *testing.T) {
 		t.Fatalf("marshal trace: %v", err)
 	}
 
-	_, err = TransformRunData(traceData, nil)
+	_, _, err = TransformRunData(traceData, nil)
 	if err == nil {
 		t.Fatal("expected error for nil statements, got nil")
 	}
 
-	_, err = TransformRunData(traceData, []string{})
+	_, _, err = TransformRunData(traceData, []string{})
 	if err == nil {
 		t.Fatal("expected error for empty statements, got nil")
 	}
 }
 
 func TestTransformRunData_InvalidTraceData(t *testing.T) {
-	_, err := TransformRunData(json.RawMessage(`{"invalid": "data"}`), []string{`set(attributes["x"], "y")`})
+	_, _, err := TransformRunData(json.RawMessage(`{"invalid": "data"}`), []string{`set(attributes["x"], "y")`})
 	if err == nil {
 		t.Fatal("expected error for invalid trace data, got nil")
 	}
@@ -152,7 +152,7 @@ func TestTransformRunData_DeleteKey(t *testing.T) {
 	}
 
 	statements := []string{`delete_key(attributes, "original.key")`}
-	result, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestTransformRunData_MultipleStatements(t *testing.T) {
 		`set(attributes["a"], "1")`,
 		`set(attributes["b"], "2")`,
 	}
-	result, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestTransformRunData_IsMatch(t *testing.T) {
 
 	// This should match because the span name is "test-span"
 	statements := []string{`set(attributes["matched"], "yes") where name == "test-span"`}
-	result, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestTransformRunData_SetResourceAttribute(t *testing.T) {
 	}
 
 	statements := []string{`set(resource.attributes["env"], "staging")`}
-	result, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
