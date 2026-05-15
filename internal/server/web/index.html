@@ -51,7 +51,8 @@
     <div class="field" style="grid-column:1/-1">
       <label>Signals</label>
       <div style="display:flex;align-items:center;gap:16px;justify-content:space-between">
-        <div class="signal-checkboxes" id="signal-type">
+        <div class="signal-pills" id="signal-type">
+          <button class="pill-all" onclick="selectAllSignals()" type="button">All</button>
           <label><input type="checkbox" value="traces" checked onchange="onSignalCheckboxChange('traces')"> Traces</label>
           <label><input type="checkbox" value="logs" onchange="onSignalCheckboxChange('logs')"> Logs</label>
           <label><input type="checkbox" value="metrics" onchange="onSignalCheckboxChange('metrics')"> Metrics</label>
@@ -262,11 +263,22 @@
         if (a.length===0) return 'none';
         if (a.includes('traces')&&a.includes('logs')&&a.includes('metrics')) return 'all';
         if (a.includes('traces')&&a.includes('logs')) return 'both';
-        if (a.includes('traces')&&a.includes('metrics')) return 'all';
-        return a[0]||'traces';
+        if (a.includes('traces')&&a.includes('metrics')) return 'traces+metrics';
+        if (a.includes('logs')&&a.includes('metrics')) return 'logs+metrics';
+        return a[0];
       },
       switchMode(m){this.mode=m;},
       switchTab(t){this.activeTab=t;},
+      toggleAllSignals() {
+        const allSelected = this.signals.traces && this.signals.logs && this.signals.metrics;
+        this.signals = {traces: !allSelected, logs: !allSelected, metrics: !allSelected};
+        this.$nextTick(() => updateAllPillState('ottl-signal-checkboxes'));
+      },
+      init() {
+        this.$watch('signals', () => {
+          this.$nextTick(() => updateAllPillState('ottl-signal-checkboxes'));
+        }, { deep: true });
+      },
       get placeholder() {
         const sig = this.signalValue;
         if (this.mode === 'transform') {
@@ -274,12 +286,16 @@
           if (sig === 'logs') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")";
           if (sig === 'metrics') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
           if (sig === 'both') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes[\"env\"], \"prod\")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")";
+          if (sig === 'traces+metrics') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes[\"env\"], \"prod\")\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
+          if (sig === 'logs+metrics') return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
           return "Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes[\"env\"], \"prod\")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, \"ERROR\")\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes[\"env\"], \"prod\")";
         } else {
           if (sig === 'traces') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL";
           if (sig === 'logs') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR";
           if (sig === 'metrics') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  metrics:\n    datapoint:\n      - attributes[\"env\"] == \"prod\"";
           if (sig === 'both') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR";
+          if (sig === 'traces+metrics') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n  metrics:\n    datapoint:\n      - attributes[\"env\"] == \"prod\"";
+          if (sig === 'logs+metrics') return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR\n  metrics:\n    datapoint:\n      - attributes[\"env\"] == \"prod\"";
           return "Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR\n  metrics:\n    datapoint:\n      - attributes[\"env\"] == \"prod\"";
         }
       }
@@ -296,7 +312,8 @@
   <!-- Signal Checkboxes -->
   <div style="margin-bottom:12px">
     <label style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:6px">Signals</label>
-    <div class="signal-checkboxes" id="ottl-signal-checkboxes">
+    <div class="signal-pills" id="ottl-signal-checkboxes">
+      <button class="pill-all" x-on:click="toggleAllSignals" type="button">All</button>
       <label><input type="checkbox" value="traces" x-model="signals.traces"> Traces</label>
       <label><input type="checkbox" value="logs" x-model="signals.logs"> Logs</label>
       <label><input type="checkbox" value="metrics" x-model="signals.metrics"> Metrics</label>
@@ -404,10 +421,12 @@
     <button id="stop-all-btn" class="btn-danger" onclick="stopAllRuns()" style="display:none">Stop All Running</button>
   </div>
   <div class="filter-bar">
-    <button class="filter-chip active" data-filter="all" onclick="setSignalFilter('all')">All</button>
-    <button class="filter-chip" data-filter="traces" onclick="setSignalFilter('traces')">Traces</button>
-    <button class="filter-chip" data-filter="logs" onclick="setSignalFilter('logs')">Logs</button>
-    <button class="filter-chip" data-filter="both" onclick="setSignalFilter('both')">Both</button>
+    <div class="signal-pills" id="run-filter-signals">
+      <button class="pill-all" onclick="resetSignalFilter()" type="button">All</button>
+      <label><input type="checkbox" value="traces" checked onchange="onFilterSignalChange()"> Traces</label>
+      <label><input type="checkbox" value="logs" onchange="onFilterSignalChange()"> Logs</label>
+      <label><input type="checkbox" value="metrics" onchange="onFilterSignalChange()"> Metrics</label>
+    </div>
     <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs..." oninput="renderRunList()">
   </div>
   <div id="run-list" class="run-list">

@@ -73,7 +73,6 @@ function formatDuration(ns) {
 }
 
 // --- Signal type UI ---
-let signalFilter = 'all';
 
 function getSignalType() {
   const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
@@ -86,6 +85,23 @@ function getSignalType() {
   if (checked.includes('traces') && checked.includes('metrics')) return 'traces+metrics';
   if (checked.includes('logs') && checked.includes('metrics')) return 'logs+metrics';
   return 'traces';
+}
+
+function updateAllPillState(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const checks = container.querySelectorAll('input[type="checkbox"]');
+  const allChecked = checks.length > 0 && Array.from(checks).every(c => c.checked);
+  const allBtn = container.querySelector('.pill-all');
+  if (allBtn) allBtn.classList.toggle('active', allChecked);
+}
+
+function selectAllSignals() {
+  const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
+  const allChecked = Array.from(checks).every(c => c.checked);
+  checks.forEach(c => c.checked = !allChecked);
+  onSignalCheckboxChange('traces');
+  updateAllPillState('signal-type');
 }
 
 function onSignalCheckboxChange(changed) {
@@ -128,6 +144,7 @@ function onSignalCheckboxChange(changed) {
   updateSeverityBars();
   updateMetricTypeBars();
   updateToggleAllBtn();
+  updateAllPillState('signal-type');
 }
 
 function updateSeverityBars() {
@@ -364,10 +381,17 @@ function updateToggleAllBtn() {
   document.getElementById('toggle-all-btn').textContent = anyCollapsed ? 'Expand All' : 'Collapse All';
 }
 
-function setSignalFilter(type) {
-  signalFilter = type;
-  document.querySelectorAll('.filter-chip').forEach(b => b.classList.toggle('active', b.getAttribute('data-filter') === type));
+function resetSignalFilter() {
+  const checks = document.querySelectorAll('#run-filter-signals input[type="checkbox"]');
+  const allChecked = Array.from(checks).every(c => c.checked);
+  checks.forEach(c => c.checked = !allChecked);
   renderRunList();
+  updateAllPillState('run-filter-signals');
+}
+
+function onFilterSignalChange() {
+  renderRunList();
+  updateAllPillState('run-filter-signals');
 }
 
 let runs = {};
@@ -622,9 +646,14 @@ function renderRunList() {
   const search = (document.getElementById('filter-search').value || '').toLowerCase();
   let entries = Object.values(runs).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
 
-  // Apply filters
-  if (signalFilter !== 'all') {
-    entries = entries.filter(r => getRunSignalType(r) === signalFilter);
+  const checkedSignals = [];
+  document.querySelectorAll('#run-filter-signals input[type="checkbox"]:checked').forEach(c => checkedSignals.push(c.value));
+  if (checkedSignals.length > 0 && checkedSignals.length < 3) {
+    entries = entries.filter(r =>
+      (checkedSignals.includes('traces') && !!r.trace_data) ||
+      (checkedSignals.includes('logs') && !!(r.log_data || r.log_count || r.log_count_completed)) ||
+      (checkedSignals.includes('metrics') && !!(r.metric_data || r.metric_count || r.metric_count_completed))
+    );
   }
   if (search) {
     entries = entries.filter(r => r.id.toLowerCase().includes(search) || (r.scenario || '').toLowerCase().includes(search));
@@ -1048,6 +1077,38 @@ updateSeverityBars();
 updateMetricTypeBars();
 updateToggleAllBtn();
 
+function updateOttlRunSelector() {
+  const select = document.getElementById('ottl-run-select');
+  if (!select) return;
+  const currentVal = select.value;
+  while (select.options.length > 1) select.remove(1);
+  const entries = Object.values(runs).filter(r =>
+    r.status === 'completed' && (r.span_count > 0 || r.log_count > 0 || r.metric_count > 0)
+  );
+  entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  entries.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    const hasTrace = !!r.trace_data;
+    const hasLog = !!(r.log_data || r.log_count || r.log_count_completed);
+    const hasMetric = !!(r.metric_data || r.metric_count || r.metric_count_completed);
+    const sig = hasTrace && hasLog ? 'T+L' : hasTrace && hasMetric ? 'T+M' : hasTrace ? 'T' : hasLog ? 'L' : 'M';
+    const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
+    opt.textContent = label + ' \u2014 ' + sig + ' ' + (r.span_count || 0) + ' spans' +
+      (hasLog ? ', ' + (r.log_count || r.log_count_completed || 0) + ' logs' : '') +
+      (hasMetric ? ', ' + (r.metric_count || r.metric_count_completed || 0) + ' metrics' : '');
+    select.appendChild(opt);
+  });
+  if (currentVal) {
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === currentVal) {
+        select.selectedIndex = i;
+        break;
+      }
+    }
+  }
+}
+
 // Load existing runs from the server so the run list and OTTL selector
 // are populated immediately on page load (not just after the first new run).
 (async function loadExistingRuns() {
@@ -1064,3 +1125,7 @@ updateToggleAllBtn();
 
 document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);
 updateOttlLineNumbers();
+
+updateAllPillState('signal-type');
+updateAllPillState('ottl-signal-checkboxes');
+updateAllPillState('run-filter-signals');
