@@ -10,9 +10,11 @@ import (
 
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 
 	"github.com/johndemoss/otel-workbench/internal/export"
 	"github.com/johndemoss/otel-workbench/internal/gen"
@@ -43,6 +45,9 @@ type Run struct {
 	TraceCountCompleted  int              `json:"trace_count_completed"`
 	LogCount             int              `json:"log_count,omitempty"`
 	LogCountCompleted    int              `json:"log_count_completed,omitempty"`
+	MetricCount          int              `json:"metric_count,omitempty"`
+	MetricCountCompleted int              `json:"metric_count_completed,omitempty"`
+	MetricData           *json.RawMessage `json:"metric_data,omitempty"`
 	Scenario             string           `json:"scenario,omitempty"`
 	Error                string           `json:"error,omitempty"`
 	TraceData            *json.RawMessage `json:"trace_data,omitempty"`
@@ -99,6 +104,7 @@ func (r *Run) snapshot() *Run {
 		DurationNs: r.DurationNs, SpanCount: r.SpanCount,
 		TraceCount: r.TraceCount, TraceCountCompleted: r.TraceCountCompleted,
 		LogCount: r.LogCount, LogCountCompleted: r.LogCountCompleted,
+		MetricCount: r.MetricCount, MetricCountCompleted: r.MetricCountCompleted,
 		Scenario: r.Scenario, Error: r.Error,
 		Endpoints: append([]string(nil), r.Endpoints...),
 		Insecure:  r.Insecure, Output: r.Output,
@@ -112,6 +118,11 @@ func (r *Run) snapshot() *Run {
 		data := make(json.RawMessage, len(*r.LogData))
 		copy(data, *r.LogData)
 		c.LogData = &data
+	}
+	if r.MetricData != nil {
+		data := make(json.RawMessage, len(*r.MetricData))
+		copy(data, *r.MetricData)
+		c.MetricData = &data
 	}
 	return c
 }
@@ -149,6 +160,20 @@ func (e *bufferLogExporter) Export(_ context.Context, logs []*logsv1.ResourceLog
 func (e *bufferLogExporter) Shutdown(_ context.Context) error {
 	return nil
 }
+
+type bufferMetricExporter struct {
+	mu      sync.Mutex
+	metrics []*metricspb.ResourceMetrics
+}
+
+func (e *bufferMetricExporter) Export(_ context.Context, metrics []*metricspb.ResourceMetrics) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.metrics = append(e.metrics, metrics...)
+	return nil
+}
+
+func (e *bufferMetricExporter) Shutdown(_ context.Context) error { return nil }
 
 type multiExporter []export.Exporter
 
@@ -224,6 +249,12 @@ func marshalLogJSON(logs []*logsv1.ResourceLogs) ([]byte, error) {
 	return opts.Marshal(req)
 }
 
+func marshalMetricJSON(metrics []*metricspb.ResourceMetrics) ([]byte, error) {
+	req := &collectormetricsv1.ExportMetricsServiceRequest{ResourceMetrics: metrics}
+	opts := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}
+	return opts.Marshal(req)
+}
+
 type multiLogExporter []export.LogExporter
 
 func (e multiLogExporter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) error {
@@ -236,6 +267,25 @@ func (e multiLogExporter) Export(ctx context.Context, logs []*logsv1.ResourceLog
 }
 
 func (e multiLogExporter) Shutdown(ctx context.Context) error {
+	for _, exp := range e {
+		if err := exp.Shutdown(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type multiMetricExporter []export.MetricExporter
+
+func (e multiMetricExporter) Export(ctx context.Context, metrics []*metricspb.ResourceMetrics) error {
+	for _, exp := range e {
+		if err := exp.Export(ctx, metrics); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (e multiMetricExporter) Shutdown(ctx context.Context) error {
 	for _, exp := range e {
 		if err := exp.Shutdown(ctx); err != nil {
 			return err
@@ -262,6 +312,9 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 			// LogCount will be computed after trace generation.
 			run.LogCount = 0
 		}
+	}
+	if cfg.SignalType == "metrics" || cfg.SignalType == "all" || cfg.SignalType == "traces+metrics" || cfg.SignalType == "logs+metrics" {
+		run.MetricCount = cfg.MetricConfig.MetricCount
 	}
 	store.Add(run)
 	genCtx, cancel := context.WithCancel(context.Background())
@@ -310,7 +363,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	start := time.Now()
 	buf := &bufferExporter{}
 	logBuf := &bufferLogExporter{}
-	var traceErr, logErr error
+	metricBuf := &bufferMetricExporter{}
+	var traceErr, logErr, metricErr error
 
 	// Determine which signals to generate.
 	signalType := cfg.SignalType
@@ -319,6 +373,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	}
 	doTraces := signalType == "traces" || signalType == "both"
 	doLogs := signalType == "logs" || (signalType == "both" && cfg.LogConfig.Enabled)
+	doMetrics := signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics"
 
 	// --- TRACE GENERATION ---
 	if doTraces {
@@ -413,6 +468,42 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		logErr = lg.Run(genCtx, logExp, traceSpans)
 	}
 
+	// --- METRIC GENERATION ---
+	if doMetrics && traceErr == nil && logErr == nil {
+		metricExp := export.MetricExporter(metricBuf)
+		if run.Output == "otlp" {
+			otlpMetricExporters := make(map[region.Name]export.MetricExporter)
+			for _, reg := range region.All() {
+				ep := region.GetEndpoint(reg)
+				otlpMetricExp, err := export.NewOTLPMetricExporter(ep, run.Insecure, nil)
+				if err != nil {
+					run.mu.Lock()
+					run.Status = RunStatusFailed
+					run.Error = fmt.Sprintf("create OTLP metric exporter for %s: %v", reg, err)
+					run.DurationNs = time.Since(start).Nanoseconds()
+					now := time.Now()
+					run.CompletedAt = &now
+					run.mu.Unlock()
+					return
+				}
+				otlpMetricExporters[reg] = otlpMetricExp
+			}
+			router := export.NewMetricEndpointRouter(otlpMetricExporters)
+			metricExp = multiMetricExporter{metricBuf, router}
+		}
+
+		mg := gen.NewMetricGenerator(cfg.MetricConfig)
+		mg.OnProgress = func(completed, total int) {
+			run.mu.Lock()
+			run.MetricCountCompleted = completed
+			if run.MetricCount == 0 {
+				run.MetricCount = total
+			}
+			run.mu.Unlock()
+		}
+		metricErr = mg.Run(genCtx, metricExp)
+	}
+
 	elapsed := time.Since(start).Nanoseconds()
 	run.mu.Lock()
 	run.DurationNs = elapsed
@@ -431,8 +522,33 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 	}
 
+	// Count metric data points.
+	metricTotal := 0
+	if metricBuf != nil {
+		for _, rm := range metricBuf.metrics {
+			for _, sm := range rm.ScopeMetrics {
+				for _, m := range sm.Metrics {
+					switch m.Data.(type) {
+					case *metricspb.Metric_Gauge:
+						metricTotal += len(m.GetGauge().DataPoints)
+					case *metricspb.Metric_Sum:
+						metricTotal += len(m.GetSum().DataPoints)
+					case *metricspb.Metric_Histogram:
+						metricTotal += len(m.GetHistogram().DataPoints)
+					}
+				}
+			}
+		}
+	}
+	if metricTotal > 0 {
+		run.MetricCountCompleted = metricTotal
+		if run.MetricCount == 0 {
+			run.MetricCount = metricTotal
+		}
+	}
+
 	// Check for cancellation / stop first.
-	if traceErr == context.Canceled || logErr == context.Canceled {
+	if traceErr == context.Canceled || logErr == context.Canceled || metricErr == context.Canceled {
 		if run.Status == RunStatusStopped {
 			total := 0
 			for _, rs := range buf.spans {
@@ -450,6 +566,9 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	err := traceErr
 	if err == nil {
 		err = logErr
+	}
+	if err == nil {
+		err = metricErr
 	}
 
 	if err != nil {
@@ -488,6 +607,15 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		if err == nil {
 			raw := json.RawMessage(data)
 			run.LogData = &raw
+		}
+	}
+
+	// Finalise metric data.
+	if len(metricBuf.metrics) > 0 {
+		data, err := marshalMetricJSON(metricBuf.metrics)
+		if err == nil {
+			raw := json.RawMessage(data)
+			run.MetricData = &raw
 		}
 	}
 

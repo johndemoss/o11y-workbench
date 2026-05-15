@@ -160,6 +160,15 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 			"body_template": logDef.BodyTemplate,
 			"attributes":    []gen.LogAttribute{},
 		},
+		"metric_config": map[string]any{
+			"enabled":       false,
+			"metric_count":  20,
+			"gauge_ratio":   0.4,
+			"sum_ratio":     0.4,
+			"value_min":     0,
+			"value_max":     100,
+			"attributes":    []gen.MetricAttribute{},
+		},
 	})
 }
 
@@ -180,6 +189,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Insecure          *bool              `json:"insecure"`
 		SignalType        string             `json:"signal_type"`
 		LogConfig         gen.LogConfig      `json:"log_config"`
+		MetricConfig      gen.MetricConfig   `json:"metric_config"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -225,8 +235,9 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		BaseTime:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		TraceDuration: 5 * time.Second,
 		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
-		SignalType: signalType,
-		LogConfig:  body.LogConfig,
+		SignalType:   signalType,
+		LogConfig:    body.LogConfig,
+		MetricConfig: body.MetricConfig,
 	}
 
 	// Validate log config.
@@ -246,6 +257,14 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		}
 		if cfg.LogConfig.LogsPerSpan == 0 {
 			cfg.LogConfig.LogsPerSpan = gen.DefaultLogConfig().LogsPerSpan
+		}
+	}
+
+	// Validate metric config.
+	if signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics" {
+		cfg.MetricConfig.Enabled = true
+		if cfg.MetricConfig.MetricCount == 0 {
+			cfg.MetricConfig.MetricCount = gen.DefaultMetricConfig().MetricCount
 		}
 	}
 
@@ -396,6 +415,53 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if signalType == "all" {
+		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+		result := ottl.TransformResult{Valid: true}
+		if len(traceStmts) > 0 && run.TraceData != nil {
+			transformed, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+					Valid:  false,
+					Errors: []string{"trace: " + err.Error()},
+				})
+				return
+			}
+			result.TransformedData = &transformed
+			result.StatementsParsed = len(traceStmts)
+		}
+		if len(logStmts) > 0 && run.LogData != nil {
+			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+					Valid:  false,
+					Errors: []string{"log: " + err.Error()},
+				})
+				return
+			}
+			result.LogTransformedData = &transformed
+			result.LogStatementsParsed = len(logStmts)
+		}
+		if len(metricStmts) > 0 && run.MetricData != nil {
+			transformed, err := ottl.TransformMetricRunData(*run.MetricData, metricStmts)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+					Valid:  false,
+					Errors: []string{"metric: " + err.Error()},
+				})
+				return
+			}
+			result.MetricTransformedData = &transformed
+			result.MetricStatementsParsed = len(metricStmts)
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
 	if signalType == "logs" {
 		if run.LogData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be transformed"})
@@ -424,6 +490,38 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			Valid:            true,
 			TransformedData:  &transformed,
 			StatementsParsed: len(statements),
+		})
+		return
+	}
+
+	if signalType == "metrics" {
+		if run.MetricData == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no metric data; only completed runs with metric data can be transformed"})
+			return
+		}
+		var statements []string
+		if req.Config != "" {
+			var err error
+			statements, err = ottl.ParseTransformStatements(req.Config)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
+				return
+			}
+		} else {
+			statements = req.Statements
+		}
+		transformed, err := ottl.TransformMetricRunData(*run.MetricData, statements)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.TransformResult{
+			Valid:                 true,
+			MetricTransformedData: &transformed,
+			MetricStatementsParsed: len(statements),
 		})
 		return
 	}
@@ -523,6 +621,50 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if signalType == "all" {
+		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(req.Config)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
+			return
+		}
+		result := ottl.FilterResult{Valid: true}
+		if len(traceConds) > 0 && run.TraceData != nil {
+			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}})
+				return
+			}
+			result.FilteredData = &filtered
+			result.ConditionsParsed = len(traceConds)
+			result.TotalSpanCount = total
+			result.FilteredSpanCount = kept
+		}
+		if len(logConds) > 0 && run.LogData != nil {
+			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}})
+				return
+			}
+			result.LogFilteredData = &filtered
+			result.LogConditionsParsed = len(logConds)
+			result.TotalLogCount = total
+			result.FilteredLogCount = kept
+		}
+		if len(metricConds) > 0 && run.MetricData != nil {
+			metricFiltered, metricTotal, metricKept, err := ottl.FilterMetricRunData(*run.MetricData, metricConds, req.Mode)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}})
+				return
+			}
+			result.MetricFilteredData = &metricFiltered
+			result.MetricConditionsParsed = len(metricConds)
+			result.TotalMetricCount = metricTotal
+			result.FilteredMetricCount = metricKept
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
 	if signalType == "logs" {
 		if run.LogData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be filtered"})
@@ -553,6 +695,40 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			ConditionsParsed:  len(conditions),
 			TotalSpanCount:    total,
 			FilteredSpanCount: kept,
+		})
+		return
+	}
+
+	if signalType == "metrics" {
+		if run.MetricData == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no metric data; only completed runs with metric data can be filtered"})
+			return
+		}
+		var conditions []string
+		if req.Config != "" {
+			var err error
+			conditions, err = ottl.ParseFilterConditions(req.Config)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
+				return
+			}
+		} else {
+			conditions = req.Conditions
+		}
+		filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, conditions, req.Mode)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.FilterResult{
+			Valid:                true,
+			MetricFilteredData:   &filtered,
+			MetricConditionsParsed: len(conditions),
+			TotalMetricCount:     total,
+			FilteredMetricCount:  kept,
 		})
 		return
 	}

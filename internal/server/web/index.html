@@ -193,10 +193,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-prototyper-tab:hover { color:#94a3b8; background:#0f172a; }
 .ottl-prototyper-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; background:#0f172a; }
 
-.ottl-signal-tabs { display:flex; gap:4px; margin-bottom:12px; }
-.ottl-signal-tab { padding:5px 14px; background:#1e293b; border:1px solid #334155; border-radius:4px; color:#94a3b8; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.15s; font-family:inherit; }
-.ottl-signal-tab:hover { color:#e2e8f0; background:#334155; }
-.ottl-signal-tab.active { background:#3b82f6; color:#fff; border-color:#3b82f6; }
+/* OTTL signal checkboxes reuse .signal-checkboxes from config section above */
 .ottl-editor-container { display:flex; gap:0; border:1px solid #334155; border-radius:6px; overflow:hidden; }
 .ottl-line-numbers { width:48px; flex-shrink:0; padding:12px 8px; text-align:right; color:#475569; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; background:#0f172a; border-right:1px solid #334155; user-select:none; overflow:hidden; padding-top:13px; }
 .ottl-line-numbers span { display:block; }
@@ -215,12 +212,6 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-result-content { padding:4px; background:transparent; }
 .ottl-result-content pre { margin:0; padding:12px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; overflow-x:auto; max-height:400px; overflow-y:auto; white-space:pre; background:transparent; }
 
-/* === SEGMENTED CONTROL === */
-.segmented-control { display:inline-flex; background:#0f172a; border-radius:6px; padding:3px; gap:2px; }
-.segmented-control button { padding:6px 16px; border:none; border-radius:4px; background:transparent; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.15s; font-family:inherit; }
-.segmented-control button:hover { color:#94a3b8; background:#1e293b; }
-.segmented-control button.active { background:#3b82f6; color:#fff; }
-
 /* === TOGGLE === */
 .toggle-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
 .toggle { position:relative; width:44px; height:24px; flex-shrink:0; }
@@ -231,10 +222,26 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .toggle input:checked + .slider::before { transform:translateX(20px); background:#fff; }
 .toggle-label { font-size:13px; color:#e2e8f0; cursor:pointer; }
 
-/* === LOG CONFIG PANEL === */
-.log-config-panel { display:none; margin-top:16px; padding-top:16px; border-top:1px solid #334155; }
+/* === LOG/METRIC CONFIG PANEL === */
+.log-config-panel { display:none; margin-top:16px; padding:16px; background:#1e293b; border:1px solid #334155; border-radius:6px; }
 .log-config-panel.open { display:block; }
 .log-config-panel h3 { font-size:13px; font-weight:600; color:#94a3b8; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.05em; }
+/* Metric config panel wrapper — lives outside <section> so needs its own styling */
+/* Checkbox signal selector */
+.signal-checkboxes { display:flex; gap:16px; flex-wrap:wrap; padding:4px 0; }
+.signal-checkboxes label { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:#e2e8f0; cursor:pointer; user-select:none; }
+.signal-checkboxes input[type="checkbox"] { width:16px; height:16px; accent-color:#3b82f6; cursor:pointer; }
+
+/* Trace fields group - hidden when traces not active */
+.trace-fields-group { display:contents; }
+.trace-fields-group.hidden { display:none; }
+
+/* Collapse config section */
+.config-collapsed #config-body { display:none; }
+.config-collapsed .collapse-btn { transform:rotate(-90deg); }
+.collapse-btn { background:none; border:none; color:#64748b; font-size:16px; cursor:pointer; padding:0 4px; line-height:1; transition:transform 0.2s; vertical-align:middle; }
+.collapse-btn:hover { color:#e2e8f0; }
+
 .severity-grid { display:flex; flex-direction:column; gap:6px; margin-bottom:4px; }
 .severity-row { display:flex; align-items:center; gap:8px; }
 .severity-row label { font-size:11px; font-weight:700; min-width:48px; letter-spacing:0.03em; }
@@ -267,6 +274,8 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .signal-badge.traces { background:rgba(59,130,246,0.2); color:#60a5fa; }
 .signal-badge.logs { background:rgba(139,92,246,0.2); color:#a78bfa; }
 .signal-badge.both { background:linear-gradient(135deg,rgba(59,130,246,0.2),rgba(139,92,246,0.2)); color:#a78bfa; }
+.signal-badge.metrics { background:rgba(34,197,94,0.2); color:#4ade80; }
+.signal-badge.all { background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(139,92,246,0.15),rgba(34,197,94,0.15)); color:#4ade80; }
 
 /* === FILTER BAR === */
 .filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
@@ -333,14 +342,19 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 </header>
 
 <section id="config-section">
-  <h2>Configuration</h2>
+  <h2 style="display:flex;align-items:center;gap:8px">
+    Configuration
+    <button class="collapse-btn" id="config-collapse-btn" onclick="toggleConfig()" title="Collapse / Expand">▾</button>
+  </h2>
+  <div id="config-body">
   <div class="form-grid">
     <div class="field">
       <label>Seed</label>
       <input type="number" id="seed" value="42">
     </div>
+    <div class="trace-fields-group" id="trace-fields-group">
     <div class="field">
-      <label>Traces</label>
+      <label>Trace Count</label>
       <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite">
     </div>
     <div class="field">
@@ -377,6 +391,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       <label>Service Name</label>
       <input type="text" id="service-name" value="mock-service">
     </div>
+    </div>
     <div class="field">
       <label>Output</label>
       <select id="output">
@@ -401,11 +416,11 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     </div>
     <!-- Signal Type -->
     <div class="field" style="grid-column:1/-1">
-      <label>Signal Type</label>
-      <div class="segmented-control" id="signal-type">
-        <button class="active" data-value="traces" onclick="setSignalType('traces')">Traces</button>
-        <button data-value="logs" onclick="setSignalType('logs')">Logs</button>
-        <button data-value="both" onclick="setSignalType('both')">Both</button>
+      <label>Signals</label>
+      <div class="signal-checkboxes" id="signal-type">
+        <label><input type="checkbox" value="traces" checked onchange="onSignalCheckboxChange()"> Traces</label>
+        <label><input type="checkbox" value="logs" onchange="onSignalCheckboxChange()"> Logs</label>
+        <label><input type="checkbox" value="metrics" onchange="onSignalCheckboxChange()"> Metrics</label>
       </div>
     </div>
     <!-- Log Config Toggle & Panel -->
@@ -466,6 +481,59 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
       </div>
     </div>
   </div>
+  <!-- Metric Config Panel -->
+  <div class="field" style="grid-column:1/-1;display:none" id="metric-config-area">
+    <div class="log-config-panel open" id="metric-config-panel">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="field">
+          <label>Metric Count</label>
+          <input type="number" id="metric-count" value="20" min="1">
+        </div>
+      </div>
+      <h3>Type Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be ~1.0)</span></h3>
+      <div class="severity-grid" id="metric-type-grid">
+        <div class="severity-row" style="--sev-color:#4ade80">
+          <label>Gauge</label>
+          <div class="sev-bar-track" onclick="clickMetricTypeBar('gauge', event)">
+            <div class="sev-bar-fill" id="metric-bar-gauge" style="width:40%;background:#4ade80"></div>
+          </div>
+          <input type="number" id="metric-gauge" min="0" max="100" value="40" step="5" oninput="onMetricTypeInput('gauge')">
+        </div>
+        <div class="severity-row" style="--sev-color:#60a5fa">
+          <label>Sum</label>
+          <div class="sev-bar-track" onclick="clickMetricTypeBar('sum', event)">
+            <div class="sev-bar-fill" id="metric-bar-sum" style="width:40%;background:#60a5fa"></div>
+          </div>
+          <input type="number" id="metric-sum" min="0" max="100" value="40" step="5" oninput="onMetricTypeInput('sum')">
+        </div>
+        <div class="severity-row" style="--sev-color:#f59e0b">
+          <label>Histogram</label>
+          <div class="sev-bar-track" onclick="clickMetricTypeBar('histogram', event)">
+            <div class="sev-bar-fill" id="metric-bar-histogram" style="width:20%;background:#f59e0b"></div>
+          </div>
+          <input type="number" id="metric-histogram" min="0" max="100" value="20" step="5" oninput="onMetricTypeInput('histogram')">
+        </div>
+      </div>
+      <div id="metric-type-total" style="font-size:11px;margin-bottom:12px;color:#94a3b8">Total: <span class="ok">1.0</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div class="field">
+          <label>Value Min</label>
+          <input type="number" id="metric-value-min" value="0" step="0.1">
+        </div>
+        <div class="field">
+          <label>Value Max</label>
+          <input type="number" id="metric-value-max" value="100" step="0.1">
+        </div>
+      </div>
+      <h3>Custom Attributes</h3>
+      <table class="attr-table">
+        <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+        <tbody id="metric-attr-body">
+        </tbody>
+      </table>
+      <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px;margin-top:6px" onclick="addMetricAttr('','')">+ Add Attribute</button>
+    </div>
+  </div>
   <div class="form-actions">
     <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
     <span id="run-status"></span>
@@ -473,6 +541,7 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     <button class="btn btn-secondary" onclick="openImportModal()">Import OTLP JSON</button>
     <button class="btn btn-secondary" onclick="openScenarioModal()">Upload Scenarios</button>
   </div>
+</div>
 </section>
 
 <section id="ottl-prototyper">
@@ -484,11 +553,14 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
     <button class="ottl-prototyper-tab" data-ottl-mode="filter" onclick="switchOttlMode('filter')">Filter</button>
   </div>
 
-  <!-- Signal Tabs -->
-  <div class="ottl-signal-tabs">
-    <button class="ottl-signal-tab active" data-ottl-signal="traces" onclick="switchOttlSignal('traces')">Traces</button>
-    <button class="ottl-signal-tab" data-ottl-signal="logs" onclick="switchOttlSignal('logs')">Logs</button>
-    <button class="ottl-signal-tab" data-ottl-signal="both" onclick="switchOttlSignal('both')">Both</button>
+  <!-- Signal Checkboxes -->
+  <div style="margin-bottom:12px">
+    <label style="font-size:12px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:6px">Signals</label>
+    <div class="signal-checkboxes" id="ottl-signal-checkboxes">
+      <label><input type="checkbox" value="traces" checked onchange="onOttlSignalCheckboxChange()"> Traces</label>
+      <label><input type="checkbox" value="logs" onchange="onOttlSignalCheckboxChange()"> Logs</label>
+      <label><input type="checkbox" value="metrics" onchange="onOttlSignalCheckboxChange()"> Metrics</label>
+    </div>
   </div>
 
   <!-- Shared Run Selector -->
@@ -528,6 +600,17 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
         <h4>Log Filter Snippets</h4>
         <div class="ottl-snippet" onclick="insertSnippet('logs:\n  log_record:\n    - severity_number >= SEVERITY_NUMBER_ERROR')">severity >= ERROR</div>
         <div class="ottl-snippet" onclick="insertSnippet('logs:\n  log_record:\n    - attributes[&quot;key&quot;] == &quot;value&quot;')">attribute condition</div>
+      </div>
+      <div class="ottl-snippet-group" id="ottl-snippets-transform-metrics" style="display:none">
+        <h4>Metric Transform Snippets</h4>
+        <div class="ottl-snippet" onclick="insertSnippet('metric_statements:\n  - context: datapoint\n    statements:\n      - set(attributes[&quot;env&quot;], &quot;prod&quot;)')">set attribute</div>
+        <div class="ottl-snippet" onclick="insertSnippet('metric_statements:\n  - context: datapoint\n    statements:\n      - delete_key(attributes, &quot;key&quot;)')">delete attribute</div>
+        <div class="ottl-snippet" onclick="insertSnippet('metric_statements:\n  - context: datapoint\n    statements:\n      - set(attributes[&quot;matched&quot;], &quot;yes&quot;) where name == &quot;cpu.*&quot;')">set with where</div>
+      </div>
+      <div class="ottl-snippet-group" id="ottl-snippets-filter-metrics" style="display:none">
+        <h4>Metric Filter Snippets</h4>
+        <div class="ottl-snippet" onclick="insertSnippet('metrics:\n  datapoint:\n    - attributes[&quot;env&quot;] == &quot;prod&quot;')">attribute condition</div>
+        <div class="ottl-snippet" onclick="insertSnippet('metrics:\n  datapoint:\n    - metric.name == &quot;cpu.*&quot;')">metric name match</div>
       </div>
     </div>
   </div>
@@ -711,31 +794,40 @@ function formatDuration(ns) {
 let signalFilter = 'all';
 
 function getSignalType() {
-  const btns = document.querySelectorAll('#signal-type button');
-  for (const btn of btns) {
-    if (btn.classList.contains('active')) return btn.getAttribute('data-value');
-  }
+  const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
+  const checked = [];
+  checks.forEach(c => { if (c.checked) checked.push(c.value); });
+  if (checked.length === 0) return 'traces'; // default — shouldn't happen since traces can't be unchecked alone
+  if (checked.length === 1) return checked[0]; // 'traces', 'logs', or 'metrics'
+  if (checked.includes('traces') && checked.includes('logs') && checked.includes('metrics')) return 'all';
+  if (checked.includes('traces') && checked.includes('logs')) return 'both';
+  if (checked.includes('traces') && checked.includes('metrics')) return 'traces+metrics';
+  if (checked.includes('logs') && checked.includes('metrics')) return 'logs+metrics';
   return 'traces';
 }
 
-function setSignalType(type) {
-  document.querySelectorAll('#signal-type button').forEach(b => b.classList.toggle('active', b.getAttribute('data-value') === type));
-  const isLogs = type === 'logs';
-  const isBoth = type === 'both';
-  // Disable trace-specific fields for log-only mode
-  document.getElementById('trace-count').disabled = isLogs;
-  document.getElementById('topology').disabled = isLogs;
-  document.getElementById('scenario').disabled = isLogs;
-  document.getElementById('span-count').disabled = isLogs;
-  document.getElementById('scenario-span-count').disabled = isLogs;
-  document.getElementById('max-depth').disabled = isLogs;
-  document.getElementById('service-name').disabled = isLogs;
-  // Show/hide log config area; always open when visible
-  document.getElementById('log-config-area').style.display = (isBoth || isLogs) ? 'block' : 'none';
-  document.getElementById('log-config-panel').classList.toggle('open', isBoth || isLogs);
-  // Show/hide per-span vs count fields
-  document.getElementById('log-per-span-field').style.display = isBoth ? 'block' : 'none';
-  document.getElementById('log-count-field').style.display = isLogs ? 'block' : 'none';
+function onSignalCheckboxChange() {
+  const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
+  // Ensure at least one checkbox is checked
+  let anyChecked = false;
+  checks.forEach(c => { if (c.checked) anyChecked = true; });
+  if (!anyChecked) {
+    // Re-check traces — always need at least one signal
+    document.querySelector('#signal-type input[value="traces"]').checked = true;
+  }
+  const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
+  const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
+  const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
+  // Show/hide trace-specific fields
+  document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
+  // Show/hide log config area
+  document.getElementById('log-config-area').style.display = hasLogs ? 'block' : 'none';
+  document.getElementById('log-config-panel').classList.toggle('open', hasLogs);
+  document.getElementById('log-per-span-field').style.display = (hasTraces && hasLogs) ? 'block' : 'none';
+  document.getElementById('log-count-field').style.display = hasLogs ? 'block' : 'none';
+  // Show/hide metric config area
+  document.getElementById('metric-config-area').style.display = hasMetrics ? 'block' : 'none';
+  document.getElementById('metric-config-panel').classList.toggle('open', hasMetrics);
 }
 
 function updateSeverityBars() {
@@ -811,6 +903,60 @@ function addLogAttr(key, val) {
   tbody.appendChild(tr);
 }
 
+function getMetricAttrs() {
+  const tbody = document.getElementById('metric-attr-body');
+  const attrs = [];
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const key = tr.querySelector('.attr-key').value.trim();
+    const val = tr.querySelector('.attr-val').value.trim();
+    if (key) attrs.push({ key: key, value: val });
+  });
+  return attrs;
+}
+
+function addMetricAttr(key, val) {
+  const tbody = document.getElementById('metric-attr-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" class="attr-key" placeholder="key" value="' + escapeHtml(key || '') + '"></td>' +
+    '<td><input type="text" class="attr-val" placeholder="value" value="' + escapeHtml(val || '') + '"></td>' +
+    '<td><button class="btn-danger" style="font-size:14px;padding:2px 6px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
+  tbody.appendChild(tr);
+}
+
+function updateMetricTypeBars() {
+  const ids = ['gauge', 'sum', 'histogram'];
+  const total = ids.reduce((sum, s) => sum + (parseFloat(document.getElementById('metric-' + s).value) || 0), 0);
+  ids.forEach(s => {
+    const v = parseFloat(document.getElementById('metric-' + s).value) || 0;
+    document.getElementById('metric-bar-' + s).style.width = Math.min(v, 100) + '%';
+  });
+  const el = document.getElementById('metric-type-total');
+  el.innerHTML = 'Total: <span class="' + (Math.abs(total - 100) < 0.5 ? 'ok' : 'over') + '">' + (total / 100).toFixed(1) + '</span>';
+}
+
+function clickMetricTypeBar(type, event) {
+  const track = event.currentTarget;
+  const rect = track.getBoundingClientRect();
+  const pct = Math.round(((event.clientX - rect.left) / rect.width) * 100);
+  const clamped = Math.max(0, Math.min(100, pct));
+  document.getElementById('metric-' + type).value = clamped;
+  updateMetricTypeBars();
+}
+
+function onMetricTypeInput(type) {
+  const v = parseInt(document.getElementById('metric-' + type).value);
+  if (isNaN(v)) document.getElementById('metric-' + type).value = 0;
+  updateMetricTypeBars();
+}
+
+function toggleConfig() {
+  const section = document.getElementById('config-section');
+  const isCollapsed = section.classList.toggle('config-collapsed');
+  const btn = document.getElementById('config-collapse-btn');
+  btn.title = isCollapsed ? 'Expand' : 'Collapse';
+  try { localStorage.setItem('otel-workbench-config-collapsed', isCollapsed ? '1' : ''); } catch(e) {}
+}
+
 function setSignalFilter(type) {
   signalFilter = type;
   document.querySelectorAll('.filter-chip').forEach(b => b.classList.toggle('active', b.getAttribute('data-filter') === type));
@@ -827,17 +973,12 @@ async function startRun() {
   statusEl.textContent = 'Starting...';
 
   const signalType = getSignalType();
+  const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
+  const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
+  const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
 
   var body = {
     seed: parseInt(document.getElementById('seed').value) || 42,
-    trace_count: (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })(),
-    rate: parseInt(document.getElementById('rate').value) || 0,
-    topology: document.getElementById('topology').value,
-    scenario: document.getElementById('scenario').value,
-    span_count: parseInt(document.getElementById('span-count').value) || 10,
-    scenario_span_count: parseInt(document.getElementById('scenario-span-count').value) || 0,
-    max_depth: parseInt(document.getElementById('max-depth').value) || 5,
-    service_name: document.getElementById('service-name').value || 'mock-service',
     output: document.getElementById('output').value,
     format: document.getElementById('format').value,
     insecure: document.getElementById('insecure').checked,
@@ -845,7 +986,30 @@ async function startRun() {
     signal_type: signalType
   };
 
-  if (signalType === 'logs' || signalType === 'both') {
+  if (hasTraces) {
+    body.trace_count = (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })();
+    body.rate = parseInt(document.getElementById('rate').value) || 0;
+    body.topology = document.getElementById('topology').value;
+    body.scenario = document.getElementById('scenario').value;
+    body.span_count = parseInt(document.getElementById('span-count').value) || 10;
+    body.scenario_span_count = parseInt(document.getElementById('scenario-span-count').value) || 0;
+    body.max_depth = parseInt(document.getElementById('max-depth').value) || 5;
+    body.service_name = document.getElementById('service-name').value || 'mock-service';
+  }
+
+  if (hasMetrics) {
+    body.metric_config = {
+      enabled: true,
+      metric_count: parseInt(document.getElementById('metric-count').value) || 20,
+      gauge_ratio: (parseFloat(document.getElementById('metric-gauge').value) || 0) / 100,
+      sum_ratio: (parseFloat(document.getElementById('metric-sum').value) || 0) / 100,
+      value_min: parseFloat(document.getElementById('metric-value-min').value) || 0,
+      value_max: parseFloat(document.getElementById('metric-value-max').value) || 100,
+      attributes: getMetricAttrs()
+    };
+  }
+
+  if (hasLogs) {
     body.log_config = {
       enabled: true,
       logs_per_span: parseInt(document.getElementById('logs-per-span').value) || 3,
@@ -1015,12 +1179,12 @@ async function ottlTransform() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ run_id: runId, config: config, signal_type: sigType })
     });
-    if (data.valid && (data.transformed_data || data.log_transformed_data)) {
-      const originalData = run && (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) ? (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) : null;
-      lastTransform.original = originalData;
-      lastTransform.transformed = data.transformed_data || null;
-      lastTransform.activeTab = 'transformed';
-      renderTransformResult(data.transformed_data, data.statements_parsed, data.log_transformed_data, data.log_statements_parsed);
+    if (data.valid && (data.transformed_data || data.log_transformed_data || data.metric_transformed_data)) {
+        const originalData = run && (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) ? (sigType === 'logs' || sigType === 'both' ? run.log_data : run.trace_data) : null;
+        lastTransform.original = originalData;
+        lastTransform.transformed = data.transformed_data || null;
+        lastTransform.activeTab = 'transformed';
+        renderTransformResult(data.transformed_data, data.statements_parsed, data.log_transformed_data, data.log_statements_parsed, data.metric_transformed_data, data.metric_statements_parsed);
     } else {
       const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
       resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
@@ -1039,18 +1203,20 @@ async function ottlTransform() {
   btn.disabled = false;
 }
 
-function renderTransformResult(transformed, statementsParsed, logTransformed, logStmtsParsed) {
-  const resultPanel = document.getElementById('ottl-result');
-  lastResult = {
-    type: 'transform',
-    transformed: transformed,
-    original: lastTransform.original,
-    statementsParsed: statementsParsed,
-    logTransformed: logTransformed || null,
-    logStmtsParsed: logStmtsParsed || 0
-  };
-  resultPanel.classList.remove('hidden');
-  switchOttlResultTab('summary');
+function renderTransformResult(transformed, statementsParsed, logTransformed, logStmtsParsed, metricTransformed, metricStmtsParsed) {
+    const resultPanel = document.getElementById('ottl-result');
+    lastResult = {
+        type: 'transform',
+        transformed: transformed,
+        original: lastTransform.original,
+        statementsParsed: statementsParsed,
+        logTransformed: logTransformed || null,
+        logStmtsParsed: logStmtsParsed || 0,
+        metricTransformed: metricTransformed || null,
+        metricStmtsParsed: metricStmtsParsed || 0
+    };
+    resultPanel.classList.remove('hidden');
+    switchOttlResultTab('summary');
 }
 
 function switchOttlTab(tab) {
@@ -1280,22 +1446,23 @@ function updateOttlRunSelector() {
   while (select.options.length > 1) {
     select.remove(1);
   }
-  const entries = Object.values(runs).filter(r => r.status === 'completed' && (r.span_count > 0 || r.log_count > 0));
+  const entries = Object.values(runs).filter(r => r.status === 'completed' && (r.span_count > 0 || r.log_count > 0 || r.metric_count > 0));
   entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
   let hasData = false;
   entries.forEach(r => {
     const opt = document.createElement('option');
     opt.value = r.id;
     // Detect run signal type from all available signals:
-    //  1. presence of trace_data / log_data (actual telemetry),
-    //  2. log_count / log_count_completed (run-level counters),
+    //  1. presence of trace_data / log_data / metric_data (actual telemetry),
+    //  2. log_count / log_count_completed / metric_count (run-level counters),
     //  3. config.signal_type (the original run config).
     const hasTrace = !!r.trace_data;
     const hasLog = !!(r.log_data || r.log_count || r.log_count_completed || r.config?.log_config?.enabled);
-    const sig = hasTrace && hasLog ? 'T+L' : hasTrace ? 'T' : 'L';
-    opt.dataset.signal = hasTrace && hasLog ? 'both' : hasTrace ? 'traces' : 'logs';
+    const hasMetric = !!(r.metric_data || r.metric_count || r.metric_count_completed);
+    const sig = hasTrace && hasLog ? 'T+L' : hasTrace && hasMetric ? 'T+M' : hasTrace ? 'T' : hasLog ? 'L' : 'M';
+    opt.dataset.signal = hasTrace && hasLog ? 'both' : hasTrace && hasMetric ? 'traces+metrics' : hasTrace ? 'traces' : hasLog ? 'logs' : 'metrics';
     const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
-    opt.textContent = label + ' — ' + sig + ' ' + (r.span_count || 0) + ' spans' + (hasLog ? ', ' + (r.log_count || r.log_count_completed || 0) + ' logs' : '');
+    opt.textContent = label + ' — ' + sig + ' ' + (r.span_count || 0) + ' spans' + (hasLog ? ', ' + (r.log_count || r.log_count_completed || 0) + ' logs' : '') + (hasMetric ? ', ' + (r.metric_count || r.metric_count_completed || 0) + ' metrics' : '');
     select.appendChild(opt);
     hasData = true;
   });
@@ -1312,32 +1479,39 @@ function updateOttlRunSelector() {
 }
 
 function onOttlRunChange() {
-  const select = document.getElementById('ottl-run-select');
-  const opt = select.options[select.selectedIndex];
-  const signal = opt && opt.dataset ? opt.dataset.signal : '';
-
-  // Always render source data for the selected run
-  renderRunSourceData(select.value, 'ottl-source-data');
-
-  // Update badge
-  const badgeEl = document.getElementById('ottl-sig-badge');
-  if (!badgeEl) return;
-  if (!signal) {
-    // Placeholder or unknown — neutral badge
-    badgeEl.textContent = '—';
-    badgeEl.style.background = '#475569';
-    return;
-  }
-  if (signal === 'logs') {
-    badgeEl.textContent = 'Logs';
-    badgeEl.style.background = '#8b5cf6';
-  } else if (signal === 'both') {
-    badgeEl.textContent = 'T+L';
-    badgeEl.style.background = '#f59e0b';
-  } else {
-    badgeEl.textContent = 'Traces';
-    badgeEl.style.background = '#3b82f6';
-  }
+    const select = document.getElementById('ottl-run-select');
+    const opt = select.options[select.selectedIndex];
+    const signal = opt && opt.dataset ? opt.dataset.signal : '';
+    renderRunSourceData(select.value, 'ottl-source-data');
+    const badgeEl = document.getElementById('ottl-sig-badge');
+    if (!badgeEl) return;
+    if (!signal) {
+        badgeEl.textContent = '\u2014';
+        badgeEl.style.background = '#475569';
+        return;
+    }
+    if (signal === 'logs') {
+        badgeEl.textContent = 'Logs';
+        badgeEl.style.background = '#8b5cf6';
+    } else if (signal === 'both') {
+        badgeEl.textContent = 'T+L';
+        badgeEl.style.background = '#f59e0b';
+    } else if (signal === 'metrics') {
+        badgeEl.textContent = 'Metrics';
+        badgeEl.style.background = '#4ade80';
+    } else if (signal === 'traces+metrics') {
+        badgeEl.textContent = 'T+M';
+        badgeEl.style.background = '#22d3ee';
+    } else if (signal === 'logs+metrics') {
+        badgeEl.textContent = 'L+M';
+        badgeEl.style.background = '#c084fc';
+    } else if (signal === 'all') {
+        badgeEl.textContent = 'All';
+        badgeEl.style.background = '#f97316';
+    } else {
+        badgeEl.textContent = 'Traces';
+        badgeEl.style.background = '#3b82f6';
+    }
 }
 
 function ottlClear() {
@@ -1367,44 +1541,67 @@ function switchOttlMode(mode) {
   ottlClear();
 }
 
-function switchOttlSignal(signal) {
-  ottlSignal = signal;
-  document.querySelectorAll('.ottl-signal-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.ottlSignal === signal);
-  });
+function onOttlSignalCheckboxChange() {
+  const checks = document.querySelectorAll('#ottl-signal-checkboxes input[type="checkbox"]');
+  let anyChecked = false;
+  checks.forEach(c => { if (c.checked) anyChecked = true; });
+  if (!anyChecked) {
+    document.querySelector('#ottl-signal-checkboxes input[value="traces"]').checked = true;
+  }
+  const checked = [];
+  checks.forEach(c => { if (c.checked) checked.push(c.value); });
+  if (checked.length === 1) ottlSignal = checked[0];
+  else if (checked.includes('traces') && checked.includes('logs') && checked.includes('metrics')) ottlSignal = 'all';
+  else if (checked.includes('traces') && checked.includes('logs')) ottlSignal = 'both';
+  else if (checked.includes('traces') && checked.includes('metrics')) ottlSignal = 'traces+metrics';
+  else if (checked.includes('logs') && checked.includes('metrics')) ottlSignal = 'logs+metrics';
+  else ottlSignal = 'traces';
   updateSnippetVisibility();
   updateOttlPlaceholder();
   ottlClear();
 }
 
 function updateSnippetVisibility() {
-  const showTrace = ottlSignal === 'traces' || ottlSignal === 'both';
-  const showLog = ottlSignal === 'logs' || ottlSignal === 'both';
-  document.getElementById('ottl-snippets-transform').style.display = ottlMode === 'transform' && showTrace ? '' : 'none';
-  document.getElementById('ottl-snippets-transform-logs').style.display = ottlMode === 'transform' && showLog ? '' : 'none';
-  document.getElementById('ottl-snippets-filter').style.display = ottlMode === 'filter' && showTrace ? '' : 'none';
-  document.getElementById('ottl-snippets-filter-logs').style.display = ottlMode === 'filter' && showLog ? '' : 'none';
+    const showTrace = ottlSignal === 'traces' || ottlSignal === 'both' || ottlSignal === 'all';
+    const showLog = ottlSignal === 'logs' || ottlSignal === 'both' || ottlSignal === 'all';
+    const showMetric = ottlSignal === 'metrics' || ottlSignal === 'all';
+    document.getElementById('ottl-snippets-transform').style.display = ottlMode === 'transform' && showTrace ? '' : 'none';
+    document.getElementById('ottl-snippets-transform-logs').style.display = ottlMode === 'transform' && showLog ? '' : 'none';
+    document.getElementById('ottl-snippets-transform-metrics').style.display = ottlMode === 'transform' && showMetric ? '' : 'none';
+    document.getElementById('ottl-snippets-filter').style.display = ottlMode === 'filter' && showTrace ? '' : 'none';
+    document.getElementById('ottl-snippets-filter-logs').style.display = ottlMode === 'filter' && showLog ? '' : 'none';
+    document.getElementById('ottl-snippets-filter-metrics').style.display = ottlMode === 'filter' && showMetric ? '' : 'none';
 }
 
 function updateOttlPlaceholder() {
-  const ta = document.getElementById('ottl-input');
-  if (ottlMode === 'transform') {
-    if (ottlSignal === 'traces') {
-      ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")';
-    } else if (ottlSignal === 'logs') {
-      ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+    const ta = document.getElementById('ottl-input');
+    if (ottlMode === 'transform') {
+        if (ottlSignal === 'traces') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")';
+        } else if (ottlSignal === 'logs') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+        } else if (ottlSignal === 'metrics') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes["env"], "prod")';
+        } else if (ottlSignal === 'both') {
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+        } else {
+            // all
+            ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")\n  metric_statements:\n    - context: datapoint\n      statements:\n        - set(attributes["env"], "prod")';
+        }
     } else {
-      ta.placeholder = 'Paste OTel Collector transform processor config (YAML)\n\ntransform:\n  trace_statements:\n    - context: span\n      statements:\n        - set(attributes["env"], "prod")\n  log_statements:\n    - context: log\n      statements:\n        - set(severity_text, "ERROR")';
+        if (ottlSignal === 'traces') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL';
+        } else if (ottlSignal === 'logs') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
+        } else if (ottlSignal === 'metrics') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  metrics:\n    datapoint:\n      - attributes["env"] == "prod"';
+        } else if (ottlSignal === 'both') {
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - attributes["key"] == "value"\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
+        } else {
+            // all
+            ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - attributes["key"] == "value"\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR\n  metrics:\n    datapoint:\n      - attributes["env"] == "prod"';
+        }
     }
-  } else {
-    if (ottlSignal === 'traces') {
-      ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - kind == SPAN_KIND_INTERNAL';
-    } else if (ottlSignal === 'logs') {
-      ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
-    } else {
-      ta.placeholder = 'Paste OTel Collector filter processor config (YAML)\n\nfilter:\n  traces:\n    span:\n      - attributes["key"] == "value"\n  logs:\n    log_record:\n      - severity_number >= SEVERITY_NUMBER_ERROR';
-    }
-  }
 }
 
 function insertSnippet(code) {
@@ -1484,6 +1681,12 @@ function renderOttlResultContent(tab) {
           + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.logTransformed, null, 2)) + '</pre>'
           + '</div>';
       }
+      if (r.metricTransformed) {
+        html += '<div class="ottl-transform-result" style="margin-top:12px">'
+          + '<div class="header" style="background:#0a3d1a"><span class="badge" style="background:#4ade80">' + r.metricStmtsParsed + ' statements</span>Metric Transform Results</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.metricTransformed, null, 2)) + '</pre>'
+          + '</div>';
+      }
       content.innerHTML = html;
     } else if (tab === 'spans') {
       if (r.original) {
@@ -1496,6 +1699,9 @@ function renderOttlResultContent(tab) {
       var formatted = JSON.stringify(r.transformed, null, 2);
       if (r.logTransformed) {
         formatted = '// --- Trace Transformed Data ---\n\n' + formatted + '\n\n// --- Log Transformed Data ---\n\n' + JSON.stringify(r.logTransformed, null, 2);
+      }
+      if (r.metricTransformed) {
+        formatted = (r.transformed ? '// --- Trace Transformed Data ---\n\n' + formatted + '\n\n' : '') + '// --- Metric Transformed Data ---\n\n' + JSON.stringify(r.metricTransformed, null, 2);
       }
       content.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(formatted) + '</pre>';
     }
@@ -1527,6 +1733,18 @@ function renderOttlResultContent(tab) {
           + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.logTotal + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
           + '</div>'
           + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.logFiltered, null, 2)) + '</pre>'
+          + '</div>';
+      }
+      if (r.metricFiltered) {
+        const metricRemoved = r.metricTotal - r.metricKept;
+        filterHtml += '<div class="ottl-transform-result" style="margin-top:12px;border-color:#166534">'
+          + '<div class="header" style="background:#0a3d1a"><span class="badge" style="background:#4ade80">' + r.metricCondsParsed + ' condition(s)</span>Metric Filter Results</div>'
+          + '<div class="ottl-filter-summary">'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:' + modeColor + ';font-size:20px;font-weight:700">' + r.metricKept + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">' + modeLabel + '</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#64748b;font-size:20px;font-weight:700">' + metricRemoved + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Removed</div></div>'
+          + '<div class="ottl-diff-stat" style="text-align:center;min-width:60px"><div class="count" style="color:#94a3b8;font-size:20px;font-weight:700">' + r.metricTotal + '</div><div class="label" style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Total</div></div>'
+          + '</div>'
+          + '<pre style="margin:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5">' + escapeHtml(JSON.stringify(r.metricFiltered, null, 2)) + '</pre>'
           + '</div>';
       }
       content.innerHTML = filterHtml;
@@ -1573,11 +1791,11 @@ async function ottlFilter() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ run_id: runId, config: config, mode: mode, signal_type: sigType })
     });
-    if (data.valid && (data.filtered_data || data.log_filtered_data)) {
-      lastFilterResult.filtered = data.filtered_data || null;
-      lastFilterResult.total = data.total_span_count || 0;
-      lastFilterResult.kept = data.filtered_span_count || 0;
-      renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode, data.log_filtered_data, data.log_conditions_parsed, data.total_log_count, data.filtered_log_count);
+    if (data.valid && (data.filtered_data || data.log_filtered_data || data.metric_filtered_data)) {
+        lastFilterResult.filtered = data.filtered_data || null;
+        lastFilterResult.total = data.total_span_count || 0;
+        lastFilterResult.kept = data.filtered_span_count || 0;
+        renderFilterResult(data.filtered_data, data.conditions_parsed, data.total_span_count, data.filtered_span_count, mode, data.log_filtered_data, data.log_conditions_parsed, data.total_log_count, data.filtered_log_count, data.metric_filtered_data, data.metric_conditions_parsed, data.total_metric_count, data.filtered_metric_count);
     } else {
       const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
       resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
@@ -1596,22 +1814,26 @@ async function ottlFilter() {
   btn.disabled = false;
 }
 
-function renderFilterResult(filtered, conditionsParsed, total, kept, mode, logFiltered, logCondsParsed, logTotal, logKept) {
-  const resultPanel = document.getElementById('ottl-result');
-  lastResult = {
-    type: 'filter',
-    filtered: filtered,
-    total: total,
-    kept: kept,
-    conditionsParsed: conditionsParsed,
-    mode: mode,
-    logFiltered: logFiltered || null,
-    logCondsParsed: logCondsParsed || 0,
-    logTotal: logTotal || 0,
-    logKept: logKept || 0
-  };
-  resultPanel.classList.remove('hidden');
-  switchOttlResultTab('summary');
+function renderFilterResult(filtered, conditionsParsed, total, kept, mode, logFiltered, logCondsParsed, logTotal, logKept, metricFiltered, metricCondsParsed, metricTotal, metricKept) {
+    const resultPanel = document.getElementById('ottl-result');
+    lastResult = {
+        type: 'filter',
+        filtered: filtered,
+        total: total,
+        kept: kept,
+        conditionsParsed: conditionsParsed,
+        mode: mode,
+        logFiltered: logFiltered || null,
+        logCondsParsed: logCondsParsed || 0,
+        logTotal: logTotal || 0,
+        logKept: logKept || 0,
+        metricFiltered: metricFiltered || null,
+        metricCondsParsed: metricCondsParsed || 0,
+        metricTotal: metricTotal || 0,
+        metricKept: metricKept || 0
+    };
+    resultPanel.classList.remove('hidden');
+    switchOttlResultTab('summary');
 }
 
 async function saveFilteredRun() {
@@ -1742,6 +1964,10 @@ function getRunSignalType(r) {
 function getSignalBadge(signalType) {
   if (signalType === 'both') return '<span class="signal-badge both">TL</span>';
   if (signalType === 'logs') return '<span class="signal-badge logs">L</span>';
+  if (signalType === 'metrics') return '<span class="signal-badge metrics">M</span>';
+  if (signalType === 'all') return '<span class="signal-badge all">A</span>';
+  if (signalType === 'traces+metrics') return '<span class="signal-badge both" style="background:rgba(34,197,94,0.2);color:#4ade80">TM</span>';
+  if (signalType === 'logs+metrics') return '<span class="signal-badge both" style="background:rgba(139,92,246,0.2);color:#c084fc">LM</span>';
   return '<span class="signal-badge traces">T</span>';
 }
 
@@ -1780,6 +2006,10 @@ function renderRunList() {
     if (r.log_count || r.log_count_completed) {
       var lc = r.log_count || r.log_count_completed;
       statsHtml += '<span>' + lc + ' logs</span>';
+    }
+    if (r.metric_count || r.metric_count_completed) {
+      var mc = r.metric_count || r.metric_count_completed;
+      statsHtml += '<span>' + mc + ' metrics</span>';
     }
     statsHtml += '<span>' + formatDuration(r.duration_ns) + '</span>';
     return `<div class="run-card" onclick="showDetail('${r.id}')">
@@ -1843,6 +2073,10 @@ function renderDetail(r) {
       var logTotal = r.log_count || 0;
       progressHtml += '<div class="stat"><div class="value">' + logDone + ' / ' + (logTotal || '?') + '</div><div class="label">Logs</div></div>';
     }
+    if (r.metric_count && r.metric_count > 0) {
+      var metricDone = r.metric_count_completed || 0;
+      progressHtml += '<div class="stat"><div class="value">' + metricDone + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
+    }
     el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>' + progressHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="pauseRun(\'' + r.id + '\')">Pause</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
     return;
   }
@@ -1855,6 +2089,9 @@ function renderDetail(r) {
     var pausedHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
     if (hasLogs) {
       pausedHtml += '<div class="stat"><div class="value">' + (r.log_count_completed || 0) + ' / ' + (r.log_count || '?') + '</div><div class="label">Logs</div></div>';
+    }
+    if (r.metric_count) {
+      pausedHtml += '<div class="stat"><div class="value">' + (r.metric_count_completed || 0) + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
     }
     el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>' + pausedHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="resumeRun(\'' + r.id + '\')">Resume</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
     return;
@@ -1871,6 +2108,9 @@ function renderDetail(r) {
     var stoppedStats = '<div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div><div class="stat"><div class="value">' + (r.span_count || 0) + '</div><div class="label">Spans</div></div>';
     if (r.log_count_completed) {
       stoppedStats += '<div class="stat"><div class="value">' + r.log_count_completed + '</div><div class="label">Logs</div></div>';
+    }
+    if (r.metric_count_completed) {
+      stoppedStats += '<div class="stat"><div class="value">' + r.metric_count_completed + '</div><div class="label">Metrics</div></div>';
     }
     el.innerHTML = '<div class="stat-row">' + stoppedStats + '</div>';
     return;
@@ -1913,6 +2153,23 @@ function renderDetail(r) {
     } catch(e) {}
   }
 
+  // Count metric data points
+  let metricRecordCount = 0, metricTypes = {};
+  if (r.metric_data) {
+    try {
+      const md = typeof r.metric_data === 'string' ? JSON.parse(r.metric_data) : r.metric_data;
+      if (md.resource_metrics) {
+        md.resource_metrics.forEach(rm => {
+          if (rm.scope_metrics) rm.scope_metrics.forEach(sm => {
+            if (sm.metrics) {
+              sm.metrics.forEach(m => { metricRecordCount++; });
+            }
+          });
+        });
+      }
+    } catch(e) {}
+  }
+
   const isImported = r.output === 'import';
   var summaryHtml = '<div class="stat-row">';
   summaryHtml += '<div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>';
@@ -1920,6 +2177,9 @@ function renderDetail(r) {
   summaryHtml += '<div class="stat"><div class="value">' + (traceCount || r.trace_count || 0) + '</div><div class="label">Traces</div></div>';
   if (logRecordCount > 0) {
     summaryHtml += '<div class="stat"><div class="value">' + logRecordCount + '</div><div class="label">Logs</div></div>';
+  }
+  if (metricRecordCount > 0) {
+    summaryHtml += '<div class="stat"><div class="value">' + metricRecordCount + '</div><div class="label">Metrics</div></div>';
   }
   summaryHtml += '<div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div>';
   summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed || '-')) + '</div><div class="label">Seed</div></div>';
@@ -1939,12 +2199,16 @@ function renderDetail(r) {
   // Build tab bar
   var hasTraceData = !!r.trace_data;
   var hasLogData = logRecordCount > 0;
+  var hasMetricData = metricRecordCount > 0;
   var tabHtml = '<div class="detail-tabs">';
   if (hasTraceData) {
     tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Traces<span class="tab-badge">' + (traceCount || r.trace_count || 0) + '</span></button>';
   }
   if (hasLogData) {
     tabHtml += '<button class="detail-tab' + (detailTab === 'logs' ? ' active' : '') + '" onclick="switchDetailTab(\'logs\')">Logs<span class="tab-badge">' + logRecordCount + '</span></button>';
+  }
+  if (hasMetricData) {
+    tabHtml += '<button class="detail-tab' + (detailTab === 'metrics' ? ' active' : '') + '" onclick="switchDetailTab(\'metrics\')">Metrics<span class="tab-badge">' + metricRecordCount + '</span></button>';
   }
   tabHtml += '</div>';
 
@@ -1956,6 +2220,8 @@ function renderDetail(r) {
     const pretty = typeof r.trace_data === 'string' ? r.trace_data : JSON.stringify(r.trace_data, null, 2);
     el.innerHTML += '<h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#94a3b8">Trace Data</h3>';
     el.innerHTML += '<pre>' + escapeHtml(pretty) + '</pre>';
+  } else if (detailTab === 'metrics' && r.metric_data) {
+    el.innerHTML += renderMetricTable(r.metric_data);
   }
 }
 
@@ -2040,6 +2306,76 @@ function toggleLogDetail(row, idx) {
   }
 }
 
+function renderMetricTable(metricData) {
+  let metrics;
+  try {
+    metrics = typeof metricData === 'string' ? JSON.parse(metricData) : metricData;
+  } catch(e) { return '<div class="error">Failed to parse metric data</div>'; }
+
+  var html = '<table class="log-table"><thead><tr><th style="width:80px">Type</th><th>Name</th><th>Value(s)</th><th style="width:140px">Timestamp</th></tr></thead><tbody>';
+
+  if (metrics.resource_metrics) {
+    var allMetrics = [];
+    metrics.resource_metrics.forEach(function(rm) {
+      if (rm.scope_metrics) rm.scope_metrics.forEach(function(sm) {
+        if (sm.metrics) sm.metrics.forEach(function(m) {
+          allMetrics.push(m);
+        });
+      });
+    });
+
+    allMetrics.slice(0, 200).forEach(function(m) {
+      var type = 'gauge';
+      var dataPoints = [];
+      if (m.gauge) { type = 'gauge'; dataPoints = m.gauge.data_points || []; }
+      else if (m.sum) { type = 'sum'; dataPoints = m.sum.data_points || []; }
+      else if (m.histogram) { type = 'histogram'; dataPoints = m.histogram.data_points || []; }
+
+      var typeClass = type === 'sum' ? 'warn' : type === 'histogram' ? 'fatal' : 'info';
+
+      html += '<tr class="log-row">';
+      html += '<td><span class="severity-tag ' + typeClass + '">' + type.toUpperCase() + '</span></td>';
+      html += '<td><strong>' + escapeHtml(m.name || '') + '</strong>';
+      if (m.description) {
+        html += '<br><span style="font-size:11px;color:#64748b">' + escapeHtml(m.description) + '</span>';
+      }
+      html += '</td>';
+      html += '<td style="font-family:monospace;font-size:11px">';
+
+      if (type === 'histogram') {
+        var hCount = 0, hSum = 0;
+        dataPoints.forEach(function(dp) {
+          hCount += dp.count || 0;
+          hSum += dp.sum || 0;
+        });
+        html += 'count: ' + hCount + ', sum: ' + hSum;
+        if (dataPoints.length > 0 && dataPoints[0].bucket_counts) {
+          html += '<br>buckets: [' + dataPoints[0].bucket_counts.join(', ') + ']';
+        }
+      } else {
+        dataPoints.slice(0, 3).forEach(function(dp, idx) {
+          if (idx > 0) html += '<br>';
+          var val = dp.as_int !== undefined ? dp.as_int : (dp.as_double !== undefined ? dp.as_double : (dp.asInt !== undefined ? dp.asInt : (dp.asDouble !== undefined ? dp.asDouble : '?')));
+          html += val;
+        });
+        if (dataPoints.length > 3) {
+          html += '<br><span style="color:#64748b">...and ' + (dataPoints.length - 3) + ' more</span>';
+        }
+      }
+
+      html += '</td>';
+      var ts = dataPoints.length > 0 && dataPoints[0].time_unix_nano
+        ? new Date(Number(dataPoints[0].time_unix_nano) / 1e6).toLocaleTimeString()
+        : '-';
+      html += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
+      html += '</tr>';
+    });
+  }
+
+  html += '</tbody></table>';
+  return html;
+}
+
 function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
@@ -2047,7 +2383,7 @@ function escapeHtml(s) {
 }
 
 loadScenarios();
-setSignalType('traces');
+onSignalCheckboxChange();
 
 // Load existing runs from the server so the run list and OTTL selector
 // are populated immediately on page load (not just after the first new run).
@@ -2066,6 +2402,7 @@ setSignalType('traces');
 // Initialize OTTL Prototyper
 document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);
 document.getElementById('ottl-validate-btn').onclick = ottlValidate;
+onOttlSignalCheckboxChange();
 updateOttlLineNumbers();
 </script>
 </body>

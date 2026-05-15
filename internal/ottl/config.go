@@ -10,6 +10,7 @@ import (
 type TransformConfig struct {
 	TraceStatements []ContextStatements `yaml:"trace_statements"`
 	LogStatements   []ContextStatements `yaml:"log_statements"`
+	MetricStatements []ContextStatements `yaml:"metric_statements"`
 }
 
 type ContextStatements struct {
@@ -19,8 +20,13 @@ type ContextStatements struct {
 }
 
 type FilterConfig struct {
-	Traces TraceFilters `yaml:"traces"`
-	Logs   LogFilters   `yaml:"logs"`
+	Traces TraceFilters   `yaml:"traces"`
+	Logs   LogFilters     `yaml:"logs"`
+	Metrics DataPointFilters `yaml:"metrics"`
+}
+
+type DataPointFilters struct {
+	Conditions []string `yaml:"datapoint"`
 }
 
 type TraceFilters struct {
@@ -130,6 +136,9 @@ func (tc *TransformConfig) statements() []string {
 	for _, g := range tc.LogStatements {
 		out = append(out, g.Statements...)
 	}
+	for _, g := range tc.MetricStatements {
+		out = append(out, g.Statements...)
+	}
 	return out
 }
 
@@ -179,6 +188,45 @@ func ParseCombinedTransformConfig(configYAML string) (traceStmts, logStmts []str
 	return stmts, nil, nil
 }
 
+// ParseCombinedTransformConfigAll parses a YAML config and returns separate trace, log,
+// and metric statement slices. This enables executing trace, log, and metric
+// transformations from a single config. For unstructured formats (flat list, lines),
+// all statements are returned as trace statements for backward compatibility.
+func ParseCombinedTransformConfigAll(configYAML string) (traceStmts, logStmts, metricStmts []string, err error) {
+	configYAML = strings.TrimSpace(configYAML)
+	cleaned := trimTrailingSpaces(configYAML)
+	if cleaned == "" {
+		return nil, nil, nil, fmt.Errorf("empty transform config")
+	}
+
+	var cfg TransformConfig
+	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil {
+		t := ExtractStatements(cfg.TraceStatements)
+		l := ExtractStatements(cfg.LogStatements)
+		m := ExtractStatements(cfg.MetricStatements)
+		if len(t) > 0 || len(l) > 0 || len(m) > 0 {
+			return t, l, m, nil
+		}
+	}
+
+	var wrapped transformWrapper
+	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil {
+		t := ExtractStatements(wrapped.Transform.TraceStatements)
+		l := ExtractStatements(wrapped.Transform.LogStatements)
+		m := ExtractStatements(wrapped.Transform.MetricStatements)
+		if len(t) > 0 || len(l) > 0 || len(m) > 0 {
+			return t, l, m, nil
+		}
+	}
+
+	// Fallback to generic parse (all statements treated as trace for backward compat)
+	stmts, err := ParseTransformStatements(configYAML)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return stmts, nil, nil, nil
+}
+
 // ParseCombinedFilterConfig parses a YAML filter config returning separate trace and
 // log condition slices.
 func ParseCombinedFilterConfig(configYAML string) (traceConditions, logConditions []string, err error) {
@@ -203,6 +251,32 @@ func ParseCombinedFilterConfig(configYAML string) (traceConditions, logCondition
 		return nil, nil, err
 	}
 	return conds, nil, nil
+}
+
+// ParseCombinedFilterConfigAll parses a YAML filter config returning separate trace,
+// log, and metric datapoint condition slices.
+func ParseCombinedFilterConfigAll(configYAML string) (traceConditions, logConditions, metricConditions []string, err error) {
+	configYAML = strings.TrimSpace(configYAML)
+	if configYAML == "" {
+		return nil, nil, nil, fmt.Errorf("empty filter config")
+	}
+
+	var cfg FilterConfig
+	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
+		return cfg.Traces.SpanConditions, cfg.Logs.LogRecordConditions, cfg.Metrics.Conditions, nil
+	}
+
+	var wrapped filterWrapper
+	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
+		return wrapped.Filter.Traces.SpanConditions, wrapped.Filter.Logs.LogRecordConditions, wrapped.Filter.Metrics.Conditions, nil
+	}
+
+	// Fallback to generic parse
+	conds, err := ParseFilterConditions(configYAML)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return conds, nil, nil, nil
 }
 
 func trimTrailingSpaces(s string) string {

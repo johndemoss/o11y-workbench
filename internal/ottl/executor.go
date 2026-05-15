@@ -145,6 +145,8 @@ type TransformResult struct {
 	StatementsParsed   int              `json:"statements_parsed,omitempty"`
 	SpanCount          int              `json:"span_count,omitempty"`
 	TransformedCount   int              `json:"transformed_count,omitempty"`
-	LogTransformedData *json.RawMessage `json:"log_transformed_data,omitempty"`
-	LogStatementsParsed int             `json:"log_statements_parsed,omitempty"`
+	LogTransformedData  *json.RawMessage `json:"log_transformed_data,omitempty"`
+	LogStatementsParsed int              `json:"log_statements_parsed,omitempty"`
+	MetricTransformedData  *json.RawMessage `json:"metric_transformed_data,omitempty"`
+	MetricStatementsParsed int              `json:"metric_statements_parsed,omitempty"`
 }

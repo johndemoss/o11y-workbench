@@ -26,8 +26,9 @@ type Config struct {
 	TraceDuration     time.Duration
 	Scenario          string // named scenario; "" means use Topology
 	ScenarioSpanCount int    // per-service span budget for scenarios; 0 means use SpanCount
-	SignalType        string   `json:"signal_type,omitempty"` // "traces" (default), "logs", or "both"
-	LogConfig         LogConfig `json:"log_config,omitempty"`
+	SignalType        string       `json:"signal_type,omitempty"` // "traces" (default), "logs", or "both"
+	LogConfig         LogConfig    `json:"log_config,omitempty"`
+	MetricConfig      MetricConfig `json:"metric_config,omitempty"`
 }
 
 func DefaultConfig() Config {

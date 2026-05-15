@@ -229,8 +229,12 @@ type FilterResult struct {
 	ConditionsParsed   int              `json:"conditions_parsed,omitempty"`
 	TotalSpanCount     int              `json:"total_span_count,omitempty"`
 	FilteredSpanCount  int              `json:"filtered_span_count,omitempty"`
-	LogFilteredData    *json.RawMessage `json:"log_filtered_data,omitempty"`
-	LogConditionsParsed int             `json:"log_conditions_parsed,omitempty"`
-	TotalLogCount      int              `json:"total_log_count,omitempty"`
-	FilteredLogCount   int              `json:"filtered_log_count,omitempty"`
+	LogFilteredData      *json.RawMessage `json:"log_filtered_data,omitempty"`
+	LogConditionsParsed  int              `json:"log_conditions_parsed,omitempty"`
+	TotalLogCount        int              `json:"total_log_count,omitempty"`
+	FilteredLogCount     int              `json:"filtered_log_count,omitempty"`
+	MetricFilteredData      *json.RawMessage `json:"metric_filtered_data,omitempty"`
+	MetricConditionsParsed  int              `json:"metric_conditions_parsed,omitempty"`
+	TotalMetricCount        int              `json:"total_metric_count,omitempty"`
+	FilteredMetricCount     int              `json:"filtered_metric_count,omitempty"`
 }
