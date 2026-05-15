@@ -837,16 +837,31 @@ function onSignalCheckboxChange() {
   const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
   const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
   const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
-  // Show/hide trace config area
-  document.getElementById('trace-config-area').style.display = hasTraces ? '' : 'none';
+  // Show/hide trace config area — default to expanded when selected
+  var traceArea = document.getElementById('trace-config-area');
+  traceArea.style.display = hasTraces ? '' : 'none';
+  if (hasTraces && traceArea.classList.contains('collapsed')) {
+    traceArea.classList.remove('collapsed');
+    try { localStorage.removeItem('otel-workbench-config-trace-collapsed'); } catch(e) {}
+  }
   // Show/hide trace-specific fields
   document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
-  // Show/hide log config area
-  document.getElementById('log-config-area').style.display = hasLogs ? '' : 'none';
+  // Show/hide log config area — default to expanded when selected
+  var logArea = document.getElementById('log-config-area');
+  logArea.style.display = hasLogs ? '' : 'none';
+  if (hasLogs && logArea.classList.contains('collapsed')) {
+    logArea.classList.remove('collapsed');
+    try { localStorage.removeItem('otel-workbench-config-log-collapsed'); } catch(e) {}
+  }
   document.getElementById('log-per-span-field').style.display = (hasTraces && hasLogs) ? 'block' : 'none';
   document.getElementById('log-count-field').style.display = hasLogs ? 'block' : 'none';
-  // Show/hide metric config area
-  document.getElementById('metric-config-area').style.display = hasMetrics ? '' : 'none';
+  // Show/hide metric config area — default to expanded when selected
+  var metricArea = document.getElementById('metric-config-area');
+  metricArea.style.display = hasMetrics ? '' : 'none';
+  if (hasMetrics && metricArea.classList.contains('collapsed')) {
+    metricArea.classList.remove('collapsed');
+    try { localStorage.removeItem('otel-workbench-config-metric-collapsed'); } catch(e) {}
+  }
 }
 
 function updateSeverityBars() {
