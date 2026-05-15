@@ -1534,16 +1534,7 @@ function renderOttlResultContent(tab) {
       const errors = Array.isArray(data.errors) ? data.errors : [data.errors];
       resultContent.innerHTML = '<div class="ottl-error">' + errors.map(e => '<div class="ottl-error-item">' + escapeHtml(e) + '</div>').join('') + '</div>';
     }
-    resultPanel.classList.remove('hidden');
-  
-    switchOttlResultTab('summary');
-    status.textContent = '';
-  } catch(e) {
-    resultContent.innerHTML = '<div class="ottl-error">API error: ' + escapeHtml(e.message) + '</div>';
-    resultPanel.classList.remove('hidden');
-    status.textContent = '';
   }
-  btn.disabled = false;
 }
 
 async function ottlFilter() {
