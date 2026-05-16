@@ -9,13 +9,34 @@ export interface Stage {
   id: string
   type: StageType
   error_mode?: ErrorMode
-  signals?: string[]
   processor_ref: string
 }
 
 export interface Pipeline {
   stages: Stage[]
   processors: Record<string, ProcessorConfig>
+}
+
+export interface DiffSpan {
+  span_id: string
+  status: 'added' | 'removed' | 'modified'
+  before?: unknown
+  after?: unknown
+}
+
+export interface StageDiff {
+  stage_index: number
+  input_span_count: number
+  output_span_count: number
+  added: DiffSpan[]
+  removed: DiffSpan[]
+  modified: DiffSpan[]
+}
+
+export interface QuickConfig {
+  statements: string
+  type: 'transform' | 'filter'
+  run_id: string
 }
 
 export interface StageResult {

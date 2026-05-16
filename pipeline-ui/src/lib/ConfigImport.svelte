@@ -135,10 +135,10 @@ service:
 
 <style>
   .config-import {
-    border: 1px solid #d1d5db;
-    border-radius: 0.5rem;
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-lg, 8px);
     padding: 1.25rem;
-    background: #fff;
+    background: var(--color-surface, #1e293b);
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -161,28 +161,28 @@ service:
     border: none;
     cursor: pointer;
     font-size: 1rem;
-    color: #6b7280;
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
+    color: var(--color-text-secondary, #94a3b8);
+    padding: var(--space-xs, 0.25rem) var(--space-sm, 0.5rem);
+    border-radius: var(--radius-sm, 4px);
   }
 
   .close-btn:hover {
-    background: #f3f4f6;
+    background: var(--color-surface-hover, #334155);
   }
 
   .drop-zone {
-    border: 2px dashed #d1d5db;
-    border-radius: 0.375rem;
-    padding: 1rem;
+    border: 2px dashed var(--color-border, #334155);
+    border-radius: var(--radius-md, 6px);
+    padding: var(--space-md, 1rem);
     text-align: center;
     cursor: pointer;
-    color: #6b7280;
+    color: var(--color-text-secondary, #94a3b8);
     font-size: 0.875rem;
     transition: border-color 0.15s;
   }
 
   .drop-zone:hover {
-    border-color: #3b82f6;
+    border-color: var(--color-primary, #3b82f6);
   }
 
   .hidden {
@@ -191,45 +191,45 @@ service:
 
   .yaml-input {
     width: 100%;
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-family: var(--font-mono, monospace);
     font-size: 0.8125rem;
     padding: 0.625rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.375rem;
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-md, 6px);
     resize: vertical;
     box-sizing: border-box;
   }
 
   .yaml-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: var(--color-primary, #3b82f6);
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
   }
 
   .error {
-    color: #dc2626;
+    color: var(--color-error, #ef4444);
     font-size: 0.875rem;
     margin: 0;
   }
 
   .actions {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-sm, 0.5rem);
     justify-content: flex-end;
   }
 
   .import-btn {
-    padding: 0.5rem 1rem;
-    background: #3b82f6;
-    color: #fff;
+    padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
+    background: var(--color-primary, #3b82f6);
+    color: var(--color-text, #f1f5f9);
     border: none;
-    border-radius: 0.375rem;
+    border-radius: var(--radius-md, 6px);
     font-size: 0.875rem;
     cursor: pointer;
   }
 
   .import-btn:hover:not(:disabled) {
-    background: #2563eb;
+    background: var(--color-primary-hover, #2563eb);
   }
 
   .import-btn:disabled {
@@ -238,16 +238,16 @@ service:
   }
 
   .cancel-btn {
-    padding: 0.5rem 1rem;
-    background: #f3f4f6;
-    color: #374151;
-    border: 1px solid #d1d5db;
-    border-radius: 0.375rem;
+    padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
+    background: var(--color-surface, #1e293b);
+    color: var(--color-text, #f1f5f9);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-md, 6px);
     font-size: 0.875rem;
     cursor: pointer;
   }
 
   .cancel-btn:hover {
-    background: #e5e7eb;
+    background: var(--color-surface-hover, #334155);
   }
 </style>

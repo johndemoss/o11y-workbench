@@ -27,6 +27,27 @@ $effect(() => {
 
 let typeLabel = $derived(stage.type === 'transform' ? 'transform' : 'filter')
 
+let pipelineYamlPreview = $derived.by(() => {
+  const lines: string[] = []
+  lines.push('stages:')
+  lines.push(`  - id: ${stage.id}`)
+  lines.push(`    type: ${stage.type}`)
+  lines.push(`    processor_ref: ${stage.processor_ref}`)
+  if (stage.error_mode) lines.push(`    error_mode: ${stage.error_mode}`)
+  lines.push('processors:')
+  lines.push(`  ${stage.processor_ref}:`)
+  try {
+    const yamlStr = yaml.dump(processor, { indent: 2, noRefs: true, sortKeys: false })
+    const procLines = yamlStr.trimEnd().split('\n')
+    for (const l of procLines) {
+      lines.push(`    ${l}`)
+    }
+  } catch {
+    lines.push('    {}')
+  }
+  return lines.join('\n')
+})
+
 function handleIdChange(e: Event) {
   const target = e.target as HTMLInputElement
   onupdate({ ...stage, id: target.value })
@@ -40,17 +61,6 @@ function handleTypeToggle() {
 function handleErrorModeChange(e: Event) {
   const val = (e.target as HTMLSelectElement).value
   onupdate({ ...stage, error_mode: (val || undefined) as ErrorMode | undefined })
-}
-
-function handleSignalToggle(signal: string) {
-  const signals = stage.signals ? [...stage.signals] : []
-  const idx = signals.indexOf(signal)
-  if (idx >= 0) {
-    signals.splice(idx, 1)
-  } else {
-    signals.push(signal)
-  }
-  onupdate({ ...stage, signals })
 }
 
 function handleYamlEdit(e: Event) {
@@ -112,20 +122,6 @@ function handleYamlEdit(e: Event) {
       </div>
 
       <div class="field">
-        <label>Signals</label>
-        <div class="signal-options">
-          <label class="signal-check">
-            <input
-              type="checkbox"
-              checked={stage.signals?.includes('traces')}
-              onchange={() => handleSignalToggle('traces')}
-            />
-            traces
-          </label>
-        </div>
-      </div>
-
-      <div class="field">
         <label for="yaml-editor">Processor Config</label>
         <textarea
           id="yaml-editor"
@@ -135,24 +131,29 @@ function handleYamlEdit(e: Event) {
           oninput={handleYamlEdit}
         ></textarea>
       </div>
+
+      <div class="field">
+        <label>Pipeline YAML Preview</label>
+        <pre class="yaml-preview">{pipelineYamlPreview}</pre>
+      </div>
     </div>
   {/if}
 </div>
 
 <style>
   .stage-editor {
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    background: #fff;
-    margin-bottom: 0.5rem;
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-surface, #1e293b);
+    margin-bottom: var(--space-sm, 0.5rem);
   }
 
   .toggle-btn {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-sm, 0.5rem);
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    padding: var(--space-sm, 0.5rem) 0.75rem;
     border: none;
     background: none;
     cursor: pointer;
@@ -161,17 +162,17 @@ function handleYamlEdit(e: Event) {
   }
 
   .toggle-btn:hover {
-    background: #f9fafb;
+    background: var(--color-surface, #1e293b);
   }
 
   .chevron {
     font-size: 0.75rem;
-    width: 1rem;
+    width: var(--space-md, 1rem);
   }
 
   .stage-id {
     font-weight: 600;
-    font-family: monospace;
+    font-family: var(--font-mono, monospace);
   }
 
   .badge {
@@ -182,23 +183,23 @@ function handleYamlEdit(e: Event) {
   }
 
   .badge--transform {
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: var(--color-primary, #3b82f6);
+    color: var(--color-text, #f1f5f9);
   }
 
   .badge--filter {
-    background: #fef3c7;
-    color: #b45309;
+    background: var(--color-warning, #f59e0b);
+    color: var(--color-text, #f1f5f9);
   }
 
   .badge--mode {
-    background: #f3f4f6;
-    color: #4b5563;
+    background: var(--color-surface-hover, #334155);
+    color: var(--color-text-secondary, #94a3b8);
   }
 
   .stage-body {
     padding: 0.75rem;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--color-border, #334155);
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -207,66 +208,67 @@ function handleYamlEdit(e: Event) {
   .field {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-xs, 0.25rem);
   }
 
   .field label {
     font-size: 0.75rem;
     font-weight: 600;
-    color: #6b7280;
+    color: var(--color-text-secondary, #94a3b8);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
 
   .field input[type="text"],
   .field select {
-    padding: 0.375rem 0.5rem;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
+    padding: 0.375rem var(--space-sm, 0.5rem);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-sm, 4px);
     font-size: 0.875rem;
   }
 
   .toggle-type {
-    padding: 0.25rem 0.5rem;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
-    background: #f9fafb;
+    padding: var(--space-xs, 0.25rem) var(--space-sm, 0.5rem);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--color-surface, #1e293b);
     cursor: pointer;
     font-size: 0.75rem;
     align-self: flex-start;
   }
 
   .toggle-type:hover {
-    background: #f3f4f6;
+    background: var(--color-surface-hover, #334155);
   }
 
   .current-type {
     font-size: 0.75rem;
-    color: #6b7280;
-    margin-left: 0.25rem;
-  }
-
-  .signal-options {
-    display: flex;
-    gap: 1rem;
-  }
-
-  .signal-check {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.875rem;
-    cursor: pointer;
+    color: var(--color-text-secondary, #94a3b8);
+    margin-left: var(--space-xs, 0.25rem);
   }
 
   .yaml-editor {
-    font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+    font-family: var(--font-mono, monospace);
     font-size: 0.8125rem;
-    padding: 0.5rem;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
+    padding: var(--space-sm, 0.5rem);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-sm, 4px);
     resize: vertical;
     line-height: 1.4;
     tab-size: 2;
+  }
+
+  .yaml-preview {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.8125rem;
+    padding: var(--space-sm, 0.5rem);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--color-surface, #1e293b);
+    line-height: 1.4;
+    tab-size: 2;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 0;
   }
 </style>

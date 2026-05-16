@@ -24,13 +24,32 @@
       if (!res.ok) throw new Error('Failed to fetch runs')
       const data = await res.json()
       runs = Array.isArray(data) ? data : (data.runs || [])
-      if (data.length > 0) {
-        selectedRunId = data[0].id
+      if (runs.length > 0) {
+        selectedRunId = runs[0].id
       }
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : 'Failed to load runs'
     }
   })
+
+  async function refreshRuns(): Promise<void> {
+    try {
+      const res = await fetch('/api/runs')
+      if (!res.ok) throw new Error('Failed to fetch runs')
+      const data = await res.json()
+      const newRuns: Run[] = Array.isArray(data) ? data : (data.runs || [])
+      const prevId = selectedRunId
+      runs = newRuns
+      // Preserve selected run if still in list
+      if (prevId && newRuns.some(r => r.id === prevId)) {
+        selectedRunId = prevId
+      } else if (newRuns.length > 0) {
+        selectedRunId = newRuns[0].id
+      }
+    } catch (e: unknown) {
+      error = e instanceof Error ? e.message : 'Failed to refresh runs'
+    }
+  }
 
   async function execute(): Promise<void> {
     loading = true
@@ -79,50 +98,54 @@
         Execute Pipeline
       {/if}
     </button>
+
+    <button onclick={refreshRuns} disabled={loading} title="Refresh runs">
+      ↻
+    </button>
   </div>
 </div>
 
 <style>
   .run-selector {
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-md, 1rem);
   }
   h3 {
-    font-size: 1rem;
+    font-size: var(--font-size-md, 0.9rem);
     font-weight: 600;
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--space-sm, 0.5rem);
   }
   .error {
-    color: #e53e3e;
+    color: var(--color-error, #ef4444);
     font-size: 0.875rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--space-sm, 0.5rem);
   }
   .controls {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-sm, 0.5rem);
     align-items: center;
   }
   select {
     flex: 1;
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    padding: var(--space-sm, 0.5rem);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-sm, 4px);
     font-size: 0.875rem;
   }
   button {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.5rem 1rem;
-    background: #3182ce;
-    color: #fff;
+    padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
+    background: var(--color-primary, #3b82f6);
+    color: var(--color-text, #f1f5f9);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm, 4px);
     font-size: 0.875rem;
     cursor: pointer;
     white-space: nowrap;
   }
   button:disabled {
-    background: #a0aec0;
+    background: var(--color-text-secondary, #94a3b8);
     cursor: not-allowed;
   }
   .spinner {
@@ -130,7 +153,7 @@
     width: 0.875rem;
     height: 0.875rem;
     border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: #fff;
+    border-top-color: var(--color-text, #f1f5f9);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
   }
