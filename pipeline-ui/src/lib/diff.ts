@@ -117,6 +117,24 @@ function countSpans(data: unknown): number {
   return extractSpans(data).length
 }
 
+export function base64ToHex(b64: string): string {
+  try {
+    const bytes = atob(b64)
+    return Array.from(bytes, c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  } catch {
+    return b64
+  }
+}
+
+export function isZeroId(id: string): boolean {
+  try {
+    const bytes = atob(id)
+    return bytes.length > 0 && Array.from(bytes).every(c => c === '\0')
+  } catch {
+    return false
+  }
+}
+
 export function computeSpanChanges(before: unknown, after: unknown): SpanChange[] {
   const changes: SpanChange[] = []
   if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return changes

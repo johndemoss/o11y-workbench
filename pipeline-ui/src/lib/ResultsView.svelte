@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { computeAllStageDiffs } from './diff'
+  import { computeAllStageDiffs, base64ToHex, isZeroId } from './diff'
   import type { PipelineResult, StageDiff } from './types'
 
   let { result, error, originalData }: {
@@ -124,7 +124,7 @@
                     {#each stageDiffs[stage.stage_index].modified as span}
                       <div class="diff-item diff-modified">
                         <span class="diff-badge">MODIFIED</span>
-                        <code class="diff-span-id">{span.span_id}</code>
+                        <code class="diff-span-id" class:zero-id={isZeroId(span.span_id)}>{base64ToHex(span.span_id)}</code>
                         {#if span.changes && span.changes.length > 0}
                           <div class="diff-changes">
                             {#each span.changes as change}
@@ -151,13 +151,13 @@
                     {#each stageDiffs[stage.stage_index].added as span}
                       <div class="diff-item diff-added">
                         <span class="diff-badge">ADDED</span>
-                        <code class="diff-span-id">{span.span_id}</code>
+                        <code class="diff-span-id" class:zero-id={isZeroId(span.span_id)}>{base64ToHex(span.span_id)}</code>
                       </div>
                     {/each}
                     {#each stageDiffs[stage.stage_index].removed as span}
                       <div class="diff-item diff-removed">
                         <span class="diff-badge">REMOVED</span>
-                        <code class="diff-span-id">{span.span_id}</code>
+                        <code class="diff-span-id" class:zero-id={isZeroId(span.span_id)}>{base64ToHex(span.span_id)}</code>
                       </div>
                     {/each}
                     {#if stageDiffs[stage.stage_index].added.length === 0 && stageDiffs[stage.stage_index].removed.length === 0 && stageDiffs[stage.stage_index].modified.length === 0}
@@ -425,6 +425,11 @@
   .diff-span-id {
     font-family: var(--font-mono, monospace);
     font-size: 0.8rem;
+  }
+  .diff-span-id.zero-id {
+    color: var(--color-error, #ef4444);
+    font-weight: bold;
+    text-decoration: underline wavy var(--color-error, #ef4444);
   }
   .diff-empty {
     color: var(--color-text-secondary, #94a3b8);
