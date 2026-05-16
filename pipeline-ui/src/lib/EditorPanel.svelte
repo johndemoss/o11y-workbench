@@ -105,6 +105,7 @@
   .editor-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 8px 12px;
     border-bottom: 1px solid var(--color-border, #334155);
     flex-shrink: 0;

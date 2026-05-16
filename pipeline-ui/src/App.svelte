@@ -255,6 +255,9 @@
   .app {
     font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
     padding: var(--space-md, 1rem);
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   .execution-section, .results-section {
     margin-top: var(--space-xl, 2rem);
@@ -344,12 +347,11 @@
 
   /* ─── Graph tab: full-height layout ─────────────────────────── */
   .graph-fullscreen {
-    position: fixed;
-    inset: 0;
-    top: 48px;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: row;
-    z-index: 10;
+    overflow: hidden;
   }
 
   .graph-main {
