@@ -2,7 +2,6 @@
   import { getContext } from 'svelte'
   import { Handle, Position, type NodeProps, type Node } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
-  import FlowResultBadge from './FlowResultBadge.svelte'
 
   let { data }: NodeProps<Node<StageNodeData>> = $props()
 
@@ -13,24 +12,7 @@
     filter: '#d97706',
   }
 
-  let headerColor = $derived(typeColors[data.stage.type] ?? '#64748b')
-
-  let typeLabel = $derived(
-    data.stage.type.charAt(0).toUpperCase() + data.stage.type.slice(1),
-  )
-
-  let resultCounts = $derived.by(() => {
-    const intermediate = data.results?.intermediate_data
-    if (intermediate && typeof intermediate === 'object') {
-      const d = intermediate as Record<string, unknown>
-      return {
-        added: typeof d.added === 'number' ? d.added : 0,
-        removed: typeof d.removed === 'number' ? d.removed : 0,
-        modified: typeof d.modified === 'number' ? d.modified : 0,
-      }
-    }
-    return { added: 0, removed: 0, modified: 0 }
-  })
+  let badgeColor = $derived(typeColors[data.stage.type] ?? '#64748b')
 
   function handleDelete() {
     requestDelete(data.stage.id)
@@ -40,135 +22,116 @@
 <div class="node-card">
   <Handle type="target" position={Position.Left} />
 
-  <div class="header" style="background: {headerColor}">
-    <span class="header-label">{typeLabel}</span>
-    <button class="delete-btn nodrag" onclick={handleDelete} aria-label="Delete stage">
-      ✕
-    </button>
+  <div class="card-content">
+    <span class="drag-grip" aria-hidden="true">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </span>
+
+    <span class="stage-name">{data.stage.id}</span>
+
+    <span class="type-badge" style="background: {badgeColor}">
+      {data.stage.type}
+    </span>
   </div>
 
-  <div class="body">
-    <div class="stage-id">{data.stage.id}</div>
-
-    {#if data.stage.error_mode}
-      <div class="info-row">
-        <span class="info-label">Error:</span>
-        <span class="info-value">{data.stage.error_mode}</span>
-      </div>
-    {/if}
-
-    <div class="info-row">
-      <span class="info-label">Processor:</span>
-      <span class="info-value mono">{data.stage.processor_ref}</span>
-    </div>
-
-    {#if data.results}
-      <div class="results-section">
-        <FlowResultBadge
-          added={resultCounts.added}
-          removed={resultCounts.removed}
-          modified={resultCounts.modified}
-        />
-      </div>
-    {/if}
-  </div>
+  <button class="delete-btn nodrag" onclick={handleDelete} aria-label="Delete stage">×</button>
 
   <Handle type="source" position={Position.Right} />
 </div>
 
 <style>
   .node-card {
+    display: flex;
+    align-items: center;
+    position: relative;
+    width: 180px;
+    height: 80px;
     background: var(--color-surface, #1e293b);
     border: 1px solid var(--color-border, #334155);
     border-radius: var(--radius-lg, 8px);
-    width: 200px;
-    overflow: hidden;
-    font-family: var(--font-family, inherit);
     box-shadow: var(--shadow-md, 0 4px 6px rgba(0, 0, 0, 0.4));
+    font-family: var(--font-family, inherit);
+    transition: box-shadow 150ms ease, transform 150ms ease;
   }
 
-  .header {
-    padding: var(--space-xs, 0.25rem) var(--space-sm, 0.5rem);
+  .node-card:hover {
+    box-shadow: var(--shadow-lg, 0 8px 12px rgba(0, 0, 0, 0.5));
+    transform: translateY(-1px);
+  }
+
+  .card-content {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    font-size: 0.7rem;
+    gap: 6px;
+    padding: 0 10px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* ── 6-dot grip icon ── */
+  .drag-grip {
+    display: grid;
+    grid-template-columns: 3px 3px;
+    gap: 2px;
+    flex-shrink: 0;
+    opacity: 0.35;
+    cursor: grab;
+  }
+
+  .dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--color-text-secondary, #94a3b8);
+  }
+
+  .stage-name {
+    font-size: 0.8rem;
     font-weight: 600;
+    color: var(--color-text, #f1f5f9);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .type-badge {
+    font-size: 0.6rem;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #fff;
-    min-height: 28px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
   }
 
-  .header-label {
-    opacity: 0.95;
-  }
-
+  /* ── Delete button (hidden by default, visible on hover) ── */
   .delete-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    z-index: 2;
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.4);
     cursor: pointer;
     font-size: 0.75rem;
-    padding: 2px 4px;
+    padding: 2px 5px;
     border-radius: var(--radius-sm, 4px);
     line-height: 1;
-    transition: background var(--transition-fast, 150ms ease),
-                color var(--transition-fast, 150ms ease);
+    opacity: 0;
+    transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+  }
+
+  .node-card:hover .delete-btn {
+    opacity: 1;
   }
 
   .delete-btn:hover {
     background: rgba(0, 0, 0, 0.25);
     color: #fff;
-  }
-
-  .body {
-    padding: var(--space-sm, 0.5rem);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs, 0.25rem);
-  }
-
-  .stage-id {
-    font-weight: 700;
-    font-size: var(--font-size-md, 0.9rem);
-    color: var(--color-text, #f1f5f9);
-    margin-bottom: var(--space-xs, 0.25rem);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 100%;
-  }
-
-  .info-row {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-xs, 0.25rem);
-  }
-
-  .info-label {
-    font-size: var(--font-size-sm, 0.8rem);
-    color: var(--color-text-secondary, #94a3b8);
-    flex-shrink: 0;
-  }
-
-  .info-value {
-    font-size: var(--font-size-sm, 0.8rem);
-    color: var(--color-text, #f1f5f9);
-  }
-
-  .info-value.mono {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.7rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 130px;
-  }
-
-  .results-section {
-    margin-top: var(--space-xs, 0.25rem);
-    padding-top: var(--space-xs, 0.25rem);
-    border-top: 1px solid var(--color-border, #334155);
   }
 </style>
