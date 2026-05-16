@@ -40,6 +40,24 @@
     pipeline.processors = { ...pipeline.processors, [stage.processor_ref]: config }
   }
 
+  function moveUp(idx: number): void {
+    if (idx === 0) return
+    const stages = [...pipeline.stages]
+    const tmp = stages[idx]
+    stages[idx] = stages[idx - 1]
+    stages[idx - 1] = tmp
+    pipeline.stages = stages
+  }
+
+  function moveDown(idx: number): void {
+    if (idx === pipeline.stages.length - 1) return
+    const stages = [...pipeline.stages]
+    const tmp = stages[idx]
+    stages[idx] = stages[idx + 1]
+    stages[idx + 1] = tmp
+    pipeline.stages = stages
+  }
+
   function onDragStart(e: DragEvent, idx: number): void {
     dragIdx = idx
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
@@ -89,6 +107,10 @@
           class:drag-over={dropIdx === idx && dragIdx !== idx}
         >
           <div class="drag-handle">⠿</div>
+          <div class="move-buttons">
+            <button onclick={() => moveUp(idx)} disabled={idx === 0} class="move-btn" title="Move up" aria-label="Move stage up">↑</button>
+            <button onclick={() => moveDown(idx)} disabled={idx === pipeline.stages.length - 1} class="move-btn" title="Move down" aria-label="Move stage down">↓</button>
+          </div>
           <StageEditor {stage} processor={pipeline.processors[stage.processor_ref] || {}} onupdate={(s) => updateStage(idx, s)} onupdateProcessor={(c) => updateProcessor(idx, c)} />
           {#if deleteConfirmIdx === idx}
             <div class="delete-confirm">
@@ -128,4 +150,31 @@
   .delete-confirm { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; }
   .btn-danger-small { background: var(--color-error, #ef4444); color: var(--color-text, #f1f5f9); border: none; border-radius: var(--radius-sm, 4px); padding: 0.15rem 0.4rem; cursor: pointer; font-size: 0.75rem; }
   .btn-small { background: var(--color-border, #334155); border: none; border-radius: var(--radius-sm, 4px); padding: 0.15rem 0.4rem; cursor: pointer; font-size: 0.75rem; }
+  .move-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .move-btn {
+    background: var(--color-surface-hover, #334155);
+    border: 1px solid var(--color-border, #334155);
+    color: var(--color-text, #f1f5f9);
+    cursor: pointer;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    transition: background 0.15s;
+  }
+
+  .move-btn:hover:not(:disabled) {
+    background: var(--color-primary, #3b82f6);
+  }
+
+  .move-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
 </style>

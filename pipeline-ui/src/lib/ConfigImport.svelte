@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Pipeline } from './types'
+  import type { Pipeline, PipelinesBySignal } from './types'
 
   let { onimport }: {
-    onimport?: (pipeline: Pipeline) => void
+    onimport?: (pipeline: PipelinesBySignal) => void
   } = $props()
 
   let yamlText = $state(`receivers:

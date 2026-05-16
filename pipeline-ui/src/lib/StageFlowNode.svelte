@@ -7,10 +7,20 @@
   let { data }: NodeProps<Node<StageNodeData>> = $props()
 
   let requestDelete = getContext<(id: string) => void>('requestDelete')
+  let moveStage = getContext<(id: string, dir: 'up' | 'down') => void>('moveStage')
 
-  function handleDelete() {
+  function handleDelete(e: MouseEvent) {
+    e.stopPropagation()
     requestDelete(data.stage.id)
   }
+
+  let displayName = $derived.by(() => {
+    const ref = data.stage.processor_ref
+    if (!ref) return data.stage.id
+    const slashIdx = ref.indexOf('/')
+    if (slashIdx >= 0) return ref.slice(slashIdx + 1)
+    return ref
+  })
 </script>
 
 <div
@@ -28,10 +38,25 @@
   </div>
 
   <div class="card-body">
-    <span class="node-name">{data.stage.id}</span>
+    <span class="node-name">{displayName}</span>
   </div>
 
-  <button class="delete-btn nodrag" onclick={handleDelete} aria-label="Delete stage">×</button>
+  <button class="delete-btn nodrag" onclick={(e) => handleDelete(e)} aria-label="Delete stage">×</button>
+
+  <div class="move-controls nodrag">
+    <button
+      class="move-btn move-up"
+      onclick={(e) => { e.stopPropagation(); moveStage(data.stage.id, 'up') }}
+      title="Move left"
+      aria-label="Move stage left"
+    >◀</button>
+    <button
+      class="move-btn move-down"
+      onclick={(e) => { e.stopPropagation(); moveStage(data.stage.id, 'down') }}
+      title="Move right"
+      aria-label="Move stage right"
+    >▶</button>
+  </div>
 
   <Handle type="source" position={Position.Right} />
 </div>
@@ -82,7 +107,7 @@
   }
 
   .node-name {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     font-weight: 600;
     color: #f1f5f9;
     text-align: center;
@@ -121,5 +146,40 @@
   .node-card.disabled {
     opacity: 0.4;
     filter: grayscale(0.7);
+  }
+
+  /* ── Move controls ── */
+  .move-controls {
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    right: 2px;
+    display: flex;
+    justify-content: space-between;
+    z-index: 2;
+    opacity: 0.5;
+    transition: opacity 150ms ease;
+  }
+
+  .node-card:hover .move-controls {
+    opacity: 1;
+  }
+
+  .move-btn {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: background 150ms ease, color 150ms ease, opacity 150ms ease, border-color 150ms ease;
+  }
+
+  .move-btn:hover {
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.3);
   }
 </style>

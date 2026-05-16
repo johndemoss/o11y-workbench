@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { NodeProps, Node } from '@xyflow/svelte'
+  import { Position, Handle } from '@xyflow/svelte'
   import { STAGE_COLORS } from './types'
 
   interface InfraData {
@@ -16,6 +17,15 @@
   class:disabled={data.disabled}
   style="border-color: {STAGE_COLORS[data.type]?.border ?? '#64748b'}"
 >
+  <!-- Receiver: source handle on right (edge goes FROM receiver to stage) -->
+  {#if data.type === 'receiver'}
+    <Handle type="source" position={Position.Right} style="opacity: 0; width: 8px; height: 8px; top: 50%" />
+  {/if}
+
+  <!-- Exporter: target handle on left (edge comes from stage to exporter) -->
+  {#if data.type === 'exporter'}
+    <Handle type="target" position={Position.Left} style="opacity: 0; width: 8px; height: 8px; top: 50%" />
+  {/if}
   <div
     class="card-header"
     style="background: {STAGE_COLORS[data.type]?.bg ?? 'rgba(100,116,139,0.08)'}; border-bottom: 2px solid {STAGE_COLORS[data.type]?.border ?? '#64748b'}"

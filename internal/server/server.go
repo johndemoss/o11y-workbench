@@ -41,6 +41,7 @@ func New(addr string, pipelineEnabled bool) *Server {
 }
 
 func (s *Server) registerRoutes() {
+	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/scenarios", s.handleScenarios)
 	s.mux.HandleFunc("POST /api/scenarios", s.handleUploadScenarios)
 	s.mux.HandleFunc("GET /api/config/defaults", s.handleDefaults)
@@ -92,6 +93,10 @@ func (s *Server) registerRoutes() {
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) Store() *RunStore { return s.store }

@@ -113,6 +113,7 @@
 
   .drag-card--transform {
     background: var(--color-accent-hover, #7c3aed);
+    border-left-color: #7c3aed;
   }
 
   .drag-card--filter {

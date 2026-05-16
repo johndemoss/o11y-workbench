@@ -34,8 +34,9 @@ go run ./cmd/otel-workbench --scenario my-app --scenario-file ./scenarios.yaml
 ### Web Dashboard
 
 ```bash
-# Start the web server
-go run ./cmd/otel-workbench-web
+# Start the web server (builds frontend + Go binary, waits until ready)
+make serve
+# Or: ./scripts/serve.sh
 
 # Open http://localhost:8080
 ```
@@ -161,20 +162,22 @@ The **Pipeline Prototyper** is a visual pipeline builder that mirrors the OTel C
 Start the web server with the `--pipeline-prototyper` flag:
 
 ```bash
-./otel-workbench-web --pipeline-prototyper
+make serve
 ```
+
+The `serve` target builds the frontend, compiles the server, and starts it with pipeline prototyper flag handling.
 
 Or via environment variable:
 
 ```bash
 export OTEL_WORKBENCH_PIPELINE_PROTOTYPER=true
-./otel-workbench-web
+./scripts/serve.sh
 ```
 
 ### Build Prerequisites
 
 - Node.js 18+ required for building the pipeline UI
-- Run `make build-pipeline-ui` or `go generate ./...` to build the frontend before starting the server
+- The `make serve` and `./scripts/serve.sh` commands handle frontend builds automatically
 
 ### Architecture
 

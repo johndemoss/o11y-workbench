@@ -69,6 +69,12 @@
   /** Serialised hash of pipelines that the flow currently reflects. */
   let lastPipelinesHash = $state('')
 
+  /**
+   * Flag to skip the flow→pipelines effect when nodes were just set from pipelinesToFlow.
+   * This prevents overwriting YAML edits with the flow-derived state.
+   */
+  let skipNextFlowToPipelines = false
+
   function getPipelinesHash(p: PipelinesBySignal): string {
     return JSON.stringify({
       traces: p.traces?.stages?.map((s) => s.id) ?? [],
@@ -90,6 +96,7 @@
       }
     }
     untrack(() => {
+      skipNextFlowToPipelines = true
       nodes = initial.nodes as Node<StageNodeData>[]
       edges = initial.edges
     })
@@ -111,6 +118,10 @@
 
     untrack(() => {
       try {
+        if (skipNextFlowToPipelines) {
+          skipNextFlowToPipelines = false
+          return
+        }
         const updated = flowToPipelines(nodes as any, edges, pipelines)
         onPipelinesChange?.(updated)
       } catch {
@@ -143,6 +154,33 @@
   // ─── Delete confirmation via context ─────────────────────────────────────
   setContext('requestDelete', (nodeId: string) => {
     deleteConfirmNodeId = nodeId
+  })
+
+  // ─── Move stage up/down via context ──────────────────────────────────────
+  setContext('moveStage', (nodeId: string, direction: 'up' | 'down') => {
+    const node = nodes.find(n => n.id === nodeId)
+    if (!node) return
+    const parentId = node.parentId
+    const allStages = nodes
+      .filter(n => n.type === 'stage' && n.parentId === parentId)
+      .sort((a, b) => a.position.x - b.position.x)
+    const idx = allStages.findIndex(n => n.id === nodeId)
+    if (idx < 0) return // not found in sorted stages, do nothing
+    if (direction === 'up' && idx > 0) {
+      const result = reorderStage(nodes as any, edges, nodeId, allStages[idx - 1].position.x - 1)
+      untrack(() => {
+        nodes = result.nodes as Node<StageNodeData>[]
+        edges = result.edges
+      })
+      onNodeSelected?.(nodeId)
+    } else if (direction === 'down' && idx < allStages.length - 1) {
+      const result = reorderStage(nodes as any, edges, nodeId, allStages[idx + 1].position.x + 1)
+      untrack(() => {
+        nodes = result.nodes as Node<StageNodeData>[]
+        edges = result.edges
+      })
+      onNodeSelected?.(nodeId)
+    }
   })
 
   // ─── Drag-over (allow drop) ───────────────────────────────────────────────
@@ -194,6 +232,8 @@
       if (flowPos.x >= sx && flowPos.x <= sx + sw && flowPos.y >= sy && flowPos.y <= sy + sh) {
         parentId = sn.id
         parentOrigin = { x: sx, y: sy }
+        // Reject drops on disabled swimlanes (logs/metrics)
+        if (sn.data?.disabled) return
         break
       }
     }
@@ -214,9 +254,22 @@
       )
     }
 
-    // Node position is at the end of the existing chain
+    // Node position: between receiver (right edge) and exporter (left edge)
+    const STAGE_WIDTH = 160
+    const MIN_GAP = 50
+    // Find infra receiver nodes in this swimlane to compute their right edge
+    const receiverNodes = currentNodes.filter(
+      (n) => n.parentId === parentId && n.type === 'infra' && (n.data as any)?.type === 'receiver',
+    )
+    const receiverRight = receiverNodes.length > 0
+      ? receiverNodes[0].position.x + (receiverNodes[0].width || 160)
+      : 180 // default: receiver at x=20, width=160 → right edge=180
+    const firstStageX = receiverRight + MIN_GAP // = 230 with default receiver
+
     const position = {
-      x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + 220 : 20,
+      x: siblings.length > 0
+        ? siblings[siblings.length - 1].position.x + STAGE_WIDTH + MIN_GAP
+        : firstStageX,
       y: 35,
     }
 
@@ -225,6 +278,8 @@
       type: 'stage',
       parentId,
       position,
+      zIndex: 10,
+      draggable: false,
       data: {
         stage: { id, type, processor_ref: procName },
         processor: snippetData ? JSON.parse(snippetData).processor ?? {} : {},
@@ -242,17 +297,28 @@
         id: `e-${lastSibling.id}-${id}`,
         source: lastSibling.id,
         target: id,
-        type: 'smoothstep',
+        type: 'straight',
         markerEnd: { type: MarkerType.ArrowClosed },
       })
     }
 
-    // Expand swimlane to fit new node
+    // Expand swimlane to fit new node and redistribute processors evenly
     const swimlaneNode = newNodes.find(n => n.id === (parentId || 'swimlane-traces'))
     if (swimlaneNode) {
       const siblingsAfter = newNodes.filter(n => n.parentId === swimlaneNode.id && n.type === 'stage')
-      const newWidth = Math.max(400, siblingsAfter.length * 220 + 100)
+      const newWidth = Math.max(640, siblingsAfter.length * 210 + 430)
       swimlaneNode.width = newWidth
+      swimlaneNode.style = { ...(swimlaneNode.style || {}), width: `${newWidth}px` }
+
+      // Redistribute all processor nodes evenly between receiver and exporter
+      const stageCount = siblingsAfter.length
+      if (stageCount > 1) {
+        const totalStageWidth = stageCount * STAGE_WIDTH
+        const gap = Math.max(MIN_GAP, (newWidth - 200 - MIN_GAP - firstStageX - totalStageWidth) / (stageCount - 1))
+        for (let i = 0; i < stageCount; i++) {
+          siblingsAfter[i].position.x = firstStageX + i * (STAGE_WIDTH + gap)
+        }
+      }
     }
 
     nodes = newNodes
@@ -319,7 +385,7 @@
         id: `e-${connection.source}-${connection.target}`,
         source: connection.source,
         target: connection.target,
-        type: 'smoothstep',
+        type: 'straight',
         markerEnd: { type: MarkerType.ArrowClosed },
       },
     ]
@@ -412,10 +478,11 @@
     const newNode: Node<StageNodeData> = {
       id, type: 'stage', parentId: 'swimlane-traces',
       position: {
-        x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + 220 : 20,
+      x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + 210 : 230,
         y: 35,
       },
       width: 160,
+      draggable: false,
       data: {
         stage: { id, type: type as StageType, processor_ref: procName },
         processor,
@@ -427,20 +494,20 @@
     let newEdges = [...edges]
     if (siblings.length > 0) {
       const last = siblings[siblings.length - 1]
-      newEdges.push({ id: `e-${last.id}-${id}`, source: last.id, target: id, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } })
+      newEdges.push({ id: `e-${last.id}-${id}`, source: last.id, target: id, type: 'straight', markerEnd: { type: MarkerType.ArrowClosed } })
     }
     // Expand swimlane
     const swimlaneNode = newNodes.find(n => n.id === 'swimlane-traces')
     if (swimlaneNode) {
       const siblingsAfter = newNodes.filter(n => n.parentId === 'swimlane-traces' && n.type === 'stage')
-      swimlaneNode.width = Math.max(400, siblingsAfter.length * 220 + 100)
+      swimlaneNode.width = Math.max(640, siblingsAfter.length * 210 + 430)
     }
     nodes = newNodes; edges = newEdges
     snippetModal = false
     snippetConfig = null
   }
 
-  let showMiniMap = $state(true)
+  let showMiniMap = $state(false)
 
   // ─── Derived: has any stage nodes ─────────────────────────────────────────
   let hasStages = $derived(nodes.some((n) => n.type === 'stage'))
@@ -476,8 +543,8 @@
           bind:nodes
           bind:edges
           fitView
-          minZoom={0.15}
-          fitViewOptions={{ padding: 0.5 }}
+          minZoom={0.10}
+          fitViewOptions={{ padding: 0.3 }}
           onconnect={handleConnect}
           onnodeclick={handleNodeClick}
           onnodedragstop={handleNodeDragStop}
@@ -785,5 +852,48 @@
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
+  }
+
+  /* ── Zoom controls (dark theme override) ── */
+  :global(.svelte-flow__controls) {
+    background: #1e293b !important;
+    border: 1px solid #475569 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  :global(.svelte-flow__controls-button) {
+    background: #1e293b !important;
+    border-bottom: 1px solid #334155 !important;
+    fill: #e2e8f0 !important;
+    width: 32px !important;
+    height: 32px !important;
+  }
+
+  :global(.svelte-flow__controls-button:hover) {
+    background: #334155 !important;
+  }
+
+  :global(.svelte-flow__controls-button svg) {
+    fill: #e2e8f0 !important;
+  }
+
+  :global(.svelte-flow__controls-button svg path) {
+    fill: #e2e8f0 !important;
+  }
+
+  /* ── Minimap dark theme override ── */
+  :global(.svelte-flow__minimap) {
+    background: #1e293b !important;
+    border: 1px solid #475569 !important;
+    border-radius: 8px !important;
+  }
+
+  :global(.svelte-flow__minimap svg) {
+    background: #1e293b !important;
+  }
+
+  :global(.svelte-flow__minimap svg rect:first-child) {
+    fill: #1e293b !important;
   }
 </style>

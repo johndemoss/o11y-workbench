@@ -15,7 +15,7 @@ export interface StageNodeData extends Record<string, unknown> {
  * Converts a Pipeline model into Svelte Flow nodes and edges.
  *
  * Each pipeline stage becomes one node positioned vertically with 150px spacing.
- * Sequential stages are connected by smoothstep edges with arrow markers.
+ * Sequential stages are connected by straight edges with arrow markers.
  *
  * @param pipeline - The pipeline model to convert
  * @returns An object containing the nodes and edges arrays
@@ -43,7 +43,7 @@ export function pipelineToFlow(pipeline: Pipeline): {
 			id: `e-${source}-${target}`,
 			source,
 			target,
-			type: "smoothstep",
+			type: "straight",
 			markerEnd: { type: MarkerType.ArrowClosed },
 		});
 	}
@@ -263,7 +263,7 @@ export function pipelinesToFlow(
 		const defaultExporters = pipeline.exporters ?? ['debug']
 
 		const stageCount = pipeline.stages.length;
-		const swimlaneWidth = Math.max(400, stageCount * 220 + 100);
+		const swimlaneWidth = Math.max(640, stageCount * 210 + 430);
 		const swimlaneHeight = 150;
 
 		const swimlaneId = `swimlane-${signal}`;
@@ -273,6 +273,7 @@ export function pipelinesToFlow(
 			position: { x: 0, y: 0 },
 			width: swimlaneWidth,
 			height: swimlaneHeight,
+			style: { width: `${swimlaneWidth}px` },
 			draggable: false,
 			selectable: false,
 			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1), disabled: signal !== 'traces' },
@@ -287,8 +288,10 @@ export function pipelinesToFlow(
 				type: "stage",
 				parentId: swimlaneId,
 				extent: "parent" as const,
-				position: { x: 20 + i * 220, y: 35 },
+				position: { x: 230 + i * Math.max(210, (swimlaneWidth - 640) / Math.max(1, stageCount - 1)), y: 35 },
 				width: 160,
+				draggable: false,
+				zIndex: 10,
 				data: { stage, processor, stageIndex: i, disabled: signal !== 'traces' } as StageNodeData,
 			} as any);
 
@@ -298,7 +301,7 @@ export function pipelinesToFlow(
 					id: `e-${prevStage.id}-${stage.id}`,
 					source: prevStage.id,
 					target: stage.id,
-					type: "smoothstep",
+					type: "straight",
 					markerEnd: { type: MarkerType.ArrowClosed },
 				});
 			}
@@ -356,7 +359,7 @@ export function pipelinesToFlow(
 					id: `e-${recvId}-${firstStage.id}`,
 					source: recvId,
 					target: firstStage.id,
-					type: 'smoothstep',
+					type: 'straight',
 					markerEnd: { type: MarkerType.ArrowClosed },
 				})
 			}
@@ -367,7 +370,7 @@ export function pipelinesToFlow(
 					id: `e-${lastStage.id}-${expId}`,
 					source: lastStage.id,
 					target: expId,
-					type: 'smoothstep',
+					type: 'straight',
 					markerEnd: { type: MarkerType.ArrowClosed },
 				})
 			}
@@ -485,7 +488,7 @@ export function reorderStage(
 	const allInLane = [...siblings.slice(0, newIndex), draggedNode, ...siblings.slice(newIndex)];
 
 	for (let i = 0; i < allInLane.length; i++) {
-		allInLane[i].position = { x: 20 + i * 220, y: allInLane[i].position.y };
+		allInLane[i].position = { x: 230 + i * 210, y: allInLane[i].position.y };
 	}
 
 	const swimlaneIds = new Set(allInLane.map((n) => n.id));
@@ -496,7 +499,7 @@ export function reorderStage(
 			id: `e-${allInLane[i - 1].id}-${allInLane[i].id}`,
 			source: allInLane[i - 1].id,
 			target: allInLane[i].id,
-			type: "smoothstep",
+			type: "straight",
 			markerEnd: { type: MarkerType.ArrowClosed },
 		});
 	}

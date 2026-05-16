@@ -68,7 +68,6 @@
   {#if open}
     <div class="editor-header">
       <span class="editor-title">Pipeline YAML</span>
-      <div class="resize-handle" onmousedown={startResize} title="Drag to resize"></div>
       <button class="toggle-btn" onclick={() => open = false} aria-label="Close editor">◀</button>
     </div>
     <div class="editor-content">
@@ -80,13 +79,15 @@
     </div>
   {:else}
     <button class="toggle-tab" onclick={() => open = true} aria-label="Open editor">
-      Editor ▶
+      Editor
     </button>
   {/if}
+  <div class="resize-handle" onmousedown={startResize} title="Drag to resize"></div>
 </div>
 
 <style>
   .editor-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     background: var(--color-surface, #1e293b);
@@ -96,7 +97,9 @@
   }
 
   .editor-panel.collapsed {
-    width: auto;
+    width: 32px !important;
+    min-width: 32px;
+    overflow: hidden;
   }
 
   .editor-header {
@@ -114,17 +117,21 @@
   }
 
   .resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
     cursor: col-resize;
-    height: 16px;
-    width: 4px;
     background: transparent;
-    margin: 0 4px;
-    margin-left: auto;
-    border-radius: 2px;
-    flex-shrink: 0;
+    z-index: 10;
+    transition: background 0.15s;
   }
   .resize-handle:hover {
     background: var(--color-border, #334155);
+  }
+  .editor-panel.collapsed .resize-handle {
+    display: none;
   }
 
   .toggle-btn, .toggle-tab {
@@ -142,8 +149,9 @@
 
   .toggle-tab {
     writing-mode: vertical-lr;
-    padding: 12px 6px;
-    min-height: 100px;
+    width: 100%;
+    min-height: 120px;
+    padding: 12px 4px;
     letter-spacing: 0.05em;
   }
 

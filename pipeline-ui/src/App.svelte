@@ -11,7 +11,7 @@
   import ConfigImport from './lib/ConfigImport.svelte'
   import QuickTab from './lib/QuickTab.svelte'
   import { downloadYaml } from './lib/export-yaml'
-  import { exportPipelinesToYaml } from './lib/export-yaml'
+  import { exportPipelinesToYaml, importYamlToPipelines } from './lib/export-yaml'
   import yaml from 'js-yaml'
 
   // Single-pipeline state (kept for Pipeline tab compatibility)
@@ -33,7 +33,6 @@
   let editingStage: { stage: Stage; processor: ProcessorConfig } | null = $state(null)
   let selectedNodeId: string | null = $state(null)
   let showExecute: boolean = $state(true)
-
   // Sync single pipeline from multi-signal for the Pipeline tab
   let currentPipeline = $derived(pipelinesBySignal.traces || { stages: [], processors: {}, receivers: [], exporters: [] })
 
@@ -84,12 +83,9 @@
     }
   }
 
-  function handleImport(p: Pipeline): void {
-    pipeline = p
-    pipelinesBySignal = {
-      ...pipelinesBySignal,
-      traces: p
-    }
+  function handleImport(p: PipelinesBySignal): void {
+    pipelinesBySignal = p
+    pipeline = p.traces || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] }
     showImport = false
     if (activeTab !== 'graph') {
       activeTab = 'pipeline'
@@ -168,7 +164,9 @@
           pipelines={pipelinesBySignal}
           {result}
           onValidate={handleValidate}
-          onImport={() => showImport = true}
+          onImport={() => {
+            showImport = true
+          }}
           onExport={handleExport}
           onNodeEdit={handleNodeEdit}
           onPipelinesChange={handlePipelinesChange}

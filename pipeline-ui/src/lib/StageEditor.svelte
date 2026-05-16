@@ -14,7 +14,6 @@ let {
   onupdateProcessor?: (config: ProcessorConfig) => void
 } = $props()
 
-let expanded = $state(false)
 let yamlText = $state('')
 
 $effect(() => {
@@ -78,66 +77,62 @@ function handleYamlEdit(e: Event) {
 </script>
 
 <div class="stage-editor">
-  <button class="toggle-btn" onclick={() => expanded = !expanded}>
-    <span class="chevron">{expanded ? '▼' : '▶'}</span>
+  <div class="stage-header">
     <span class="stage-id">{stage.id}</span>
     <span class="badge badge--{stage.type}">{typeLabel}</span>
     {#if stage.error_mode}
       <span class="badge badge--mode">{stage.error_mode}</span>
     {/if}
-  </button>
-
-  {#if expanded}
-    <div class="stage-body">
-      <div class="field">
-        <label for="stage-id">ID</label>
-        <input
-          id="stage-id"
-          type="text"
-          value={stage.id}
-          oninput={handleIdChange}
-        />
-      </div>
-
-      <div class="field">
-        <label>Type</label>
-        <button class="toggle-type" onclick={handleTypeToggle}>
-          {stage.type === 'transform' ? 'filter' : 'transform'}
-        </button>
-        <span class="current-type">{stage.type}</span>
-      </div>
-
-      <div class="field">
-        <label for="error-mode">Error Mode</label>
-        <select
-          id="error-mode"
-          value={stage.error_mode ?? ''}
-          onchange={handleErrorModeChange}
-        >
-          <option value="">default</option>
-          <option value="ignore">ignore</option>
-          <option value="silent">silent</option>
-          <option value="propagate">propagate</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="yaml-editor">Processor Config</label>
-        <textarea
-          id="yaml-editor"
-          class="yaml-editor"
-          rows="6"
-          value={yamlText}
-          oninput={handleYamlEdit}
-        ></textarea>
-      </div>
-
-      <div class="field">
-        <label>Pipeline YAML Preview</label>
-        <pre class="yaml-preview">{pipelineYamlPreview}</pre>
-      </div>
+  </div>
+  <div class="stage-body">
+    <div class="field">
+      <label for="stage-id">ID</label>
+      <input
+        id="stage-id"
+        type="text"
+        value={stage.id}
+        oninput={handleIdChange}
+      />
     </div>
-  {/if}
+
+    <div class="field">
+      <label>Type</label>
+      <button class="toggle-type" onclick={handleTypeToggle}>
+        {stage.type === 'transform' ? 'filter' : 'transform'}
+      </button>
+      <span class="current-type">{stage.type}</span>
+    </div>
+
+    <div class="field">
+      <label for="error-mode">Error Mode</label>
+      <select
+        id="error-mode"
+        value={stage.error_mode ?? ''}
+        onchange={handleErrorModeChange}
+      >
+        <option value="">default</option>
+        <option value="ignore">ignore</option>
+        <option value="silent">silent</option>
+        <option value="propagate">propagate</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="yaml-editor">Processor Config</label>
+      <textarea
+        id="yaml-editor"
+        class="yaml-editor"
+        rows="6"
+        value={yamlText}
+        oninput={handleYamlEdit}
+      ></textarea>
+    </div>
+
+    <div class="field">
+      <label>Pipeline YAML Preview</label>
+      <pre class="yaml-preview">{pipelineYamlPreview}</pre>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -148,26 +143,12 @@ function handleYamlEdit(e: Event) {
     margin-bottom: var(--space-sm, 0.5rem);
   }
 
-  .toggle-btn {
+  .stage-header {
     display: flex;
     align-items: center;
     gap: var(--space-sm, 0.5rem);
-    width: 100%;
     padding: var(--space-sm, 0.5rem) 0.75rem;
-    border: none;
-    background: none;
-    cursor: pointer;
     font-size: 0.875rem;
-    text-align: left;
-  }
-
-  .toggle-btn:hover {
-    background: var(--color-surface, #1e293b);
-  }
-
-  .chevron {
-    font-size: 0.75rem;
-    width: var(--space-md, 1rem);
   }
 
   .stage-id {

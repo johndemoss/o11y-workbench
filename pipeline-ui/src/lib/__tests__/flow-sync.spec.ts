@@ -89,14 +89,14 @@ describe('pipelineToFlow', () => {
     expect(result.nodes[2].position).toEqual({ x: 200, y: 300 })
   })
 
-  it('connects sequential stages with smoothstep edges', () => {
+  it('connects sequential stages with straight edges', () => {
     const stages = [makeStage('a'), makeStage('b'), makeStage('c')]
     const pipeline: Pipeline = { stages, processors: {} }
     const result = pipelineToFlow(pipeline)
     expect(result.edges).toHaveLength(2)
     expect(result.edges[0].source).toBe('a')
     expect(result.edges[0].target).toBe('b')
-    expect(result.edges[0].type).toBe('smoothstep')
+    expect(result.edges[0].type).toBe('straight')
     expect(result.edges[1].source).toBe('b')
     expect(result.edges[1].target).toBe('c')
   })
