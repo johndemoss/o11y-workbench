@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type { Pipeline, PipelineResult } from './lib/types'
+  import type { Pipeline, PipelineResult, Stage, ProcessorConfig } from './lib/types'
   import PipelineBuilder from './lib/PipelineBuilder.svelte'
+  import FlowBuilder from './lib/FlowBuilder.svelte'
+  import StageEditor from './lib/StageEditor.svelte'
   import RunSelector from './lib/RunSelector.svelte'
   import ResultsView from './lib/ResultsView.svelte'
   import ConfigImport from './lib/ConfigImport.svelte'
@@ -13,7 +15,8 @@
   let originalData: unknown = $state(null)
   let showImport: boolean = $state(false)
   let pipelineYaml: string = $state('')
-  let activeTab: 'quick' | 'pipeline' = $state('pipeline')
+  let activeTab: 'quick' | 'pipeline' | 'graph' = $state('pipeline')
+  let editingStage: { stage: Stage; processor: ProcessorConfig } | null = $state(null)
 
   function handleValidate(p: Pipeline): void {
     pipelineYaml = yamlStringify(p)
@@ -52,7 +55,13 @@
   function handleImport(p: Pipeline): void {
     pipeline = p
     showImport = false
-    activeTab = 'pipeline'
+    if (activeTab !== 'graph') {
+      activeTab = 'pipeline'
+    }
+  }
+
+  function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig }) {
+    editingStage = data
   }
 
   function yamlStringify(p: Pipeline): string {
@@ -95,6 +104,13 @@
     </button>
     <button
       class="tab-button"
+      class:active={activeTab === 'graph'}
+      onclick={() => activeTab = 'graph'}
+    >
+      Graph Builder
+    </button>
+    <button
+      class="tab-button"
       class:active={activeTab === 'pipeline'}
       onclick={() => activeTab = 'pipeline'}
     >
@@ -104,6 +120,23 @@
 
   {#if activeTab === 'quick'}
     <QuickTab onresult={handleExecuteResult} />
+  {:else if activeTab === 'graph'}
+    <FlowBuilder
+      {pipeline}
+      {result}
+      onValidate={handleValidate}
+      onImport={() => showImport = true}
+      onNodeEdit={handleNodeEdit}
+      onResultClear={() => { result = null; resultError = undefined }}
+    />
+
+    <section class="execution-section">
+      <h2>Execute Pipeline</h2>
+      <RunSelector
+        pipelineYaml={yamlStringify(pipeline)}
+        onresult={handleExecuteResult}
+      />
+    </section>
   {:else}
     <PipelineBuilder
       {pipeline}
@@ -132,6 +165,29 @@
       <div class="modal" onclick={(e) => e.stopPropagation()}>
         <ConfigImport onimport={handleImport} />
         <button class="btn-close" onclick={() => showImport = false}>Close</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if editingStage !== null}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-overlay" onclick={() => editingStage = null} onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}>
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="modal" onclick={(e) => e.stopPropagation()}>
+        <StageEditor
+          stage={editingStage.stage}
+          processor={editingStage.processor}
+          onupdate={(updatedStage: Stage) => {
+            pipeline.stages = pipeline.stages.map(s =>
+              s.id === editingStage.stage.id ? updatedStage : s
+            )
+          }}
+          onupdateProcessor={(config: ProcessorConfig) => {
+            const ref = editingStage.stage.processor_ref
+            pipeline.processors = { ...pipeline.processors, [ref]: config }
+          }}
+        />
+        <button class="btn-close" onclick={() => editingStage = null}>Close</button>
       </div>
     </div>
   {/if}
