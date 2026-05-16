@@ -39,16 +39,20 @@
     },
     onValidate,
     onImport,
+    onExport,
     onNodeEdit,
     onPipelinesChange,
+    onNodeSelected,
     result,
     onResultClear,
   }: {
     pipelines: PipelinesBySignal
     onValidate?: (p: PipelinesBySignal) => void
     onImport?: () => void
+    onExport?: () => void
     onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig }) => void
     onPipelinesChange?: (p: PipelinesBySignal) => void
+    onNodeSelected?: (nodeId: string | null) => void
     result?: PipelineResult | null
     onResultClear?: () => void
   } = $props()
@@ -318,6 +322,7 @@
   }) {
     // Ignore clicks on swimlane parent nodes
     if (node.type !== 'stage') return
+    onNodeSelected?.(node.id)
     onNodeEdit?.({ stage: node.data.stage, processor: node.data.processor })
   }
 
@@ -371,6 +376,7 @@
     <h1>Pipeline Graph</h1>
     <div class="actions">
       <button onclick={handleValidate} class="btn btn-primary">Validate</button>
+      <button onclick={() => onExport?.()} class="btn btn-secondary">Export YAML</button>
     </div>
   </header>
 
@@ -397,6 +403,7 @@
           onconnect={handleConnect}
           onnodeclick={handleNodeClick}
           onnodedragstop={handleNodeDragStop}
+          onpaneclick={() => onNodeSelected?.(null)}
         >
           <Controls />
           <Background variant={BackgroundVariant.Dots} />

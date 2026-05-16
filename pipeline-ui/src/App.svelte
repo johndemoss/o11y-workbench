@@ -1,15 +1,29 @@
 <script lang="ts">
   import type { Pipeline, PipelineResult, Stage, ProcessorConfig } from './lib/types'
+  import type { PipelinesBySignal } from './lib/types'
   import PipelineBuilder from './lib/PipelineBuilder.svelte'
   import FlowBuilder from './lib/FlowBuilder.svelte'
+  import SwimlaneFlowBuilder from './lib/SwimlaneFlowBuilder.svelte'
+  import EditorPanel from './lib/EditorPanel.svelte'
   import StageEditor from './lib/StageEditor.svelte'
   import RunSelector from './lib/RunSelector.svelte'
   import ResultsView from './lib/ResultsView.svelte'
   import ConfigImport from './lib/ConfigImport.svelte'
   import QuickTab from './lib/QuickTab.svelte'
+  import { downloadYaml } from './lib/export-yaml'
+  import { exportPipelinesToYaml } from './lib/export-yaml'
   import yaml from 'js-yaml'
 
+  // Single-pipeline state (kept for Pipeline tab compatibility)
   let pipeline: Pipeline = $state({ stages: [], processors: {} })
+
+  // Multi-signal state (for Graph tab)
+  let pipelinesBySignal: PipelinesBySignal = $state({
+    traces: { stages: [], processors: {} },
+    logs: { stages: [], processors: {} },
+    metrics: { stages: [], processors: {} }
+  })
+
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
   let originalData: unknown = $state(null)
@@ -17,6 +31,24 @@
   let pipelineYaml: string = $state('')
   let activeTab: 'quick' | 'pipeline' | 'graph' = $state('pipeline')
   let editingStage: { stage: Stage; processor: ProcessorConfig } | null = $state(null)
+  let selectedNodeId: string | null = $state(null)
+  let showExecute: boolean = $state(true)
+
+  // Sync single pipeline from multi-signal for the Pipeline tab
+  let currentPipeline = $derived(pipelinesBySignal.traces || { stages: [], processors: {} })
+
+  function handlePipelinesChange(p: PipelinesBySignal): void {
+    pipelinesBySignal = p
+  }
+
+  function handleNodeSelected(nodeId: string | null): void {
+    selectedNodeId = nodeId
+  }
+
+  function handleExport(): void {
+    const yaml = exportPipelinesToYaml(pipelinesBySignal)
+    downloadYaml('pipeline-config.yaml', yaml)
+  }
 
   function handleValidate(p: Pipeline): void {
     pipelineYaml = yamlStringify(p)
@@ -54,6 +86,10 @@
 
   function handleImport(p: Pipeline): void {
     pipeline = p
+    pipelinesBySignal = {
+      ...pipelinesBySignal,
+      traces: p
+    }
     showImport = false
     if (activeTab !== 'graph') {
       activeTab = 'pipeline'
@@ -121,22 +157,44 @@
   {#if activeTab === 'quick'}
     <QuickTab onresult={handleExecuteResult} />
   {:else if activeTab === 'graph'}
-    <FlowBuilder
-      {pipeline}
-      {result}
-      onValidate={handleValidate}
-      onImport={() => showImport = true}
-      onNodeEdit={handleNodeEdit}
-      onResultClear={() => { result = null; resultError = undefined }}
-    />
-
-    <section class="execution-section">
-      <h2>Execute Pipeline</h2>
-      <RunSelector
-        pipelineYaml={yamlStringify(pipeline)}
-        onresult={handleExecuteResult}
+    <div class="graph-fullscreen">
+      <EditorPanel
+        pipelines={pipelinesBySignal}
+        {selectedNodeId}
+        onPipelinesChange={handlePipelinesChange}
       />
-    </section>
+      <div class="graph-main">
+        <SwimlaneFlowBuilder
+          pipelines={pipelinesBySignal}
+          {result}
+          onValidate={handleValidate}
+          onImport={() => showImport = true}
+          onExport={handleExport}
+          onNodeEdit={handleNodeEdit}
+          onPipelinesChange={handlePipelinesChange}
+          onNodeSelected={handleNodeSelected}
+          onResultClear={() => { result = null; resultError = undefined }}
+        />
+        <div class="graph-bottom-panels">
+          <button class="collapse-toggle" onclick={() => showExecute = !showExecute}>
+            {showExecute ? '▼' : '▶'} Execute & Results
+          </button>
+          {#if showExecute}
+            <section class="execution-section">
+              <h2>Execute Pipeline</h2>
+              <RunSelector
+                pipelineYaml={yamlStringify(pipelinesBySignal.traces || { stages: [], processors: {} })}
+                onresult={handleExecuteResult}
+              />
+            </section>
+            <section class="results-section">
+              <h2>Results</h2>
+              <ResultsView {result} error={resultError} {originalData} />
+            </section>
+          {/if}
+        </div>
+      </div>
+    </div>
   {:else}
     <PipelineBuilder
       {pipeline}
@@ -153,10 +211,12 @@
     </section>
   {/if}
 
-  <section class="results-section">
-    <h2>Results</h2>
-    <ResultsView {result} error={resultError} {originalData} />
-  </section>
+  {#if activeTab !== 'graph'}
+    <section class="results-section">
+      <h2>Results</h2>
+      <ResultsView {result} error={resultError} {originalData} />
+    </section>
+  {/if}
 
   {#if showImport}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -284,5 +344,61 @@
   .tab-button.active {
     color: var(--color-primary, #3b82f6);
     border-bottom-color: var(--color-primary, #3b82f6);
+  }
+
+  /* ─── Graph tab: full-height layout ─────────────────────────── */
+  .graph-fullscreen {
+    position: fixed;
+    inset: 0;
+    top: 48px;
+    display: flex;
+    flex-direction: row;
+    z-index: 10;
+  }
+
+  .graph-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .graph-bottom-panels {
+    flex-shrink: 0;
+    max-height: 50%;
+    overflow-y: auto;
+    border-top: 1px solid var(--color-border, #334155);
+    padding: var(--space-md, 1rem);
+  }
+
+  .collapse-toggle {
+    background: none;
+    border: none;
+    color: var(--color-text-secondary, #94a3b8);
+    cursor: pointer;
+    padding: 8px;
+    font-size: 0.85rem;
+    width: 100%;
+    text-align: left;
+  }
+
+  .collapse-toggle:hover {
+    color: var(--color-text, #f1f5f9);
+    background: var(--color-surface-hover, #334155);
+  }
+
+  .graph-fullscreen .execution-section,
+  .graph-fullscreen .results-section {
+    margin-top: var(--space-md, 1rem);
+    padding-top: var(--space-md, 1rem);
+    border-top: 1px solid var(--color-border, #334155);
+  }
+
+  .graph-fullscreen .execution-section h2,
+  .graph-fullscreen .results-section h2 {
+    font-size: var(--font-size-lg, 1.1rem);
+    font-weight: 600;
+    margin: 0 0 0.75rem 0;
+    color: var(--color-text, #f1f5f9);
   }
 </style>
