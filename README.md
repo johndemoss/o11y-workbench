@@ -152,6 +152,36 @@ filter:
 
 The YAML config can also be provided as a flat list of statements/conditions, a simple `statements:` block, or raw OTTL lines.
 
+## Pipeline Prototyper
+
+The **Pipeline Prototyper** is a visual pipeline builder that mirrors the OTel Collector's pipeline model. Chain `transform` and `filter` processors in order with `error_mode` support and per-stage result inspection.
+
+### Enabling the Feature
+
+Start the web server with the `--pipeline-prototyper` flag:
+
+```bash
+./otel-workbench-web --pipeline-prototyper
+```
+
+Or via environment variable:
+
+```bash
+export OTEL_WORKBENCH_PIPELINE_PROTOTYPER=true
+./otel-workbench-web
+```
+
+### Build Prerequisites
+
+- Node.js 18+ required for building the pipeline UI
+- Run `make build-pipeline-ui` or `go generate ./...` to build the frontend before starting the server
+
+### Architecture
+
+- **Backend**: Pipeline data model and execution engine in `internal/ottl/`
+- **API**: REST endpoints at `/api/ottl/pipeline/*`
+- **Frontend**: Svelte SPA served at `/pipeline/`
+
 ## Scenarios
 
 ### Built-in Scenarios

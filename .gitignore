@@ -14,3 +14,7 @@ node_modules/
 test-results/
 playwright-report/
 traces/
+
+# Svelte pipeline UI build output
+pipeline-ui/dist/
+internal/server/pipeline-ui/
