@@ -66,11 +66,9 @@
     savedHeight = panelHeight
     const startY = e.clientY
     const startHeight = panelHeight
+    const graphMain = (e.target as HTMLElement).closest('.graph-main') as HTMLElement | null
 
     function onMouseMove(e: MouseEvent) {
-      const panel = (e.target as HTMLElement).closest('.graph-bottom-panels') as HTMLElement
-      if (!panel) return
-      const graphMain = panel.closest('.graph-main') as HTMLElement
       if (!graphMain) return
       const maxHeight = graphMain.clientHeight - 60
       const delta = startY - e.clientY
