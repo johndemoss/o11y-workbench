@@ -316,7 +316,7 @@
   .app {
     font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
     padding: var(--space-md, 1rem);
-    min-height: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
   }
