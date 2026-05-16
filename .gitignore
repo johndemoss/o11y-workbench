@@ -18,3 +18,4 @@ traces/
 # Svelte pipeline UI build output
 pipeline-ui/dist/
 internal/server/pipeline-ui/
+.playwright-mcp/
