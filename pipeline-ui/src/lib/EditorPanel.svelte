@@ -25,15 +25,16 @@
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       import('./export-yaml').then(({ importYamlToPipelines }) => {
-        // Validate YAML before propagating — importYamlToPipelines returns default
-        // data on parse error, so check parseability first to avoid unnecessary updates
         try {
           yaml.load(_newValue)
         } catch {
-          return // Invalid YAML — linter handles visual feedback, don't update pipeline
+          return
         }
         const parsed = importYamlToPipelines(_newValue)
-        onPipelinesChange?.(parsed)
+        const isSame = JSON.stringify(parsed) === JSON.stringify(pipelines)
+        if (!isSame) {
+          onPipelinesChange?.(parsed)
+        }
       }).catch(() => {
         /* YAML parse error — linter handles visual feedback */
       })
