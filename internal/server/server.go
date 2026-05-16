@@ -19,17 +19,22 @@ import (
 //go:embed web
 var webFS embed.FS
 
+//go:embed pipeline-ui/dist
+var pipelineFS embed.FS
+
 type Server struct {
-	store *RunStore
-	mux   *http.ServeMux
-	addr  string
+	store           *RunStore
+	mux             *http.ServeMux
+	addr            string
+	pipelineEnabled bool
 }
 
-func New(addr string) *Server {
+func New(addr string, pipelineEnabled bool) *Server {
 	s := &Server{
-		store: NewRunStore(),
-		mux:   http.NewServeMux(),
-		addr:  addr,
+		store:           NewRunStore(),
+		mux:             http.NewServeMux(),
+		addr:            addr,
+		pipelineEnabled: pipelineEnabled,
 	}
 	s.registerRoutes()
 	return s
@@ -53,6 +58,19 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/ottl/validate-html", s.handleOTTLValidateHTML)
 	s.mux.HandleFunc("POST /api/ottl/transform-html", s.handleOTTLTransformHTML)
 	s.mux.HandleFunc("POST /api/ottl/filter-html", s.handleOTTLFilterHTML)
+
+	if s.pipelineEnabled {
+		s.mux.HandleFunc("POST /api/ottl/pipeline/validate", s.handlePipelineValidate)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/execute", s.handlePipelineExecute)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/import-config", s.handlePipelineImport)
+
+		pipelineSub, err := fs.Sub(pipelineFS, "pipeline-ui/dist")
+		if err != nil {
+			log.Fatalf("embed pipeline ui fs: %v", err)
+		}
+		pipelineServer := http.FileServer(http.FS(pipelineSub))
+		s.mux.Handle("GET /pipeline/", http.StripPrefix("/pipeline/", pipelineServer))
+	}
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {

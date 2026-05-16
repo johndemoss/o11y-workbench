@@ -15,9 +15,15 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	jobsPath := flag.String("jobs", "", "Path to JSON file with startup job definitions")
 	scenarioFile := flag.String("scenario-file", "", "Path to YAML/JSON file with user-defined scenario definitions")
+	pipelinePrototyper := flag.Bool("pipeline-prototyper", false, "Enable the pipeline prototyper UI and API")
 	flag.Parse()
 
-	srv := server.New(*addr)
+	pipelineEnabled := *pipelinePrototyper
+	if v := os.Getenv("OTEL_WORKBENCH_PIPELINE_PROTOTYPER"); v == "true" {
+		pipelineEnabled = true
+	}
+
+	srv := server.New(*addr, pipelineEnabled)
 
 	if *scenarioFile != "" {
 		log.Printf("Loading user scenarios from %s", *scenarioFile)
