@@ -2,6 +2,7 @@
   import CodeMirrorEditor from './CodeMirrorEditor.svelte'
   import { exportPipelinesToYaml } from './export-yaml'
   import type { PipelinesBySignal } from './types'
+  import yaml from 'js-yaml'
 
   let {
     pipelines,
@@ -24,6 +25,13 @@
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
       import('./export-yaml').then(({ importYamlToPipelines }) => {
+        // Validate YAML before propagating — importYamlToPipelines returns default
+        // data on parse error, so check parseability first to avoid unnecessary updates
+        try {
+          yaml.load(_newValue)
+        } catch {
+          return // Invalid YAML — linter handles visual feedback, don't update pipeline
+        }
         const parsed = importYamlToPipelines(_newValue)
         onPipelinesChange?.(parsed)
       }).catch(() => {
