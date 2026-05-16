@@ -52,6 +52,10 @@ async function loadScenarios() {
       opt.textContent = s;
       sel.appendChild(opt);
     });
+    // Default to "microservice" when present
+    if (scenarios.includes('microservice')) {
+      sel.value = 'microservice';
+    }
   } catch(e) { console.error('load scenarios:', e); }
 }
 
