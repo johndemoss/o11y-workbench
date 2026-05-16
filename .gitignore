@@ -19,3 +19,9 @@ traces/
 pipeline-ui/dist/
 internal/server/pipeline-ui/
 .playwright-mcp/
+
+# Scripts (serve script)
+scripts/
+
+# Playwright cache
+pipeline-ui/playwright/.cache/
