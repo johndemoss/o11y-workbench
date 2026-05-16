@@ -73,19 +73,20 @@ function extractSpans(data: unknown): Array<{ spanId: string; [key: string]: unk
 
   const root = data as Record<string, unknown>
 
-  // Try resourceSpans structure
-  const resourceSpans = root['resourceSpans']
+  // Try resourceSpans / resource_spans structure (OTLP protojson uses snake_case)
+  const resourceSpans = (root['resourceSpans'] || root['resource_spans']) as unknown
   if (Array.isArray(resourceSpans)) {
     for (const rs of resourceSpans) {
-      const scopeSpans = (rs as Record<string, unknown>)['scopeSpans']
+      const scopeSpans = ((rs as Record<string, unknown>)['scopeSpans'] || (rs as Record<string, unknown>)['scope_spans']) as unknown
       if (Array.isArray(scopeSpans)) {
         for (const ss of scopeSpans) {
           const items = (ss as Record<string, unknown>)['spans']
           if (Array.isArray(items)) {
             for (const span of items) {
               const s = span as Record<string, unknown>
-              if (s['spanId']) {
-                spans.push(s as { spanId: string; [key: string]: unknown })
+              const spanId = (s['spanId'] || s['span_id']) as string | undefined
+              if (spanId) {
+                spans.push({ spanId, ...s } as { spanId: string; [key: string]: unknown })
               }
             }
           }
@@ -95,11 +96,15 @@ function extractSpans(data: unknown): Array<{ spanId: string; [key: string]: unk
   }
 
   // Try flat spans array
-  if (spans.length === 0 && Array.isArray(root['spans'])) {
-    for (const span of root['spans']) {
-      const s = span as Record<string, unknown>
-      if (s['spanId']) {
-        spans.push(s as { spanId: string; [key: string]: unknown })
+  if (spans.length === 0) {
+    const flatSpans = root['spans'] as unknown
+    if (Array.isArray(flatSpans)) {
+      for (const span of flatSpans) {
+        const s = span as Record<string, unknown>
+        const spanId = (s['spanId'] || s['span_id']) as string | undefined
+        if (spanId) {
+          spans.push({ spanId, ...s } as { spanId: string; [key: string]: unknown })
+        }
       }
     }
   }
