@@ -1,11 +1,22 @@
 <script lang="ts">
-  let { onImport }: {
+  import { SNIPPETS } from './snippets'
+
+  let { onImport, onExport }: {
     onImport?: () => void
+    onExport?: () => void
   } = $props()
 
   function onDragStart(event: DragEvent, stageType: string) {
     if (event.dataTransfer) {
       event.dataTransfer.setData('application/svelteflow', stageType)
+      event.dataTransfer.effectAllowed = 'move'
+    }
+  }
+
+  function onDragStartSnippet(event: DragEvent, snippet: typeof SNIPPETS[number]) {
+    if (event.dataTransfer) {
+      event.dataTransfer.setData('application/svelteflow', snippet.type)
+      event.dataTransfer.setData('application/snippet', JSON.stringify(snippet))
       event.dataTransfer.effectAllowed = 'move'
     }
   }
@@ -38,8 +49,27 @@
 
   <div class="separator" role="separator"></div>
 
+  <h3 class="section-title">Snippets</h3>
+
+  {#each SNIPPETS as snippet}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="drag-card drag-card--{snippet.type}"
+      draggable={true}
+      ondragstart={(e) => onDragStartSnippet(e, snippet)}
+      onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}
+      title={snippet.description}
+    >
+      <div class="snippet-name">{snippet.name}</div>
+      <div class="hint">{snippet.description}</div>
+    </div>
+  {/each}
+
   <button class="import-btn" onclick={() => onImport?.()}>
     Import YAML
+  </button>
+  <button class="import-btn" onclick={() => onExport?.()}>
+    Export YAML
   </button>
 </aside>
 
@@ -126,5 +156,19 @@
 
   .import-btn:active {
     background: var(--color-border, #334155);
+  }
+
+  .section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text-secondary, #94a3b8);
+    margin: var(--space-xs, 4px) 0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .snippet-name {
+    font-size: 0.8rem;
+    font-weight: 600;
   }
 </style>
