@@ -1,5 +1,6 @@
 import { type Edge, MarkerType, type Node } from "@xyflow/svelte";
-import type { Pipeline, ProcessorConfig, Stage, StageResult } from "./types";
+import type { Pipeline, PipelinesBySignal, ProcessorConfig, SignalType, Stage, StageResult } from "./types";
+import Dagre from "@dagrejs/dagre";
 
 /**
  * Data type stored in each Svelte Flow node representing a pipeline stage.
@@ -234,4 +235,209 @@ export function mergeResults(
 			},
 		};
 	});
+}
+
+// ─── Multi-swimlane functions ─────────────────────────────────
+
+/**
+ * Converts PipelinesBySignal into Svelte Flow nodes and edges with dagre layout.
+ *
+ * Creates:
+ * - One swimlane parent node per signal (type: 'swimlane')
+ * - One stage child node per pipeline stage (type: 'stage', parentId: signal swimlane)
+ * - Edges between consecutive stages within each swimlane
+ * - Uses dagre.js with rankdir: TB for parent swimlane vertical positioning
+ */
+export function pipelinesToFlow(
+	pipelines: PipelinesBySignal,
+): { nodes: Node<StageNodeData>[]; edges: Edge[] } {
+	const nodes: Node<StageNodeData>[] = [];
+	const edges: Edge[] = [];
+
+	const signals: SignalType[] = ["traces", "logs", "metrics"];
+
+	for (const signal of signals) {
+		const pipeline = pipelines[signal];
+		if (!pipeline) continue;
+
+		const stageCount = pipeline.stages.length;
+		const swimlaneWidth = Math.max(400, stageCount * 220 + 100);
+		const swimlaneHeight = 150;
+
+		const swimlaneId = `swimlane-${signal}`;
+		nodes.push({
+			id: swimlaneId,
+			type: "swimlane",
+			position: { x: 0, y: 0 },
+			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1) },
+			style: { width: swimlaneWidth, height: swimlaneHeight },
+		} as any);
+
+		for (let i = 0; i < stageCount; i++) {
+			const stage = pipeline.stages[i];
+			const processor = pipeline.processors[stage.processor_ref] ?? {};
+
+			nodes.push({
+				id: stage.id,
+				type: "stage",
+				parentId: swimlaneId,
+				extent: "parent" as const,
+				position: { x: 20 + i * 210, y: 35 },
+				data: { stage, processor, stageIndex: i } as StageNodeData,
+				style: { width: 180 },
+			} as any);
+
+			if (i > 0) {
+				const prevStage = pipeline.stages[i - 1];
+				edges.push({
+					id: `e-${prevStage.id}-${stage.id}`,
+					source: prevStage.id,
+					target: stage.id,
+					type: "smoothstep",
+					markerEnd: { type: MarkerType.ArrowClosed },
+				});
+			}
+		}
+	}
+
+	if (nodes.length > 0) {
+		const dagreNodes = nodes.filter((n) => n.type === "swimlane");
+		const g = new Dagre.graphlib.Graph<object>({ directed: true }).setDefaultEdgeLabel(() => ({}));
+		g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 30 });
+
+		for (const node of dagreNodes) {
+			g.setNode(node.id, { width: (node.style as any)?.width || 400, height: (node.style as any)?.height || 150 });
+		}
+
+		Dagre.layout(g);
+
+		for (const node of nodes) {
+			if (node.type === "swimlane") {
+				const pos = g.node(node.id) as { x: number; y: number } | undefined;
+				if (pos) {
+					const w = (node.style as any)?.width || 400;
+					const h = (node.style as any)?.height || 150;
+					node.position = { x: pos.x - w / 2, y: pos.y - h / 2 };
+				}
+			}
+		}
+	}
+
+	return { nodes, edges };
+}
+
+/**
+ * Converts Svelte Flow swimlane layout back into PipelinesBySignal.
+ *
+ * Groups stage nodes by their parent swimlane, topological sorts within
+ * each swimlane, and reconstructs the PipelinesBySignal structure while
+ * preserving processor configurations from the current pipelines.
+ */
+export function flowToPipelines(
+	flowNodes: Node<StageNodeData>[],
+	flowEdges: Edge[],
+	currentPipelines: PipelinesBySignal,
+): PipelinesBySignal {
+	const result: PipelinesBySignal = {
+		traces: { stages: [], processors: { ...currentPipelines.traces?.processors } },
+		logs: { stages: [], processors: { ...currentPipelines.logs?.processors } },
+		metrics: { stages: [], processors: { ...currentPipelines.metrics?.processors } },
+	};
+
+	const stageNodes = flowNodes.filter((n) => n.type === "stage");
+
+	const byParent = new Map<string, Node<StageNodeData>[]>();
+	for (const node of stageNodes) {
+		if (!node.parentId) continue;
+		if (!byParent.has(node.parentId)) byParent.set(node.parentId, []);
+		byParent.get(node.parentId)!.push(node);
+	}
+
+	for (const [parentId, swimlaneStageNodes] of byParent) {
+		const signal = parentId.replace("swimlane-", "") as SignalType;
+		if (!result[signal]) continue;
+
+		const swimlaneIds = new Set(swimlaneStageNodes.map((n) => n.id));
+		const swimlaneEdges = flowEdges.filter(
+			(e) => swimlaneIds.has(e.source) && swimlaneIds.has(e.target),
+		);
+
+		const orderedIds = topologicalSort(swimlaneStageNodes as any, swimlaneEdges);
+
+		const signalStages: Stage[] = [];
+		const signalProcessors: Record<string, ProcessorConfig> = {
+			...currentPipelines[signal]?.processors,
+		};
+
+		for (const id of orderedIds) {
+			const n = swimlaneStageNodes.find((sn) => sn.id === id);
+			if (n) {
+				signalStages.push({ ...n.data.stage });
+				if (n.data.processor) {
+					signalProcessors[n.data.stage.processor_ref] = { ...n.data.processor };
+				}
+			}
+		}
+
+		result[signal] = { stages: signalStages, processors: signalProcessors };
+	}
+
+	return result;
+}
+
+/**
+ * Reorders a stage within its swimlane based on horizontal drag position.
+ *
+ * The further right the node is dragged, the later in the execution order it goes.
+ * Edges within the swimlane are rebuilt to reflect the new sequential order.
+ *
+ * @returns A new { nodes, edges } object (inputs are NOT mutated).
+ */
+export function reorderStage(
+	flowNodes: Node<StageNodeData>[],
+	flowEdges: Edge[],
+	nodeId: string,
+	newX: number,
+): { nodes: Node<StageNodeData>[]; edges: Edge[] } {
+	const nodes = flowNodes.map((n) => ({ ...n }));
+	const edges = flowEdges.map((e) => ({ ...e }));
+
+	const draggedNode = nodes.find((n) => n.id === nodeId);
+	if (!draggedNode) return { nodes, edges };
+
+	draggedNode.position = { ...draggedNode.position, x: newX };
+
+	const parentId = draggedNode.parentId;
+	const siblings = nodes
+		.filter((n) => n.type === "stage" && n.parentId === parentId && n.id !== nodeId)
+		.sort((a, b) => a.position.x - b.position.x);
+
+	let newIndex = siblings.length;
+	for (let i = 0; i < siblings.length; i++) {
+		if (newX < siblings[i].position.x) {
+			newIndex = i;
+			break;
+		}
+	}
+
+	const allInLane = [...siblings.slice(0, newIndex), draggedNode, ...siblings.slice(newIndex)];
+
+	for (let i = 0; i < allInLane.length; i++) {
+		allInLane[i].position = { x: 20 + i * 210, y: allInLane[i].position.y };
+	}
+
+	const swimlaneIds = new Set(allInLane.map((n) => n.id));
+	const remainingEdges = edges.filter((e) => !(swimlaneIds.has(e.source) && swimlaneIds.has(e.target)));
+
+	for (let i = 1; i < allInLane.length; i++) {
+		remainingEdges.push({
+			id: `e-${allInLane[i - 1].id}-${allInLane[i].id}`,
+			source: allInLane[i - 1].id,
+			target: allInLane[i].id,
+			type: "smoothstep",
+			markerEnd: { type: MarkerType.ArrowClosed },
+		});
+	}
+
+	return { nodes: [...nodes], edges: remainingEdges };
 }

@@ -5,10 +5,13 @@ import {
   topologicalSort,
   wouldCreateCycle,
   mergeResults,
+  pipelinesToFlow,
+  flowToPipelines,
+  reorderStage,
   type StageNodeData,
 } from '../flow-sync'
 import type { Edge, Node } from '@xyflow/svelte'
-import type { Pipeline, Stage, StageResult } from '../types'
+import type { Pipeline, PipelinesBySignal, Stage, StageResult } from '../types'
 
 // ----- Helpers -----
 
@@ -299,5 +302,162 @@ describe('mergeResults', () => {
     const original = nodes[0].data.results
     mergeResults(nodes, results)
     expect(nodes[0].data.results).toBe(original)
+  })
+})
+
+// ===== pipelinesToFlow (multi-swimlane) =====
+
+describe('pipelinesToFlow', () => {
+  it('creates swimlane parent nodes for each signal', () => {
+    const p: PipelinesBySignal = {
+      traces: { stages: [{ id: 't1', type: 'transform', processor_ref: 'p1' }], processors: { p1: {} } },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes } = pipelinesToFlow(p)
+    const swimlanes = nodes.filter(n => n.type === 'swimlane')
+    expect(swimlanes.length).toBe(3)
+    expect(swimlanes.map(s => s.id)).toContain('swimlane-traces')
+    expect(swimlanes.map(s => s.id)).toContain('swimlane-logs')
+    expect(swimlanes.map(s => s.id)).toContain('swimlane-metrics')
+  })
+
+  it('creates child stage nodes inside each swimlane', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 't1', type: 'transform', processor_ref: 'p1' },
+          { id: 't2', type: 'filter', processor_ref: 'p2' },
+        ],
+        processors: { p1: {}, p2: {} },
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes } = pipelinesToFlow(p)
+    const stageNodes = nodes.filter(n => n.type === 'stage')
+    expect(stageNodes.length).toBe(2)
+    expect(stageNodes[0].parentId).toBe('swimlane-traces')
+    expect(stageNodes[1].parentId).toBe('swimlane-traces')
+  })
+
+  it('creates edges between consecutive stages in the same swimlane', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 't1', type: 'transform', processor_ref: 'p1' },
+          { id: 't2', type: 'filter', processor_ref: 'p2' },
+        ],
+        processors: { p1: {}, p2: {} },
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { edges } = pipelinesToFlow(p)
+    expect(edges.length).toBe(1)
+    expect(edges[0].source).toBe('t1')
+    expect(edges[0].target).toBe('t2')
+  })
+
+  it('spreads multiple signals across separate swimlanes', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [{ id: 't1', type: 'transform', processor_ref: 'p1' }],
+        processors: { p1: {} },
+      },
+      logs: {
+        stages: [{ id: 'l1', type: 'filter', processor_ref: 'p2' }],
+        processors: { p2: {} },
+      },
+      metrics: {
+        stages: [{ id: 'm1', type: 'transform', processor_ref: 'p3' }],
+        processors: { p3: {} },
+      },
+    }
+    const { nodes, edges } = pipelinesToFlow(p)
+    const tNode = nodes.find(n => n.id === 't1')
+    const lNode = nodes.find(n => n.id === 'l1')
+    const mNode = nodes.find(n => n.id === 'm1')
+    expect(tNode?.parentId).toBe('swimlane-traces')
+    expect(lNode?.parentId).toBe('swimlane-logs')
+    expect(mNode?.parentId).toBe('swimlane-metrics')
+    expect(edges).toHaveLength(0)
+  })
+})
+
+// ===== flowToPipelines (multi-swimlane) =====
+
+describe('flowToPipelines', () => {
+  it('reconstructs PipelinesBySignal from swimlane nodes and edges', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 't1', type: 'transform', processor_ref: 'p1' },
+        ],
+        processors: { p1: { some: 'config' } },
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes, edges } = pipelinesToFlow(p)
+    const result = flowToPipelines(nodes, edges, p)
+    expect(result.traces.stages.length).toBe(1)
+    expect(result.traces.stages[0].id).toBe('t1')
+    expect(result.traces.processors.p1).toEqual({ some: 'config' })
+  })
+
+  it('preserves empty swimlanes', () => {
+    const p: PipelinesBySignal = {
+      traces: { stages: [], processors: {} },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes, edges } = pipelinesToFlow(p)
+    const result = flowToPipelines(nodes, edges, p)
+    expect(result.traces.stages).toHaveLength(0)
+    expect(result.logs.stages).toHaveLength(0)
+    expect(result.metrics.stages).toHaveLength(0)
+  })
+})
+
+// ===== reorderStage =====
+
+describe('reorderStage', () => {
+  it('changes stage position when dragged horizontally within swimlane', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 't1', type: 'transform', processor_ref: 'p1' },
+          { id: 't2', type: 'filter', processor_ref: 'p2' },
+          { id: 't3', type: 'transform', processor_ref: 'p3' },
+        ],
+        processors: { p1: {}, p2: {}, p3: {} },
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes, edges } = pipelinesToFlow(p)
+    const result = reorderStage(nodes, edges, 't1', 400)
+    const reconstructed = flowToPipelines(result.nodes, result.edges, p)
+    expect(reconstructed.traces.stages[0].id).toBe('t2')
+    expect(reconstructed.traces.stages[1].id).toBe('t1')
+  })
+
+  it('does not mutate the input nodes and edges arrays', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 't1', type: 'transform', processor_ref: 'p1' },
+          { id: 't2', type: 'filter', processor_ref: 'p2' },
+        ],
+        processors: { p1: {}, p2: {} },
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes, edges } = pipelinesToFlow(p)
+    const originalNodePositions = nodes.map(n => ({ ...n.position }))
+    reorderStage(nodes, edges, 't1', 400)
+    expect(nodes.map(n => n.position)).toEqual(originalNodePositions)
   })
 })
