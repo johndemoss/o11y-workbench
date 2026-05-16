@@ -39,6 +39,9 @@ type Pipeline struct {
 	Processors map[string]ProcessorConfig `yaml:"processors" json:"processors"`
 }
 
+// PipelinesBySignal maps signal names (e.g. "traces", "logs", "metrics") to their Pipeline definitions.
+type PipelinesBySignal map[string]*Pipeline
+
 // PipelineConfig wraps a Pipeline with optional metadata.
 type PipelineConfig struct {
 	Pipeline Pipeline `yaml:"pipeline" json:"pipeline"`

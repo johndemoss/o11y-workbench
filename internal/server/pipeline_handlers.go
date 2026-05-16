@@ -134,11 +134,11 @@ func (s *Server) handlePipelineImport(w http.ResponseWriter, r *http.Request) {
 		configYAML = req.ConfigYAML
 	}
 
-	pipeline, err := ottl.ImportCollectorConfig(configYAML)
+	pipelines, err := ottl.ImportCollectorConfig(configYAML)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, pipeline)
+	writeJSON(w, http.StatusOK, pipelines)
 }

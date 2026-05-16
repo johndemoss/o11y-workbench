@@ -11,10 +11,10 @@ func TestImportCollectorConfig(t *testing.T) {
 		name    string
 		config  string
 		wantErr string
-		want    *Pipeline
+		want    PipelinesBySignal
 	}{
 		{
-			name: "full collector config",
+			name: "full collector config with traces",
 			config: `
 receivers:
   otlp:
@@ -42,47 +42,111 @@ service:
       processors: [transform/add_env, filter/drop_internal]
       exporters: [debug]
 `,
-			want: &Pipeline{
-				Stages: []Stage{
-					{
-						ID:           "add_env",
-						Type:         StageTypeTransform,
-						ErrorMode:    ErrorModeIgnore,
-						ProcessorRef: "transform/add_env",
-					},
-					{
-						ID:           "drop_internal",
-						Type:         StageTypeFilter,
-						ErrorMode:    ErrorModePropagate,
-						ProcessorRef: "filter/drop_internal",
-					},
-				},
-				Processors: map[string]ProcessorConfig{
-					"transform/add_env": {
-						"error_mode": "ignore",
-						"trace_statements": []interface{}{
-							map[string]interface{}{
-								"context":    "span",
-								"statements": []interface{}{`set(attributes["env"], "prod")`},
-							},
+			want: PipelinesBySignal{
+				"traces": {
+					Stages: []Stage{
+						{
+							ID:           "add_env",
+							Type:         StageTypeTransform,
+							ErrorMode:    ErrorModeIgnore,
+							ProcessorRef: "transform/add_env",
+						},
+						{
+							ID:           "drop_internal",
+							Type:         StageTypeFilter,
+							ErrorMode:    ErrorModePropagate,
+							ProcessorRef: "filter/drop_internal",
 						},
 					},
-					"filter/drop_internal": {
-						"error_mode": "propagate",
-						"traces": map[string]interface{}{
-							"span": []interface{}{"kind != SPAN_KIND_INTERNAL"},
+					Processors: map[string]ProcessorConfig{
+						"transform/add_env": {
+							"error_mode": "ignore",
+							"trace_statements": []interface{}{
+								map[string]interface{}{
+									"context":    "span",
+									"statements": []interface{}{`set(attributes["env"], "prod")`},
+								},
+							},
+						},
+						"filter/drop_internal": {
+							"error_mode": "propagate",
+							"traces": map[string]interface{}{
+								"span": []interface{}{"kind != SPAN_KIND_INTERNAL"},
+							},
 						},
 					},
 				},
 			},
 		},
 		{
-			name: "missing service.pipelines.traces",
+			name: "multiple signal pipelines",
 			config: `
 receivers:
   otlp:
-    protocols:
-      grpc:
+processors:
+  transform/add_env:
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["env"], "prod")
+  filter/drop_internal:
+    traces:
+      span:
+        - kind != SPAN_KIND_INTERNAL
+exporters:
+  debug:
+service:
+  pipelines:
+    traces:
+      processors: [transform/add_env]
+    metrics:
+      processors: [filter/drop_internal]
+`,
+			want: PipelinesBySignal{
+				"traces": {
+					Stages: []Stage{
+						{
+							ID:           "add_env",
+							Type:         StageTypeTransform,
+							ErrorMode:    ErrorModePropagate,
+							ProcessorRef: "transform/add_env",
+						},
+					},
+					Processors: map[string]ProcessorConfig{
+						"transform/add_env": {
+							"trace_statements": []interface{}{
+								map[string]interface{}{
+									"context":    "span",
+									"statements": []interface{}{`set(attributes["env"], "prod")`},
+								},
+							},
+						},
+					},
+				},
+				"metrics": {
+					Stages: []Stage{
+						{
+							ID:           "drop_internal",
+							Type:         StageTypeFilter,
+							ErrorMode:    ErrorModePropagate,
+							ProcessorRef: "filter/drop_internal",
+						},
+					},
+					Processors: map[string]ProcessorConfig{
+						"filter/drop_internal": {
+							"traces": map[string]interface{}{
+								"span": []interface{}{"kind != SPAN_KIND_INTERNAL"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "pipeline with suffix",
+			config: `
+receivers:
+  otlp:
 processors:
   transform/foo:
     trace_statements:
@@ -93,10 +157,31 @@ exporters:
   debug:
 service:
   pipelines:
-    metrics:
+    traces/with_suffix:
       processors: [transform/foo]
 `,
-			wantErr: "config missing 'service.pipelines.traces' section",
+			want: PipelinesBySignal{
+				"traces": {
+					Stages: []Stage{
+						{
+							ID:           "foo",
+							Type:         StageTypeTransform,
+							ErrorMode:    ErrorModePropagate,
+							ProcessorRef: "transform/foo",
+						},
+					},
+					Processors: map[string]ProcessorConfig{
+						"transform/foo": {
+							"trace_statements": []interface{}{
+								map[string]interface{}{
+									"context":    "span",
+									"statements": []interface{}{`set(attributes["x"], "y")`},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 		{
 			name: "unknown processor reference",
@@ -117,7 +202,7 @@ service:
       processors: [transform/foo, transform/bar]
       exporters: [debug]
 `,
-			wantErr: `processor "transform/bar" referenced in pipeline but not defined in 'processors' section`,
+			wantErr: `processor "transform/bar" referenced in pipeline "traces"`,
 		},
 		{
 			name: "empty processors list",
@@ -138,9 +223,11 @@ service:
       processors: []
       exporters: [debug]
 `,
-			want: &Pipeline{
-				Stages:     []Stage{},
-				Processors: map[string]ProcessorConfig{},
+			want: PipelinesBySignal{
+				"traces": {
+					Stages:     []Stage{},
+					Processors: map[string]ProcessorConfig{},
+				},
 			},
 		},
 	}
@@ -161,50 +248,52 @@ service:
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if len(got.Stages) != len(tt.want.Stages) {
-				t.Fatalf("stage count: got %d, want %d", len(got.Stages), len(tt.want.Stages))
-			}
-			for i, wantStage := range tt.want.Stages {
-				gotStage := got.Stages[i]
-				if gotStage.ID != wantStage.ID {
-					t.Errorf("stage[%d].ID: got %q, want %q", i, gotStage.ID, wantStage.ID)
-				}
-				if gotStage.Type != wantStage.Type {
-					t.Errorf("stage[%d].Type: got %q, want %q", i, gotStage.Type, wantStage.Type)
-				}
-				if gotStage.ErrorMode != wantStage.ErrorMode {
-					t.Errorf("stage[%d].ErrorMode: got %q, want %q", i, gotStage.ErrorMode, wantStage.ErrorMode)
-				}
-				if gotStage.ProcessorRef != wantStage.ProcessorRef {
-					t.Errorf("stage[%d].ProcessorRef: got %q, want %q", i, gotStage.ProcessorRef, wantStage.ProcessorRef)
-				}
-				if gotStage.Signals != nil {
-					t.Errorf("stage[%d].Signals: got %v, want nil", i, gotStage.Signals)
-				}
+			if len(got) != len(tt.want) {
+				t.Fatalf("signal count: got %d, want %d", len(got), len(tt.want))
 			}
 
-			if len(got.Processors) != len(tt.want.Processors) {
-				t.Fatalf("processor count: got %d, want %d", len(got.Processors), len(tt.want.Processors))
-			}
-			for ref, wantProc := range tt.want.Processors {
-				gotProc, ok := got.Processors[ref]
+			for signalName, wantPipeline := range tt.want {
+				gotPipeline, ok := got[signalName]
 				if !ok {
-					t.Errorf("missing processor %q", ref)
-					continue
+					t.Fatalf("missing signal %q in result", signalName)
 				}
-				if len(gotProc) != len(wantProc) {
-					t.Errorf("processor %q: got %d keys, want %d keys", ref, len(gotProc), len(wantProc))
+
+				if len(gotPipeline.Stages) != len(wantPipeline.Stages) {
+					t.Fatalf("signal %q stage count: got %d, want %d", signalName, len(gotPipeline.Stages), len(wantPipeline.Stages))
 				}
-				for k, wantVal := range wantProc {
-					gotVal, ok := gotProc[k]
+				for i, wantStage := range wantPipeline.Stages {
+					gotStage := gotPipeline.Stages[i]
+					if gotStage.ID != wantStage.ID {
+						t.Errorf("signal %q stage[%d].ID: got %q, want %q", signalName, i, gotStage.ID, wantStage.ID)
+					}
+					if gotStage.Type != wantStage.Type {
+						t.Errorf("signal %q stage[%d].Type: got %q, want %q", signalName, i, gotStage.Type, wantStage.Type)
+					}
+					if gotStage.ErrorMode != wantStage.ErrorMode {
+						t.Errorf("signal %q stage[%d].ErrorMode: got %q, want %q", signalName, i, gotStage.ErrorMode, wantStage.ErrorMode)
+					}
+					if gotStage.ProcessorRef != wantStage.ProcessorRef {
+						t.Errorf("signal %q stage[%d].ProcessorRef: got %q, want %q", signalName, i, gotStage.ProcessorRef, wantStage.ProcessorRef)
+					}
+					if gotStage.Signals != nil {
+						t.Errorf("signal %q stage[%d].Signals: got %v, want nil", signalName, i, gotStage.Signals)
+					}
+				}
+
+				if len(gotPipeline.Processors) != len(wantPipeline.Processors) {
+					t.Fatalf("signal %q processor count: got %d, want %d", signalName, len(gotPipeline.Processors), len(wantPipeline.Processors))
+				}
+				for ref, wantProc := range wantPipeline.Processors {
+					gotProc, ok := gotPipeline.Processors[ref]
 					if !ok {
-						t.Errorf("processor %q missing key %q", ref, k)
+						t.Errorf("signal %q missing processor %q", signalName, ref)
 						continue
 					}
-					gotStr := fmt.Sprintf("%v", gotVal)
-					wantStr := fmt.Sprintf("%v", wantVal)
+					// compare serialized JSON to handle nested interface{} equality
+					gotStr := fmt.Sprintf("%v", gotProc)
+					wantStr := fmt.Sprintf("%v", wantProc)
 					if gotStr != wantStr {
-						t.Errorf("processor %q key %q:\ngot  %v\nwant %v", ref, k, gotVal, wantVal)
+						t.Errorf("signal %q processor %q:\ngot  %v\nwant %v", signalName, ref, gotProc, wantProc)
 					}
 				}
 			}

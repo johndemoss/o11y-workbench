@@ -71,3 +71,24 @@ export interface PipelineResult {
   final_data?: unknown
   final_span_count: number
 }
+
+// ─── Multi-signal types ──────────────────────────────────────────
+export type SignalType = 'traces' | 'logs' | 'metrics'
+
+export type PipelinesBySignal = Record<SignalType, Pipeline>
+
+export const SIGNALS: SignalType[] = ['traces', 'logs', 'metrics']
+
+export const SIGNAL_COLORS: Record<SignalType, { border: string; bg: string; tag: string; label: string }> = {
+  traces:  { border: '#F59E0B', bg: 'rgba(245, 158, 11, 0.05)', tag: '#F59E0B', label: 'Traces' },
+  logs:    { border: '#34D399', bg: 'rgba(52, 211, 153, 0.05)', tag: '#34D399', label: 'Logs' },
+  metrics: { border: '#38BDF8', bg: 'rgba(56, 189, 248, 0.05)', tag: '#38BDF8', label: 'Metrics' },
+}
+
+export interface SnippetTemplate {
+  id: string
+  name: string
+  type: StageType
+  processor: ProcessorConfig
+  description: string
+}
