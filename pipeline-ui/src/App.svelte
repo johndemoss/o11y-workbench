@@ -61,9 +61,9 @@
 
   function handleResizeStart(e: MouseEvent) {
     e.preventDefault()
-    if (isMaximized) isMaximized = false
-    if (isCollapsed) isCollapsed = false
     savedHeight = panelHeight
+    if (isCollapsed) isCollapsed = false
+    if (isMaximized) isMaximized = false
     const startY = e.clientY
     const startHeight = panelHeight
     const graphMain = (e.target as HTMLElement).closest('.graph-main') as HTMLElement | null
@@ -72,10 +72,25 @@
       if (!graphMain) return
       const maxHeight = graphMain.clientHeight - 60
       const delta = startY - e.clientY
-      panelHeight = Math.max(100, Math.min(maxHeight, startHeight + delta))
+      const newHeight = startHeight + delta
+
+      if (newHeight <= 100) {
+        if (!isCollapsed) {
+          savedHeight = panelHeight
+          isCollapsed = true
+        }
+      } else if (newHeight >= maxHeight) {
+        if (!isMaximized) {
+          savedHeight = panelHeight
+          isMaximized = true
+        }
+      } else {
+        if (isCollapsed) isCollapsed = false
+        if (isMaximized) isMaximized = false
+        panelHeight = newHeight
+      }
     }
     function onMouseUp() {
-      savedHeight = panelHeight
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
