@@ -41,6 +41,19 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+function handleScenarioChange(el) {
+  const topo = document.getElementById('topology');
+  if (el.value) {
+    topo.disabled = true;
+    topo.style.opacity = '0.5';
+    topo.style.cursor = 'not-allowed';
+  } else {
+    topo.disabled = false;
+    topo.style.opacity = '';
+    topo.style.cursor = '';
+  }
+}
+
 async function loadScenarios() {
   try {
     const data = await api('/api/scenarios');
@@ -52,9 +65,9 @@ async function loadScenarios() {
       opt.textContent = s;
       sel.appendChild(opt);
     });
-    // Default to "microservice" when present
     if (scenarios.includes('microservice')) {
       sel.value = 'microservice';
+      handleScenarioChange(sel);
     }
   } catch(e) { console.error('load scenarios:', e); }
 }
