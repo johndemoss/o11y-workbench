@@ -5,6 +5,7 @@
   import { basicSetup } from 'codemirror'
   import { yaml } from '@codemirror/lang-yaml'
   import { oneDark } from '@codemirror/theme-one-dark'
+  import { yamlLinter, lintGutter } from './yaml-linter'
 
   let {
     value = '',
@@ -24,6 +25,8 @@
         basicSetup,
         yaml(),
         oneDark,
+        yamlLinter,
+        lintGutter(),
         EditorView.updateListener.of((update: ViewUpdate) => {
           if (update.docChanged) {
             onchange?.(update.state.doc.toString())

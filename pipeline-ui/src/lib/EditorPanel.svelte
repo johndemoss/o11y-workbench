@@ -27,7 +27,7 @@
         const parsed = importYamlToPipelines(_newValue)
         onPipelinesChange?.(parsed)
       }).catch(() => {
-        onPipelinesChange?.(pipelines)
+        /* YAML parse error — linter handles visual feedback */
       })
     }, 500)
   }

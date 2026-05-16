@@ -15,6 +15,7 @@ let {
 } = $props()
 
 let yamlText = $state('')
+let yamlError = $state<string | null>(null)
 
 $effect(() => {
   try {
@@ -68,10 +69,11 @@ function handleYamlEdit(e: Event) {
   try {
     const parsed = yaml.load(val)
     if (parsed && typeof parsed === 'object') {
+      yamlError = null
       onupdateProcessor?.(parsed as ProcessorConfig)
     }
-  } catch {
-    // Invalid YAML — don't propagate until valid
+  } catch (e) {
+    yamlError = e instanceof Error ? e.message : 'Invalid YAML'
   }
 }
 </script>
@@ -122,10 +124,14 @@ function handleYamlEdit(e: Event) {
       <textarea
         id="yaml-editor"
         class="yaml-editor"
+        class:error={yamlError !== null}
         rows="6"
         value={yamlText}
         oninput={handleYamlEdit}
       ></textarea>
+      {#if yamlError}
+        <div class="yaml-error-message">{yamlError}</div>
+      {/if}
     </div>
 
     <div class="field">
@@ -237,6 +243,19 @@ function handleYamlEdit(e: Event) {
     resize: vertical;
     line-height: 1.4;
     tab-size: 2;
+  }
+
+  .yaml-editor.error {
+    border-color: var(--color-error, #ef4444);
+  }
+
+  .yaml-error-message {
+    color: var(--color-error, #ef4444);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 4px;
   }
 
   .yaml-preview {
