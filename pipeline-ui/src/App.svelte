@@ -487,19 +487,17 @@
   }
 
   .resize-handle {
-    position: absolute;
-    top: -3px;
-    left: 0;
-    right: 0;
-    height: 6px;
+    height: 8px;
     cursor: row-resize;
-    z-index: 5;
+    flex-shrink: 0;
+    position: relative;
+    background: transparent;
   }
   .resize-handle:hover::after,
   .resize-handle:active::after {
     content: '';
     position: absolute;
-    top: 2px;
+    top: 3px;
     left: 50%;
     transform: translateX(-50%);
     width: 40px;
