@@ -29,7 +29,7 @@
   let originalData: unknown = $state(null)
   let showImport: boolean = $state(false)
   let pipelineYaml: string = $state('')
-  let activeTab: 'quick' | 'pipeline' | 'graph' = $state('pipeline')
+  let activeTab: 'quick' | 'pipeline' | 'graph' = $state('graph')
   let editingStage: { stage: Stage; processor: ProcessorConfig } | null = $state(null)
   let selectedNodeId: string | null = $state(null)
   let panelHeight = $state(300)
