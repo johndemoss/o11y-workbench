@@ -17,11 +17,19 @@ export interface Pipeline {
   processors: Record<string, ProcessorConfig>
 }
 
+export interface SpanChange {
+  field: string
+  type: 'added' | 'removed' | 'changed'
+  before?: unknown
+  after?: unknown
+}
+
 export interface DiffSpan {
   span_id: string
   status: 'added' | 'removed' | 'modified'
   before?: unknown
   after?: unknown
+  changes?: SpanChange[]
 }
 
 export interface StageDiff {

@@ -51,6 +51,23 @@
     else next.add(index)
     expandedRaw = next
   }
+
+  let diffView: 'inline' | 'side-by-side' = $state('inline')
+
+  function toggleView() {
+    diffView = diffView === 'inline' ? 'side-by-side' : 'inline'
+  }
+
+  function formatValue(val: unknown): string {
+    if (val === null || val === undefined) return 'null'
+    if (typeof val === 'string') return `"${val}"`
+    if (typeof val === 'object') return JSON.stringify(val)
+    return String(val)
+  }
+
+  function formatJSON(val: unknown): string {
+    return JSON.stringify(val, null, 2)
+  }
 </script>
 
 <div class="results-view">
@@ -98,26 +115,75 @@
               </button>
               {#if expandedDiffs.has(stage.stage_index)}
                 <div class="diff-content">
-                  {#each stageDiffs[stage.stage_index].added as span}
-                    <div class="diff-item diff-added">
-                      <span class="diff-badge">ADDED</span>
-                      <code class="diff-span-id">{span.span_id}</code>
+                  <div class="diff-view-toggle">
+                    <button class:active={diffView === 'inline'} onclick={toggleView}>Inline</button>
+                    <button class:active={diffView === 'side-by-side'} onclick={toggleView}>Side-by-Side</button>
+                  </div>
+
+                  {#if diffView === 'inline'}
+                    {#each stageDiffs[stage.stage_index].modified as span}
+                      <div class="diff-item diff-modified">
+                        <span class="diff-badge">MODIFIED</span>
+                        <code class="diff-span-id">{span.span_id}</code>
+                        {#if span.changes && span.changes.length > 0}
+                          <div class="diff-changes">
+                            {#each span.changes as change}
+                              <div class="diff-change diff-change-{change.type}">
+                                <span class="change-icon">
+                                  {#if change.type === 'added'}+{:else if change.type === 'removed'}-{:else}~{/if}
+                                </span>
+                                <span class="change-field">{change.field}</span>
+                                {#if change.type === 'changed'}
+                                  <span class="change-value-before">{formatValue(change.before)}</span>
+                                  <span class="change-arrow">→</span>
+                                  <span class="change-value-after">{formatValue(change.after)}</span>
+                                {:else if change.type === 'added'}
+                                  <span class="change-value-after">{formatValue(change.after)}</span>
+                                {:else}
+                                  <span class="change-value-before">{formatValue(change.before)}</span>
+                                {/if}
+                              </div>
+                            {/each}
+                          </div>
+                        {/if}
+                      </div>
+                    {/each}
+                    {#each stageDiffs[stage.stage_index].added as span}
+                      <div class="diff-item diff-added">
+                        <span class="diff-badge">ADDED</span>
+                        <code class="diff-span-id">{span.span_id}</code>
+                      </div>
+                    {/each}
+                    {#each stageDiffs[stage.stage_index].removed as span}
+                      <div class="diff-item diff-removed">
+                        <span class="diff-badge">REMOVED</span>
+                        <code class="diff-span-id">{span.span_id}</code>
+                      </div>
+                    {/each}
+                    {#if stageDiffs[stage.stage_index].added.length === 0 && stageDiffs[stage.stage_index].removed.length === 0 && stageDiffs[stage.stage_index].modified.length === 0}
+                      <div class="diff-empty">No changes detected</div>
+                    {/if}
+                  {:else}
+                    <div class="side-by-side">
+                      <div class="before-col">
+                        <div class="col-header">Before</div>
+                        {#each stageDiffs[stage.stage_index].modified as span}
+                          <pre class="side-pre">{formatJSON(span.before)}</pre>
+                        {/each}
+                        {#each stageDiffs[stage.stage_index].removed as span}
+                          <pre class="side-pre">{formatJSON(span.before)}</pre>
+                        {/each}
+                      </div>
+                      <div class="after-col">
+                        <div class="col-header">After</div>
+                        {#each stageDiffs[stage.stage_index].modified as span}
+                          <pre class="side-pre">{formatJSON(span.after)}</pre>
+                        {/each}
+                        {#each stageDiffs[stage.stage_index].added as span}
+                          <pre class="side-pre">{formatJSON(span.after)}</pre>
+                        {/each}
+                      </div>
                     </div>
-                  {/each}
-                  {#each stageDiffs[stage.stage_index].removed as span}
-                    <div class="diff-item diff-removed">
-                      <span class="diff-badge">REMOVED</span>
-                      <code class="diff-span-id">{span.span_id}</code>
-                    </div>
-                  {/each}
-                  {#each stageDiffs[stage.stage_index].modified as span}
-                    <div class="diff-item diff-modified">
-                      <span class="diff-badge">MODIFIED</span>
-                      <code class="diff-span-id">{span.span_id}</code>
-                    </div>
-                  {/each}
-                  {#if stageDiffs[stage.stage_index].added.length === 0 && stageDiffs[stage.stage_index].removed.length === 0 && stageDiffs[stage.stage_index].modified.length === 0}
-                    <div class="diff-empty">No changes detected</div>
                   {/if}
                 </div>
               {/if}
@@ -391,5 +457,75 @@
     max-height: 300px;
     overflow-y: auto;
     color: var(--color-text-secondary, #94a3b8);
+  }
+  .diff-view-toggle {
+    display: flex;
+    gap: var(--space-xs, 0.25rem);
+    margin-bottom: var(--space-sm, 0.5rem);
+  }
+  .diff-view-toggle button {
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--color-border, #334155);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--color-surface, #1e293b);
+    color: var(--color-text-secondary, #94a3b8);
+    cursor: pointer;
+  }
+  .diff-view-toggle button.active {
+    background: var(--color-primary, #3b82f6);
+    color: white;
+    border-color: var(--color-primary, #3b82f6);
+  }
+  .diff-changes {
+    margin-top: 0.25rem;
+    margin-left: 1.5rem;
+    font-size: 0.8rem;
+  }
+  .diff-change {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.1rem 0;
+    font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  }
+  .diff-change-added { color: var(--color-success, #22c55e); }
+  .diff-change-removed { color: var(--color-error, #ef4444); }
+  .diff-change-changed { color: var(--color-warning, #eab308); }
+  .change-icon { font-weight: bold; width: 1rem; text-align: center; }
+  .change-field { font-weight: 500; }
+  .change-arrow { color: var(--color-text-secondary, #94a3b8); }
+  .change-value-before { color: var(--color-error, #ef4444); text-decoration: line-through; }
+  .change-value-after { color: var(--color-success, #22c55e); }
+  .side-by-side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-sm, 0.5rem);
+  }
+  .before-col {
+    border: 1px solid var(--color-error, #ef4444);
+    border-radius: var(--radius-sm, 4px);
+    padding: var(--space-sm, 0.5rem);
+    overflow-x: auto;
+  }
+  .after-col {
+    border: 1px solid var(--color-success, #22c55e);
+    border-radius: var(--radius-sm, 4px);
+    padding: var(--space-sm, 0.5rem);
+    overflow-x: auto;
+  }
+  .col-header {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    color: var(--color-text-secondary, #94a3b8);
+  }
+  .side-pre {
+    font-size: 0.7rem;
+    margin: 0.25rem 0;
+    white-space: pre-wrap;
+    word-break: break-all;
   }
 </style>

@@ -1,4 +1,4 @@
-import type { StageDiff, DiffSpan, StageResult } from './types'
+import type { StageDiff, DiffSpan, StageResult, SpanChange } from './types'
 
 export function computeStageDiff(before: unknown, after: unknown, stageIndex: number): StageDiff {
   if (!before || !after) {
@@ -30,7 +30,8 @@ export function computeStageDiff(before: unknown, after: unknown, stageIndex: nu
       added.push({ span_id: id, status: 'added', after: afterSpan })
     } else {
       if (JSON.stringify(beforeSpan) !== JSON.stringify(afterSpan)) {
-        modified.push({ span_id: id, status: 'modified', before: beforeSpan, after: afterSpan })
+        const changes = computeSpanChanges(beforeSpan, afterSpan)
+        modified.push({ span_id: id, status: 'modified', before: beforeSpan, after: afterSpan, changes })
       }
     }
   }
@@ -114,4 +115,60 @@ function extractSpans(data: unknown): Array<{ spanId: string; [key: string]: unk
 
 function countSpans(data: unknown): number {
   return extractSpans(data).length
+}
+
+export function computeSpanChanges(before: unknown, after: unknown): SpanChange[] {
+  const changes: SpanChange[] = []
+  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return changes
+
+  const b = before as Record<string, unknown>
+  const a = after as Record<string, unknown>
+
+  // Compare attributes (they're arrays of {key, value} objects)
+  const bAttrs = normalizeAttrs(b['attributes'])
+  const aAttrs = normalizeAttrs(a['attributes'])
+
+  for (const [key, aVal] of Object.entries(aAttrs)) {
+    if (!(key in bAttrs)) {
+      changes.push({ field: `attributes.${key}`, type: 'added', after: aVal })
+    } else if (JSON.stringify(bAttrs[key]) !== JSON.stringify(aVal)) {
+      changes.push({ field: `attributes.${key}`, type: 'changed', before: bAttrs[key], after: aVal })
+    }
+  }
+  for (const [key, bVal] of Object.entries(bAttrs)) {
+    if (!(key in aAttrs)) {
+      changes.push({ field: `attributes.${key}`, type: 'removed', before: bVal })
+    }
+  }
+
+  const scalarFields = ['name', 'kind', 'trace_id', 'traceId', 'parent_span_id', 'parentSpanId', 'start_time_unix_nano', 'end_time_unix_nano']
+  for (const field of scalarFields) {
+    if (JSON.stringify(b[field]) !== JSON.stringify(a[field])) {
+      changes.push({ field, type: 'changed', before: b[field], after: a[field] })
+    }
+  }
+
+  for (const arrField of ['events', 'links']) {
+    const bArr = JSON.stringify(b[arrField])
+    const aArr = JSON.stringify(a[arrField])
+    if (bArr !== aArr) {
+      changes.push({ field: arrField, type: 'changed', before: b[arrField], after: a[arrField] })
+    }
+  }
+
+  return changes
+}
+
+function normalizeAttrs(attr: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  if (!attr || !Array.isArray(attr)) return result
+  for (const item of attr) {
+    const entry = item as Record<string, unknown>
+    const key = entry['key'] as string | undefined
+    if (key) {
+      const val = entry['value'] ?? entry
+      result[key] = val
+    }
+  }
+  return result
 }
