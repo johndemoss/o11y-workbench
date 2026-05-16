@@ -32,7 +32,58 @@
   let activeTab: 'quick' | 'pipeline' | 'graph' = $state('pipeline')
   let editingStage: { stage: Stage; processor: ProcessorConfig } | null = $state(null)
   let selectedNodeId: string | null = $state(null)
-  let showExecute: boolean = $state(true)
+  let panelHeight = $state(300)
+  let isCollapsed = $state(false)
+  let isMaximized = $state(false)
+  let savedHeight = $state(300)
+
+  function toggleCollapse() {
+    if (!isCollapsed) {
+      savedHeight = isMaximized ? savedHeight : panelHeight
+      isCollapsed = true
+      if (isMaximized) isMaximized = false
+    } else {
+      isCollapsed = false
+      panelHeight = savedHeight
+    }
+  }
+
+  function toggleMaximize() {
+    if (!isMaximized) {
+      savedHeight = isCollapsed ? savedHeight : panelHeight
+      isMaximized = true
+      if (isCollapsed) isCollapsed = false
+    } else {
+      isMaximized = false
+      panelHeight = savedHeight
+    }
+  }
+
+  function handleResizeStart(e: MouseEvent) {
+    e.preventDefault()
+    if (isMaximized) isMaximized = false
+    if (isCollapsed) isCollapsed = false
+    savedHeight = panelHeight
+    const startY = e.clientY
+    const startHeight = panelHeight
+
+    function onMouseMove(e: MouseEvent) {
+      const panel = (e.target as HTMLElement).closest('.graph-bottom-panels') as HTMLElement
+      if (!panel) return
+      const graphMain = panel.closest('.graph-main') as HTMLElement
+      if (!graphMain) return
+      const maxHeight = graphMain.clientHeight - 60
+      const delta = startY - e.clientY
+      panelHeight = Math.max(100, Math.min(maxHeight, startHeight + delta))
+    }
+    function onMouseUp() {
+      savedHeight = panelHeight
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
   // Sync single pipeline from multi-signal for the Pipeline tab
   let currentPipeline = $derived(pipelinesBySignal.traces || { stages: [], processors: {}, receivers: [], exporters: [] })
 
@@ -160,35 +211,47 @@
         onPipelinesChange={handlePipelinesChange}
       />
       <div class="graph-main">
-        <SwimlaneFlowBuilder
-          pipelines={pipelinesBySignal}
-          {result}
-          onValidate={handleValidate}
-          onImport={() => {
-            showImport = true
-          }}
-          onExport={handleExport}
-          onNodeEdit={handleNodeEdit}
-          onPipelinesChange={handlePipelinesChange}
-          onNodeSelected={handleNodeSelected}
-          onResultClear={() => { result = null; resultError = undefined }}
-        />
-        <div class="graph-bottom-panels">
-          <button class="collapse-toggle" onclick={() => showExecute = !showExecute}>
-            {showExecute ? '▼' : '▶'} Execute & Results
-          </button>
-          {#if showExecute}
-            <section class="execution-section">
-              <h2>Execute Pipeline</h2>
-              <RunSelector
-                pipelineYaml={yamlStringify(pipelinesBySignal.traces || { stages: [], processors: {} })}
-                onresult={handleExecuteResult}
-              />
-            </section>
-            <section class="results-section">
-              <h2>Results</h2>
-              <ResultsView {result} error={resultError} {originalData} />
-            </section>
+        <div class="canvas-wrapper" class:maximized={isMaximized}>
+          <SwimlaneFlowBuilder
+            pipelines={pipelinesBySignal}
+            {result}
+            onValidate={handleValidate}
+            onImport={() => { showImport = true }}
+            onExport={handleExport}
+            onNodeEdit={handleNodeEdit}
+            onPipelinesChange={handlePipelinesChange}
+            onNodeSelected={handleNodeSelected}
+            onResultClear={() => { result = null; resultError = undefined }}
+          />
+        </div>
+        <div class="graph-bottom-panels"
+          class:collapsed={isCollapsed}
+          class:maximized={isMaximized}
+          style={isCollapsed ? '' : isMaximized ? 'flex:1;min-height:0' : `flex:0 0 auto;height:${panelHeight}px`}
+        >
+          <div class="resize-handle" onmousedown={handleResizeStart}></div>
+          <div class="panel-bar">
+            <button class="panel-toggle" onclick={toggleCollapse}>
+              {isCollapsed ? '▶' : '▼'} Execute & Results
+            </button>
+            <button class="panel-max-btn" onclick={toggleMaximize} title={isMaximized ? 'Restore size' : 'Maximize'}>
+              {isMaximized ? '⤡' : '⛶'}
+            </button>
+          </div>
+          {#if !isCollapsed}
+            <div class="panel-content">
+              <section class="execution-section">
+                <h2>Execute Pipeline</h2>
+                <RunSelector
+                  pipelineYaml={yamlStringify(pipelinesBySignal.traces || { stages: [], processors: {} })}
+                  onresult={handleExecuteResult}
+                />
+              </section>
+              <section class="results-section">
+                <h2>Results</h2>
+                <ResultsView {result} error={resultError} {originalData} />
+              </section>
+            </div>
           {/if}
         </div>
       </div>
@@ -361,39 +424,106 @@
     overflow: hidden;
   }
 
-  .graph-bottom-panels {
-    flex-shrink: 0;
-    max-height: 50%;
-    overflow-y: auto;
-    border-top: 1px solid var(--color-border, #334155);
-    padding: var(--space-md, 1rem);
+  .canvas-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .canvas-wrapper.maximized {
+    flex: 0 0 40px;
   }
 
-  .collapse-toggle {
+  .graph-bottom-panels {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--color-border, #334155);
+    overflow: hidden;
+    background: var(--color-bg, #0f172a);
+  }
+  .graph-bottom-panels.collapsed {
+    flex: 0 0 auto;
+    height: 36px !important;
+  }
+
+  .panel-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: var(--color-surface, #1e293b);
+    border-bottom: 1px solid var(--color-border, #334155);
+    min-height: 32px;
+  }
+
+  .panel-toggle {
     background: none;
     border: none;
     color: var(--color-text-secondary, #94a3b8);
     cursor: pointer;
-    padding: 8px;
     font-size: 0.85rem;
-    width: 100%;
-    text-align: left;
+    padding: 4px 8px;
+    border-radius: 4px;
   }
-
-  .collapse-toggle:hover {
+  .panel-toggle:hover {
     color: var(--color-text, #f1f5f9);
     background: var(--color-surface-hover, #334155);
   }
 
-  .graph-fullscreen .execution-section,
-  .graph-fullscreen .results-section {
+  .panel-max-btn {
+    background: none;
+    border: none;
+    color: var(--color-text-secondary, #94a3b8);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    line-height: 1;
+  }
+  .panel-max-btn:hover {
+    color: var(--color-text, #f1f5f9);
+    background: var(--color-surface-hover, #334155);
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: -3px;
+    left: 0;
+    right: 0;
+    height: 6px;
+    cursor: row-resize;
+    z-index: 5;
+  }
+  .resize-handle:hover::after,
+  .resize-handle:active::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 2px;
+    background: var(--color-primary, #3b82f6);
+    border-radius: 1px;
+    opacity: 0.6;
+  }
+
+  .panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-md, 1rem);
+  }
+
+  .graph-bottom-panels .execution-section,
+  .graph-bottom-panels .results-section {
     margin-top: var(--space-md, 1rem);
     padding-top: var(--space-md, 1rem);
     border-top: 1px solid var(--color-border, #334155);
   }
 
-  .graph-fullscreen .execution-section h2,
-  .graph-fullscreen .results-section h2 {
+  .graph-bottom-panels .execution-section h2,
+  .graph-bottom-panels .results-section h2 {
     font-size: var(--font-size-lg, 1.1rem);
     font-weight: 600;
     margin: 0 0 0.75rem 0;
