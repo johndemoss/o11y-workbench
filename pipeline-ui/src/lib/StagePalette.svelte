@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SNIPPETS } from './snippets'
+  import { STAGE_COLORS } from './types'
 
   const stageTypes = [{ type: 'transform', label: 'Transform' }, { type: 'filter', label: 'Filter' }]
 
@@ -51,7 +52,7 @@
   {#if snippetsOpen}
     {#each SNIPPETS as snippet}
     <div class="snippet-row">
-      <div class="snippet-card drag-card--{snippet.type}" draggable={true}
+      <div class="snippet-card" style="border-left-color: {STAGE_COLORS[snippet.type]?.border ?? '#334155'}" draggable={true}
         ondragstart={(e) => onDragStartSnippet(e, snippet)}
         onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}>
         <span class="snippet-name">{snippet.name}</span>
@@ -185,7 +186,7 @@
     flex: 1;
     height: 36px;
     padding: 4px 8px 4px 10px;
-    border-left: 3px solid var(--color-card-filter);
+    border-left: 3px solid transparent;
     border-radius: 4px;
     cursor: grab;
     background: var(--color-surface-hover, #334155);
@@ -205,10 +206,6 @@
     font-size: 0.65rem;
     font-weight: 500;
     color: var(--color-text, #f1f5f9);
-  }
-
-  .drag-card--filter {
-    border-left-color: #d97706;
   }
 
   .snippet-eye-btn {
