@@ -4,6 +4,7 @@
   import RunSelector from './lib/RunSelector.svelte'
   import ResultsView from './lib/ResultsView.svelte'
   import ConfigImport from './lib/ConfigImport.svelte'
+  import yaml from 'js-yaml'
 
   let pipeline: Pipeline = $state({ stages: [], processors: {} })
   let result: PipelineResult | null = $state(null)
@@ -44,18 +45,27 @@
   }
 
   function yamlStringify(p: Pipeline): string {
-    let yaml = 'stages:\n'
+    let out = 'stages:\n'
     for (const s of p.stages) {
-      yaml += `  - id: ${s.id}\n`
-      yaml += `    type: ${s.type}\n`
-      yaml += `    processor_ref: ${s.processor_ref}\n`
-      if (s.error_mode) yaml += `    error_mode: ${s.error_mode}\n`
+      out += `  - id: ${s.id}\n`
+      out += `    type: ${s.type}\n`
+      out += `    processor_ref: ${s.processor_ref}\n`
+      if (s.error_mode) out += `    error_mode: ${s.error_mode}\n`
     }
-    yaml += 'processors:\n'
+    out += 'processors:\n'
     for (const [key, val] of Object.entries(p.processors)) {
-      yaml += `  ${key}: {}\n`
+      if (val && typeof val === 'object' && Object.keys(val).length > 0) {
+        const valYaml = yaml.dump(val, { indent: 2, noRefs: true, sortKeys: false })
+        const lines = valYaml.trimEnd().split('\n')
+        out += `  ${key}:\n`
+        for (const line of lines) {
+          out += `    ${line}\n`
+        }
+      } else {
+        out += `  ${key}: {}\n`
+      }
     }
-    return yaml
+    return out
   }
 </script>
 
