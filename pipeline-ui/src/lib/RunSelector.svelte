@@ -10,7 +10,7 @@
 
   let { pipelineYaml = '', onresult }: {
     pipelineYaml: string
-    onresult?: (result: PipelineResult | null, error?: string) => void
+    onresult?: (result: PipelineResult | null, error?: string, runId?: string) => void
   } = $props()
 
   let runs: Run[] = $state([])
@@ -64,7 +64,7 @@
       if (!res.ok) {
         onresult?.(null, data.error || 'Execution failed')
       } else {
-        onresult?.(data as PipelineResult)
+        onresult?.(data as PipelineResult, undefined, selectedRunId)
       }
     } catch (e: unknown) {
       onresult?.(null, e instanceof Error ? e.message : 'Network error')

@@ -10,6 +10,7 @@
   let pipeline: Pipeline = $state({ stages: [], processors: {} })
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
+  let originalData: unknown = $state(null)
   let showImport: boolean = $state(false)
   let pipelineYaml: string = $state('')
   let activeTab: 'quick' | 'pipeline' = $state('pipeline')
@@ -32,9 +33,20 @@
       .catch(e => alert('Validation failed: ' + e.message))
   }
 
-  function handleExecuteResult(r: PipelineResult | null, err?: string): void {
+  async function handleExecuteResult(r: PipelineResult | null, err?: string, runId?: string): void {
     result = r
     resultError = err
+    if (r && runId) {
+      try {
+        const res = await fetch(`/api/runs/${runId}`)
+        if (res.ok) {
+          const runData = await res.json()
+          originalData = runData.trace_data ?? null
+        }
+      } catch {
+        // Non-critical — first-stage diff just won't be available
+      }
+    }
   }
 
   function handleImport(p: Pipeline): void {
@@ -110,7 +122,7 @@
 
   <section class="results-section">
     <h2>Results</h2>
-    <ResultsView {result} error={resultError} />
+    <ResultsView {result} error={resultError} {originalData} />
   </section>
 
   {#if showImport}

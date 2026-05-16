@@ -2,9 +2,10 @@
   import { computeAllStageDiffs } from './diff'
   import type { PipelineResult, StageDiff } from './types'
 
-  let { result, error }: {
+  let { result, error, originalData }: {
     result: PipelineResult | null
     error?: string
+    originalData?: unknown
   } = $props()
 
   let expandedStages: Set<number> = $state(new Set())
@@ -31,7 +32,7 @@
   }
 
   let stageDiffs: StageDiff[] = $derived(
-    result ? computeAllStageDiffs(result.stages) : []
+    result ? computeAllStageDiffs(result.stages, originalData) : []
   )
 
   let expandedDiffs: Set<number> = $state(new Set())

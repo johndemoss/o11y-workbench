@@ -51,14 +51,14 @@ export function computeStageDiff(before: unknown, after: unknown, stageIndex: nu
   }
 }
 
-export function computeAllStageDiffs(stages: StageResult[]): StageDiff[] {
+export function computeAllStageDiffs(stages: StageResult[], originalData?: unknown): StageDiff[] {
   if (!stages || stages.length === 0) return []
 
   const diffs: StageDiff[] = []
   for (let i = 0; i < stages.length; i++) {
     const stage = stages[i]
-    const before = stage.intermediate_data
-    const after = i < stages.length - 1 ? stages[i + 1].intermediate_data : stages[i]
+    const before = i === 0 ? (originalData ?? null) : stages[i - 1].intermediate_data
+    const after = stage.intermediate_data
     const diff = computeStageDiff(before, after, stage.stage_index)
     diffs.push(diff)
   }
