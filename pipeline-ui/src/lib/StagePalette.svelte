@@ -11,14 +11,26 @@
   } = $props()
 
   let snippetsOpen = $state(true)
+  let sectionOpen = $state<Record<string, boolean>>({ transform: true, filter: true })
+  let searchQuery = $state('')
 
-  let snippetsByType = $derived.by(() => {
+  let filteredSnippetsByType = $derived.by(() => {
     const map: Record<string, typeof SNIPPETS> = {}
+    const q = searchQuery.toLowerCase().trim()
     for (const st of stageTypes) {
-      map[st.type] = SNIPPETS.filter(s => s.type === st.type)
+      let items = SNIPPETS.filter(s => s.type === st.type)
+      if (q) {
+        items = items.filter(s =>
+          s.name.toLowerCase().includes(q) ||
+          s.description.toLowerCase().includes(q)
+        )
+      }
+      map[st.type] = items
     }
     return map
   })
+
+  let searchActive = $derived(searchQuery.trim().length > 0)
 
   function onDragStart(event: DragEvent, stageType: string) {
     if (event.dataTransfer) {
@@ -58,22 +70,35 @@
     {snippetsOpen ? '▼' : '▶'} Snippets
   </button>
   {#if snippetsOpen}
+    <input class="snippet-search" type="text" placeholder="Search snippets..." bind:value={searchQuery} />
+
     {#each stageTypes as st}
-      {#if (snippetsByType[st.type]?.length ?? 0) > 0}
-        <div class="snippet-subheader" style="color: {STAGE_COLORS[st.type]?.badge}">
+      {#if (filteredSnippetsByType[st.type]?.length ?? 0) > 0}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="snippet-subheader"
+          style="color: {STAGE_COLORS[st.type]?.badge}"
+          class:search-active={searchActive}
+          onclick={() => { if (!searchActive) sectionOpen[st.type] = !sectionOpen[st.type] }}
+          role="button"
+          tabindex="0"
+          onkeydown={(e) => { if (e.key === 'Enter') sectionOpen[st.type] = !sectionOpen[st.type] }}
+        >
           <span class="subheader-dot" style="background: {STAGE_COLORS[st.type]?.badge}"></span>
+          <span class="subheader-arrow">{(searchActive || sectionOpen[st.type]) ? '▼' : '▶'}</span>
           {st.label}
         </div>
-        {#each snippetsByType[st.type] as snippet}
-        <div class="snippet-row">
-          <div class="snippet-card" style="border-left-color: {STAGE_COLORS[snippet.type]?.border ?? '#334155'}" draggable={true}
-            ondragstart={(e) => onDragStartSnippet(e, snippet)}
-            onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}>
-            <span class="snippet-name">{snippet.name}</span>
-            <button class="snippet-eye-btn" onclick={() => onSnippetView?.(snippet)} aria-label="View snippet">👁</button>
+        {#if searchActive || sectionOpen[st.type]}
+          {#each filteredSnippetsByType[st.type] as snippet}
+          <div class="snippet-row">
+            <div class="snippet-card" style="border-left-color: {STAGE_COLORS[snippet.type]?.border ?? '#334155'}" draggable={true}
+              ondragstart={(e) => onDragStartSnippet(e, snippet)}
+              onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}>
+              <span class="snippet-name">{snippet.name}</span>
+              <button class="snippet-eye-btn" onclick={() => onSnippetView?.(snippet)} aria-label="View snippet">👁</button>
+            </div>
           </div>
-        </div>
-        {/each}
+          {/each}
+        {/if}
       {/if}
     {/each}
   {/if}
@@ -88,7 +113,6 @@
 
 <style>
   .palette {
-    --color-card-filter: #d97706;
     width: 180px;
     padding: var(--space-md, 12px);
     background: var(--color-surface, #1e293b);
@@ -167,6 +191,28 @@
     color: var(--color-text, #f1f5f9);
   }
 
+  .snippet-search {
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 0.7rem;
+    border: 1px solid var(--color-border, #334155);
+    border-radius: 4px;
+    background: var(--color-surface, #1e293b);
+    color: var(--color-text, #f1f5f9);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 150ms ease;
+  }
+  .snippet-search::placeholder {
+    color: var(--color-text-secondary, #64748b);
+  }
+  .snippet-search:focus {
+    border-color: var(--color-accent, #6366f1);
+  }
+  .snippet-search:not(:placeholder-shown) {
+    border-color: var(--color-accent, #6366f1);
+  }
+
   .import-btn {
     padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
     border: 1px solid var(--color-border, #334155);
@@ -227,6 +273,19 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    cursor: pointer;
+    user-select: none;
+    transition: color 150ms ease;
+  }
+
+  .snippet-subheader.search-active {
+    cursor: default;
+  }
+
+  .subheader-arrow {
+    font-size: 0.6rem;
+    width: 10px;
+    flex-shrink: 0;
   }
 
   .subheader-dot {
