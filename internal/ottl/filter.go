@@ -18,7 +18,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
@@ -198,13 +197,11 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 		return nil, 0, 0, fmt.Errorf("no conditions provided")
 	}
 
-	// Step 1: unmarshal JSON trace data into protobuf types.
 	var srcReq collectortracev1.ExportTraceServiceRequest
 	if err := protojson.Unmarshal(traceData, &srcReq); err != nil {
 		return nil, 0, 0, fmt.Errorf("unmarshal trace data: %w", err)
 	}
 
-	// Step 2: marshal protobuf to binary wire format, then to pdata for OTTL.
 	protoBytes, err := proto.Marshal(&srcReq)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("marshal protobuf: %w", err)
@@ -216,7 +213,48 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 		return nil, 0, 0, fmt.Errorf("unmarshal to pdata: %w", err)
 	}
 
-	// Step 3: set up OTTL span-context parser and condition sequence.
+	filtered, total, kept, err := FilterSpans(traces, conditions, mode, ErrorModePropagate)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	var marshaler ptrace.ProtoMarshaler
+	outProto, err := marshaler.MarshalTraces(filtered)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("marshal filtered traces: %w", err)
+	}
+
+	var outReq collectortracev1.ExportTraceServiceRequest
+	if err := proto.Unmarshal(outProto, &outReq); err != nil {
+		return nil, 0, 0, fmt.Errorf("unmarshal result proto: %w", err)
+	}
+
+	outJSON, err := protojson.MarshalOptions{
+		UseProtoNames: true,
+		Indent:        "  ",
+	}.Marshal(&outReq)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("marshal result JSON: %w", err)
+	}
+
+	return outJSON, total, kept, nil
+}
+
+// FilterSpans evaluates OTTL conditions against all spans in ptrace.Traces and
+// returns a filtered ptrace.Traces containing only the spans that match (include
+// mode) or only the spans that do NOT match (exclude mode). error_mode controls
+// how evaluation errors are handled:
+//   - ErrorModePropagate: return error immediately (default)
+//   - ErrorModeIgnore: log the error and skip the span
+//   - ErrorModeSilent: skip the span without logging
+//
+// Conditions are ORed together — if ANY condition evaluates to true for a span,
+// the span is considered a match.
+func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
+	if len(conditions) == 0 {
+		return traces, 0, 0, fmt.Errorf("no conditions provided")
+	}
+
 	settings := component.TelemetrySettings{
 		Logger:         zap.NewNop(),
 		TracerProvider: tracenoop.NewTracerProvider(),
@@ -229,27 +267,32 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 		settings,
 	)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("create OTTL parser: %w", err)
+		return traces, 0, 0, fmt.Errorf("create OTTL parser: %w", err)
 	}
 
 	parsedConditions, err := parser.ParseConditions(conditions)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("parse OTTL conditions: %w", err)
+		return traces, 0, 0, fmt.Errorf("parse OTTL conditions: %w", err)
 	}
 
 	condSeq := ottlspan.NewConditionSequence(parsedConditions, settings)
 
-	// Step 4: evaluate conditions against every span, recording matches.
 	ctx := context.Background()
 	rss := traces.ResourceSpans()
 
-	// We'll build a set of (resourceIdx, scopeIdx, spanIdx) tuples for matched spans.
 	type spanKey struct {
 		ri, si, pi int
 	}
 	matched := make(map[spanKey]bool)
 
 	totalSpans := 0
+
+	var ignoreLogger *zap.Logger
+	if errorMode == ErrorModeIgnore {
+		ignoreLogger = zap.NewExample()
+		defer ignoreLogger.Sync()
+	}
+
 	for i := 0; i < rss.Len(); i++ {
 		rs := rss.At(i)
 		sss := rs.ScopeSpans()
@@ -263,10 +306,24 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 				isMatch, evalErr := condSeq.Eval(ctx, tCtx)
 				tCtx.Close()
 				if evalErr != nil {
-					return nil, 0, 0, fmt.Errorf("evaluate condition on span %d/%d/%d: %w", i, j, k, evalErr)
+					switch errorMode {
+					case ErrorModePropagate:
+						return traces, 0, 0, fmt.Errorf("evaluate condition on span %d/%d/%d: %w", i, j, k, evalErr)
+					case ErrorModeIgnore:
+						ignoreLogger.Warn("failed to evaluate condition, skipping span",
+							zap.Error(evalErr),
+							zap.Int("resource", i),
+							zap.Int("scope", j),
+							zap.Int("span", k),
+						)
+						isMatch = false
+					case ErrorModeSilent:
+						isMatch = false
+					default:
+						return traces, 0, 0, fmt.Errorf("unknown error mode: %s", errorMode)
+					}
 				}
 
-				// determine whether this span is kept
 				var keep bool
 				switch mode {
 				case FilterModeInclude:
@@ -274,7 +331,7 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 				case FilterModeExclude:
 					keep = !isMatch
 				default:
-					return nil, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
+					return traces, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
 				}
 
 				if keep {
@@ -285,45 +342,62 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 		}
 	}
 
-	// Step 5: build a new ExportTraceServiceRequest containing only matched spans.
-	var filteredReq collectortracev1.ExportTraceServiceRequest
-	for i, rss := range srcReq.ResourceSpans {
-		var outRss tracev1.ResourceSpans
-		outRss.Resource = rss.Resource
-		outRss.SchemaUrl = rss.SchemaUrl
+	filtered := ptrace.NewTraces()
+	outRss := filtered.ResourceSpans()
 
-		for j, sss := range rss.ScopeSpans {
-			var outSss tracev1.ScopeSpans
-			outSss.Scope = sss.Scope
-			outSss.SchemaUrl = sss.SchemaUrl
+	for i := 0; i < rss.Len(); i++ {
+		rs := rss.At(i)
+		sss := rs.ScopeSpans()
 
-			for k, span := range sss.Spans {
+		hasRsMatch := false
+		for j := 0; j < sss.Len() && !hasRsMatch; j++ {
+			spans := sss.At(j).Spans()
+			for k := 0; k < spans.Len() && !hasRsMatch; k++ {
 				if matched[spanKey{i, j, k}] {
-					outSss.Spans = append(outSss.Spans, span)
+					hasRsMatch = true
 				}
 			}
+		}
+		if !hasRsMatch {
+			continue
+		}
 
-			if len(outSss.Spans) > 0 {
-				outRss.ScopeSpans = append(outRss.ScopeSpans, &outSss)
+		outRs := outRss.AppendEmpty()
+		rs.Resource().CopyTo(outRs.Resource())
+		outRs.SetSchemaUrl(rs.SchemaUrl())
+		outSss := outRs.ScopeSpans()
+
+		for j := 0; j < sss.Len(); j++ {
+			ss := sss.At(j)
+			spans := ss.Spans()
+
+			hasSsMatch := false
+			for k := 0; k < spans.Len() && !hasSsMatch; k++ {
+				if matched[spanKey{i, j, k}] {
+					hasSsMatch = true
+				}
+			}
+			if !hasSsMatch {
+				continue
+			}
+
+			outSs := outSss.AppendEmpty()
+			ss.Scope().CopyTo(outSs.Scope())
+			outSs.SetSchemaUrl(ss.SchemaUrl())
+			outSpans := outSs.Spans()
+
+			for k := 0; k < spans.Len(); k++ {
+				if matched[spanKey{i, j, k}] {
+					span := spans.At(k)
+					outSpan := outSpans.AppendEmpty()
+					span.CopyTo(outSpan)
+				}
 			}
 		}
-
-		if len(outRss.ScopeSpans) > 0 {
-			filteredReq.ResourceSpans = append(filteredReq.ResourceSpans, &outRss)
-		}
-	}
-
-	// Step 6: marshal filtered protobuf back to OTLP JSON.
-	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: true,
-		Indent:        "  ",
-	}.Marshal(&filteredReq)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("marshal result JSON: %w", err)
 	}
 
 	filteredCount := len(matched)
-	return outJSON, totalSpans, filteredCount, nil
+	return filtered, totalSpans, filteredCount, nil
 }
 
 // FilterResult holds the outcome of a filter request.

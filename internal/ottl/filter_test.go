@@ -5,6 +5,9 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -358,6 +361,118 @@ func flattenSpans(req *collectortracev1.ExportTraceServiceRequest) []*tracev1.Sp
 		}
 	}
 	return out
+}
+
+// makePdataTrace builds a ptrace.Traces equivalent to makeMultiSpanTrace.
+func makePdataTrace() ptrace.Traces {
+	traces := ptrace.NewTraces()
+	rs := traces.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "test-svc")
+	ss := rs.ScopeSpans().AppendEmpty()
+	ss.Scope().SetName("test-scope")
+	ss.Scope().SetVersion("1.0.0")
+
+	spanA := ss.Spans().AppendEmpty()
+	spanA.SetName("span-a")
+	spanA.SetSpanID(pcommon.SpanID([8]byte{0, 0, 0, 0, 0, 0, 0, 1}))
+	spanA.SetTraceID(pcommon.TraceID([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}))
+	spanA.Attributes().PutStr("http.method", "GET")
+	spanA.Attributes().PutInt("http.status_code", 200)
+
+	spanB := ss.Spans().AppendEmpty()
+	spanB.SetName("span-b")
+	spanB.SetSpanID(pcommon.SpanID([8]byte{0, 0, 0, 0, 0, 0, 0, 2}))
+	spanB.SetTraceID(pcommon.TraceID([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}))
+	spanB.Attributes().PutStr("http.method", "POST")
+
+	spanC := ss.Spans().AppendEmpty()
+	spanC.SetName("span-c")
+	spanC.SetSpanID(pcommon.SpanID([8]byte{0, 0, 0, 0, 0, 0, 0, 3}))
+	spanC.SetTraceID(pcommon.TraceID([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}))
+
+	return traces
+}
+
+func TestFilterSpans_Include(t *testing.T) {
+	traces := makePdataTrace()
+	filtered, total, kept, err := FilterSpans(traces, []string{`name == "span-a"`}, FilterModeInclude, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("FilterSpans: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if kept != 1 {
+		t.Errorf("kept = %d, want 1", kept)
+	}
+	rss := filtered.ResourceSpans()
+	if rss.Len() != 1 {
+		t.Fatalf("resource spans = %d, want 1", rss.Len())
+	}
+	spans := rss.At(0).ScopeSpans().At(0).Spans()
+	if spans.Len() != 1 {
+		t.Fatalf("spans = %d, want 1", spans.Len())
+	}
+	if spans.At(0).Name() != "span-a" {
+		t.Errorf("span name = %q, want 'span-a'", spans.At(0).Name())
+	}
+}
+
+func TestFilterSpans_Exclude(t *testing.T) {
+	traces := makePdataTrace()
+	filtered, total, kept, err := FilterSpans(traces, []string{`name == "span-b"`}, FilterModeExclude, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("FilterSpans: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if kept != 2 {
+		t.Errorf("kept = %d, want 2", kept)
+	}
+	rss := filtered.ResourceSpans()
+	if rss.Len() != 1 {
+		t.Fatalf("resource spans = %d, want 1", rss.Len())
+	}
+	spans := rss.At(0).ScopeSpans().At(0).Spans()
+	if spans.Len() != 2 {
+		t.Fatalf("spans = %d, want 2", spans.Len())
+	}
+	names := make(map[string]bool)
+	for i := 0; i < spans.Len(); i++ {
+		names[spans.At(i).Name()] = true
+	}
+	if !names["span-a"] {
+		t.Error("missing span-a")
+	}
+	if !names["span-c"] {
+		t.Error("missing span-c")
+	}
+	if names["span-b"] {
+		t.Error("span-b should have been excluded")
+	}
+}
+
+func TestFilterSpans_ErrorModePropagate(t *testing.T) {
+	traces := makePdataTrace()
+	_, _, _, err := FilterSpans(traces, []string{`Substring(name, 10, 1) == "x"`}, FilterModeInclude, ErrorModePropagate)
+	if err == nil {
+		t.Fatal("expected error for bad substring condition")
+	}
+}
+
+func TestFilterSpans_ErrorModeIgnore(t *testing.T) {
+	traces := makePdataTrace()
+	_, total, kept, err := FilterSpans(traces, []string{`Substring(name, 10, 1) == "x"`}, FilterModeInclude, ErrorModeIgnore)
+	if err != nil {
+		t.Fatalf("FilterSpans: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if kept != 0 {
+		t.Errorf("kept = %d, want 0 (all spans should be dropped due to eval errors)", kept)
+	}
 }
 
 

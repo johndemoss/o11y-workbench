@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"go.opentelemetry.io/collector/pdata/ptrace"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -272,5 +274,202 @@ func TestTransformRunData_SetResourceAttribute(t *testing.T) {
 	}
 	if !found {
 		t.Error("resource attribute 'env' not found after set()")
+	}
+}
+
+// --- TransformSpans tests ---
+
+func traceToPdata(req *collectortracev1.ExportTraceServiceRequest) (ptrace.Traces, error) {
+	protoBytes, err := proto.Marshal(req)
+	if err != nil {
+		return ptrace.NewTraces(), err
+	}
+	var unmarshaler ptrace.ProtoUnmarshaler
+	return unmarshaler.UnmarshalTraces(protoBytes)
+}
+
+func pdataToTrace(traces ptrace.Traces) (*collectortracev1.ExportTraceServiceRequest, error) {
+	var marshaler ptrace.ProtoMarshaler
+	outBytes, err := marshaler.MarshalTraces(traces)
+	if err != nil {
+		return nil, err
+	}
+	var dstReq collectortracev1.ExportTraceServiceRequest
+	if err := proto.Unmarshal(outBytes, &dstReq); err != nil {
+		return nil, err
+	}
+	return &dstReq, nil
+}
+
+func TestTransformSpans_SetAttribute(t *testing.T) {
+	req := makeSampleTrace()
+	traces, err := traceToPdata(req)
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	statements := []string{`set(attributes["new.key"], "new-value")`}
+	result, count, err := TransformSpans(traces, statements, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("TransformSpans: %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("span count = %d, want 1", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+
+	spans := resultReq.ResourceSpans[0].ScopeSpans[0].Spans
+	if len(spans) == 0 {
+		t.Fatal("result has no Spans")
+	}
+	span := spans[0]
+
+	foundNew := false
+	foundOriginal := false
+	for _, attr := range span.Attributes {
+		if attr.Key == "new.key" {
+			foundNew = true
+			if v, ok := attr.Value.Value.(*commonv1.AnyValue_StringValue); !ok || v.StringValue != "new-value" {
+				t.Errorf("new.key = %v, want 'new-value'", attr.Value)
+			}
+		}
+		if attr.Key == "original.key" {
+			foundOriginal = true
+		}
+	}
+	if !foundNew {
+		t.Error("new.key attribute not found after set()")
+	}
+	if !foundOriginal {
+		t.Error("original.key attribute missing after transform")
+	}
+}
+
+func TestTransformSpans_DeleteKey(t *testing.T) {
+	req := makeSampleTrace()
+	traces, err := traceToPdata(req)
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	statements := []string{`delete_key(attributes, "original.key")`}
+	result, count, err := TransformSpans(traces, statements, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("TransformSpans: %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("span count = %d, want 1", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+
+	span := resultReq.ResourceSpans[0].ScopeSpans[0].Spans[0]
+	for _, attr := range span.Attributes {
+		if attr.Key == "original.key" {
+			t.Error("original.key should have been deleted")
+		}
+	}
+}
+
+func TestTransformSpans_KeepKeys(t *testing.T) {
+	req := makeSampleTrace()
+	traces, err := traceToPdata(req)
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	statements := []string{`keep_keys(attributes, ["original.key"])`}
+	result, count, err := TransformSpans(traces, statements, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("TransformSpans: %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("span count = %d, want 1", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+
+	span := resultReq.ResourceSpans[0].ScopeSpans[0].Spans[0]
+	found := false
+	for _, attr := range span.Attributes {
+		if attr.Key == "original.key" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("original.key should be present after keep_keys")
+	}
+	if len(span.Attributes) != 1 {
+		t.Errorf("expected exactly 1 attribute after keep_keys, got %d", len(span.Attributes))
+	}
+}
+
+func TestTransformSpans_ErrorModePropagate(t *testing.T) {
+	req := makeSampleTrace()
+	traces, err := traceToPdata(req)
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	statements := []string{
+		`set(attributes["first"], "ok")`,
+		`set(attributes["second"], Substring("hello", -1, 10))`,
+	}
+	_, _, err = TransformSpans(traces, statements, ErrorModePropagate)
+	if err == nil {
+		t.Fatal("expected error for ErrorModePropagate, got nil")
+	}
+}
+
+func TestTransformSpans_ErrorModeIgnore(t *testing.T) {
+	req := makeSampleTrace()
+	traces, err := traceToPdata(req)
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	statements := []string{
+		`set(attributes["first"], "ok")`,
+		`set(attributes["second"], Substring("hello", -1, 10))`,
+	}
+	result, count, err := TransformSpans(traces, statements, ErrorModeIgnore)
+	if err != nil {
+		t.Fatalf("TransformSpans with ErrorModeIgnore: %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("span count = %d, want 1", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+
+	span := resultReq.ResourceSpans[0].ScopeSpans[0].Spans[0]
+	found := false
+	for _, attr := range span.Attributes {
+		if attr.Key == "first" {
+			found = true
+			if v, ok := attr.Value.Value.(*commonv1.AnyValue_StringValue); !ok || v.StringValue != "ok" {
+				t.Errorf("first = %v, want 'ok'", attr.Value)
+			}
+		}
+	}
+	if !found {
+		t.Error("'first' attribute should have been set even with error")
 	}
 }
