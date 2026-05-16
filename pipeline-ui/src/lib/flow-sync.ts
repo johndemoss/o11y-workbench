@@ -1,6 +1,5 @@
 import { type Edge, MarkerType, type Node } from "@xyflow/svelte";
 import type { Pipeline, PipelinesBySignal, ProcessorConfig, SignalType, Stage, StageResult } from "./types";
-import Dagre from "@dagrejs/dagre";
 
 /**
  * Data type stored in each Svelte Flow node representing a pipeline stage.
@@ -260,6 +259,9 @@ export function pipelinesToFlow(
 		const pipeline = pipelines[signal];
 		if (!pipeline) continue;
 
+		const defaultReceivers = pipeline.receivers ?? ['otlp']
+		const defaultExporters = pipeline.exporters ?? ['debug']
+
 		const stageCount = pipeline.stages.length;
 		const swimlaneWidth = Math.max(400, stageCount * 220 + 100);
 		const swimlaneHeight = 150;
@@ -269,8 +271,11 @@ export function pipelinesToFlow(
 			id: swimlaneId,
 			type: "swimlane",
 			position: { x: 0, y: 0 },
-			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1) },
-			style: { width: swimlaneWidth, height: swimlaneHeight },
+			width: swimlaneWidth,
+			height: swimlaneHeight,
+			draggable: false,
+			selectable: false,
+			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1), disabled: signal !== 'traces' },
 		} as any);
 
 		for (let i = 0; i < stageCount; i++) {
@@ -282,9 +287,9 @@ export function pipelinesToFlow(
 				type: "stage",
 				parentId: swimlaneId,
 				extent: "parent" as const,
-				position: { x: 20 + i * 210, y: 35 },
-				data: { stage, processor, stageIndex: i } as StageNodeData,
-				style: { width: 180 },
+				position: { x: 20 + i * 220, y: 35 },
+				width: 160,
+				data: { stage, processor, stageIndex: i, disabled: signal !== 'traces' } as StageNodeData,
 			} as any);
 
 			if (i > 0) {
@@ -298,28 +303,85 @@ export function pipelinesToFlow(
 				});
 			}
 		}
-	}
 
-	if (nodes.length > 0) {
-		const dagreNodes = nodes.filter((n) => n.type === "swimlane");
-		const g = new Dagre.graphlib.Graph<object>({ directed: true }).setDefaultEdgeLabel(() => ({}));
-		g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 30 });
-
-		for (const node of dagreNodes) {
-			g.setNode(node.id, { width: (node.style as any)?.width || 400, height: (node.style as any)?.height || 150 });
+		// Infra receiver nodes (positioned at left edge, stacked vertically)
+		for (const [i, recv] of defaultReceivers.entries()) {
+			nodes.push({
+				id: `infra-${signal}-receiver-${recv}`,
+				type: 'infra',
+				parentId: swimlaneId,
+				extent: 'parent' as const,
+				position: { x: 20, y: 35 + i * 90 },
+				width: 160,
+				height: 80,
+				draggable: false,
+				selectable: false,
+				data: {
+					label: recv.toUpperCase(),
+					type: 'receiver' as const,
+					disabled: signal !== 'traces',
+				},
+			} as any)
 		}
 
-		Dagre.layout(g);
+		// Infra exporter nodes (positioned at right edge, stacked vertically)
+		for (const [i, exp] of defaultExporters.entries()) {
+			nodes.push({
+				id: `infra-${signal}-exporter-${exp}`,
+				type: 'infra',
+				parentId: swimlaneId,
+				extent: 'parent' as const,
+				position: { x: swimlaneWidth - 180 - 20, y: 35 + i * 90 },
+				width: 160,
+				height: 80,
+				draggable: false,
+				selectable: false,
+				data: {
+					label: exp.toUpperCase(),
+					type: 'exporter' as const,
+					disabled: signal !== 'traces',
+				},
+			} as any)
+		}
 
-		for (const node of nodes) {
-			if (node.type === "swimlane") {
-				const pos = g.node(node.id) as { x: number; y: number } | undefined;
-				if (pos) {
-					const w = (node.style as any)?.width || 400;
-					const h = (node.style as any)?.height || 150;
-					node.position = { x: pos.x - w / 2, y: pos.y - h / 2 };
-				}
+		// Add infra edges: receiver → first stage, last stage → exporter
+		const stageNodesInSwimlane = nodes.filter(n => n.parentId === swimlaneId && n.type === 'stage')
+		if (stageNodesInSwimlane.length > 0) {
+			const firstStage = stageNodesInSwimlane[0]
+			const lastStage = stageNodesInSwimlane[stageNodesInSwimlane.length - 1]
+
+			for (const recv of defaultReceivers) {
+				const recvId = `infra-${signal}-receiver-${recv}`
+				edges.push({
+					id: `e-${recvId}-${firstStage.id}`,
+					source: recvId,
+					target: firstStage.id,
+					type: 'smoothstep',
+					markerEnd: { type: MarkerType.ArrowClosed },
+				})
 			}
+
+			for (const exp of defaultExporters) {
+				const expId = `infra-${signal}-exporter-${exp}`
+				edges.push({
+					id: `e-${lastStage.id}-${expId}`,
+					source: lastStage.id,
+					target: expId,
+					type: 'smoothstep',
+					markerEnd: { type: MarkerType.ArrowClosed },
+				})
+			}
+		}
+	}
+
+	// Position swimlanes vertically (no dagre needed — they have no edges between them)
+	const swimlaneHeight = 150;
+	const swimlaneGap = 20;
+	let yOffset = 0;
+	for (const node of nodes) {
+		if (node.type === "swimlane") {
+			node.position = { x: 20, y: yOffset };
+			yOffset += swimlaneHeight + swimlaneGap;
 		}
 	}
 
@@ -339,9 +401,9 @@ export function flowToPipelines(
 	currentPipelines: PipelinesBySignal,
 ): PipelinesBySignal {
 	const result: PipelinesBySignal = {
-		traces: { stages: [], processors: { ...currentPipelines.traces?.processors } },
-		logs: { stages: [], processors: { ...currentPipelines.logs?.processors } },
-		metrics: { stages: [], processors: { ...currentPipelines.metrics?.processors } },
+		traces: { stages: [], processors: { ...currentPipelines.traces?.processors }, receivers: [...(currentPipelines.traces?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.traces?.exporters ?? ['debug'])] },
+		logs: { stages: [], processors: { ...currentPipelines.logs?.processors }, receivers: [...(currentPipelines.logs?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.logs?.exporters ?? ['debug'])] },
+		metrics: { stages: [], processors: { ...currentPipelines.metrics?.processors }, receivers: [...(currentPipelines.metrics?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.metrics?.exporters ?? ['debug'])] },
 	};
 
 	const stageNodes = flowNodes.filter((n) => n.type === "stage");
@@ -379,7 +441,7 @@ export function flowToPipelines(
 			}
 		}
 
-		result[signal] = { stages: signalStages, processors: signalProcessors };
+		result[signal] = { stages: signalStages, processors: signalProcessors, receivers: [...(currentPipelines[signal]?.receivers ?? ['otlp'])], exporters: [...(currentPipelines[signal]?.exporters ?? ['debug'])] };
 	}
 
 	return result;
@@ -423,7 +485,7 @@ export function reorderStage(
 	const allInLane = [...siblings.slice(0, newIndex), draggedNode, ...siblings.slice(newIndex)];
 
 	for (let i = 0; i < allInLane.length; i++) {
-		allInLane[i].position = { x: 20 + i * 210, y: allInLane[i].position.y };
+		allInLane[i].position = { x: 20 + i * 220, y: allInLane[i].position.y };
 	}
 
 	const swimlaneIds = new Set(allInLane.map((n) => n.id));

@@ -15,14 +15,14 @@
   import yaml from 'js-yaml'
 
   // Single-pipeline state (kept for Pipeline tab compatibility)
-  let pipeline: Pipeline = $state({ stages: [], processors: {} })
+  let pipeline: Pipeline = $state({ stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
 
   // Multi-signal state (for Graph tab)
   let pipelinesBySignal: PipelinesBySignal = $state({
-    traces: { stages: [], processors: {} },
-    logs: { stages: [], processors: {} },
-    metrics: { stages: [], processors: {} }
-  })
+    traces: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+    logs: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+    metrics: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] }
+  } as PipelinesBySignal)
 
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
@@ -35,7 +35,7 @@
   let showExecute: boolean = $state(true)
 
   // Sync single pipeline from multi-signal for the Pipeline tab
-  let currentPipeline = $derived(pipelinesBySignal.traces || { stages: [], processors: {} })
+  let currentPipeline = $derived(pipelinesBySignal.traces || { stages: [], processors: {}, receivers: [], exporters: [] })
 
   function handlePipelinesChange(p: PipelinesBySignal): void {
     pipelinesBySignal = p
@@ -256,8 +256,6 @@
 <style>
   .app {
     font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
-    max-width: 1100px;
-    margin: 0 auto;
     padding: var(--space-md, 1rem);
   }
   .execution-section, .results-section {

@@ -1,5 +1,5 @@
 export type ErrorMode = 'ignore' | 'silent' | 'propagate'
-export type StageType = 'transform' | 'filter'
+export type StageType = 'transform' | 'filter' | 'receiver' | 'exporter' | 'connector'
 
 export interface ProcessorConfig {
   [key: string]: unknown
@@ -15,6 +15,8 @@ export interface Stage {
 export interface Pipeline {
   stages: Stage[]
   processors: Record<string, ProcessorConfig>
+  receivers: string[]
+  exporters: string[]
 }
 
 export interface SpanChange {
@@ -83,6 +85,14 @@ export const SIGNAL_COLORS: Record<SignalType, { border: string; bg: string; tag
   traces:  { border: '#F59E0B', bg: 'rgba(245, 158, 11, 0.05)', tag: '#F59E0B', label: 'Traces' },
   logs:    { border: '#34D399', bg: 'rgba(52, 211, 153, 0.05)', tag: '#34D399', label: 'Logs' },
   metrics: { border: '#38BDF8', bg: 'rgba(56, 189, 248, 0.05)', tag: '#38BDF8', label: 'Metrics' },
+}
+
+export const STAGE_COLORS: Record<StageType, { badge: string; bg: string; border: string }> = {
+  transform: { badge: '#7c3aed', bg: 'rgba(124, 58, 237, 0.08)', border: '#7c3aed' },
+  filter:    { badge: '#d97706', bg: 'rgba(217, 119, 6, 0.08)', border: '#d97706' },
+  receiver:  { badge: '#059669', bg: 'rgba(5, 150, 105, 0.08)', border: '#059669' },
+  exporter:  { badge: '#dc2626', bg: 'rgba(220, 38, 38, 0.08)', border: '#dc2626' },
+  connector: { badge: '#6366f1', bg: 'rgba(99, 102, 241, 0.08)', border: '#6366f1' },
 }
 
 export interface SnippetTemplate {

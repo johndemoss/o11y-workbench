@@ -2,37 +2,33 @@
   import { getContext } from 'svelte'
   import { Handle, Position, type NodeProps, type Node } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
+  import { STAGE_COLORS } from './types'
 
   let { data }: NodeProps<Node<StageNodeData>> = $props()
 
   let requestDelete = getContext<(id: string) => void>('requestDelete')
-
-  const typeColors: Record<string, string> = {
-    transform: '#7c3aed',
-    filter: '#d97706',
-  }
-
-  let badgeColor = $derived(typeColors[data.stage.type] ?? '#64748b')
 
   function handleDelete() {
     requestDelete(data.stage.id)
   }
 </script>
 
-<div class="node-card">
+<div
+  class="node-card"
+  class:disabled={data.disabled}
+  style="border-color: {STAGE_COLORS[data.stage.type]?.border ?? '#334155'}"
+>
   <Handle type="target" position={Position.Left} />
 
-  <div class="card-content">
-    <span class="drag-grip" aria-hidden="true">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-    </span>
+  <div
+    class="card-header"
+    style="background: {STAGE_COLORS[data.stage.type]?.bg ?? '#1e293b'}; border-bottom: 2px solid {STAGE_COLORS[data.stage.type]?.border ?? '#334155'}"
+  >
+    <span class="type-label">{data.stage.type}</span>
+  </div>
 
-    <span class="stage-name">{data.stage.id}</span>
-
-    <span class="type-badge" style="background: {badgeColor}">
-      {data.stage.type}
-    </span>
+  <div class="card-body">
+    <span class="node-name">{data.stage.id}</span>
   </div>
 
   <button class="delete-btn nodrag" onclick={handleDelete} aria-label="Delete stage">×</button>
@@ -43,13 +39,13 @@
 <style>
   .node-card {
     display: flex;
-    align-items: center;
-    position: relative;
-    width: 180px;
+    flex-direction: column;
+    width: 160px;
     height: 80px;
-    background: var(--color-surface, #1e293b);
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-lg, 8px);
+    border-radius: 8px;
+    border: 1px solid;
+    overflow: hidden;
+    position: relative;
     box-shadow: var(--shadow-md, 0 4px 6px rgba(0, 0, 0, 0.4));
     font-family: var(--font-family, inherit);
     transition: box-shadow 150ms ease, transform 150ms ease;
@@ -60,52 +56,39 @@
     transform: translateY(-1px);
   }
 
-  .card-content {
+  .card-header {
+    height: 25%;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 10px;
-    flex: 1;
-    min-width: 0;
+    justify-content: center;
+    padding: 2px 4px;
   }
 
-  /* ── 6-dot grip icon ── */
-  .drag-grip {
-    display: grid;
-    grid-template-columns: 3px 3px;
-    gap: 2px;
-    flex-shrink: 0;
-    opacity: 0.35;
-    cursor: grab;
+  .type-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #fff;
   }
 
-  .dot {
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: var(--color-text-secondary, #94a3b8);
+  .card-body {
+    height: 75%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    background: rgba(30, 41, 59, 0.95);
   }
 
-  .stage-name {
-    font-size: 0.8rem;
+  .node-name {
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-text, #f1f5f9);
+    color: #f1f5f9;
+    text-align: center;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .type-badge {
-    font-size: 0.6rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #fff;
-    padding: 2px 6px;
-    border-radius: 4px;
-    flex-shrink: 0;
   }
 
   /* ── Delete button (hidden by default, visible on hover) ── */
@@ -118,8 +101,8 @@
     border: none;
     color: rgba(255, 255, 255, 0.4);
     cursor: pointer;
-    font-size: 0.75rem;
-    padding: 2px 5px;
+    font-size: 0.8rem;
+    padding: 1px 5px;
     border-radius: var(--radius-sm, 4px);
     line-height: 1;
     opacity: 0;
@@ -133,5 +116,10 @@
   .delete-btn:hover {
     background: rgba(0, 0, 0, 0.25);
     color: #fff;
+  }
+
+  .node-card.disabled {
+    opacity: 0.4;
+    filter: grayscale(0.7);
   }
 </style>

@@ -17,15 +17,37 @@
   let editorRef: CodeMirrorEditor | undefined = $state()
   let yamlContent = $derived(exportPipelinesToYaml(pipelines))
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  let editorWidth = $state(400)
+  let isResizing = $state(false)
 
   function handleEditorChange(_newValue: string) {
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
-      // Parse YAML back to pipelines — for now emit changes to parent
-      // Full round-trip parsing is complex, so we use a simpler approach:
-      // The parent will handle re-syncing
-      onPipelinesChange?.(pipelines)
+      import('./export-yaml').then(({ importYamlToPipelines }) => {
+        const parsed = importYamlToPipelines(_newValue)
+        onPipelinesChange?.(parsed)
+      }).catch(() => {
+        onPipelinesChange?.(pipelines)
+      })
     }, 500)
+  }
+
+  function startResize(e: MouseEvent) {
+    e.preventDefault()
+    isResizing = true
+    const startX = e.clientX
+    const startWidth = editorWidth
+
+    function onMouseMove(e: MouseEvent) {
+      editorWidth = Math.max(200, Math.min(800, startWidth + (e.clientX - startX)))
+    }
+    function onMouseUp() {
+      isResizing = false
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
   }
 
   // Scroll editor when selectedNodeId changes
@@ -42,10 +64,11 @@
   })
 </script>
 
-<div class="editor-panel" class:collapsed={!open}>
+<div class="editor-panel" class:collapsed={!open} style="width: {editorWidth}px">
   {#if open}
     <div class="editor-header">
       <span class="editor-title">Pipeline YAML</span>
+      <div class="resize-handle" onmousedown={startResize} title="Drag to resize"></div>
       <button class="toggle-btn" onclick={() => open = false} aria-label="Close editor">◀</button>
     </div>
     <div class="editor-content">
@@ -72,10 +95,6 @@
     transition: width 0.2s ease;
   }
 
-  .editor-panel:not(.collapsed) {
-    width: 400px;
-  }
-
   .editor-panel.collapsed {
     width: auto;
   }
@@ -83,7 +102,6 @@
   .editor-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 8px 12px;
     border-bottom: 1px solid var(--color-border, #334155);
     flex-shrink: 0;
@@ -93,6 +111,20 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--color-text, #f1f5f9);
+  }
+
+  .resize-handle {
+    cursor: col-resize;
+    height: 16px;
+    width: 4px;
+    background: transparent;
+    margin: 0 4px;
+    margin-left: auto;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .resize-handle:hover {
+    background: var(--color-border, #334155);
   }
 
   .toggle-btn, .toggle-tab {

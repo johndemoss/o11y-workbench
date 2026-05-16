@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { EditorView, type ViewUpdate } from '@codemirror/view'
   import { EditorState } from '@codemirror/state'
-  import { basicSetup } from '@codemirror/basic-setup'
+  import { basicSetup } from 'codemirror'
   import { yaml } from '@codemirror/lang-yaml'
   import { oneDark } from '@codemirror/theme-one-dark'
 
@@ -61,6 +61,18 @@
       changes: { from: 0, to: current.length, insert: newValue },
     })
   }
+
+  $effect(() => {
+    const newVal = value
+    if (newVal !== undefined && view) {
+      const current = view.state.doc.toString()
+      if (current !== newVal) {
+        view.dispatch({
+          changes: { from: 0, to: current.length, insert: newVal }
+        })
+      }
+    }
+  })
 
   onMount(() => {
     createEditor()

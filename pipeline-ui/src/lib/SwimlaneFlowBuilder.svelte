@@ -8,7 +8,6 @@
     BackgroundVariant,
     MiniMap,
     MarkerType,
-    useSvelteFlow,
   } from '@xyflow/svelte'
   import type { Node, Edge, Connection } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
@@ -21,6 +20,7 @@
   } from './flow-sync'
   import StageFlowNode from './StageFlowNode.svelte'
   import SwimlaneNode from './SwimlaneNode.svelte'
+  import InfraNode from './InfraNode.svelte'
   import StagePalette from './StagePalette.svelte'
   import type {
     PipelinesBySignal,
@@ -28,15 +28,14 @@
     StageType,
     ProcessorConfig,
     PipelineResult,
+    SnippetTemplate,
   } from './types'
 
   // ─── Props ────────────────────────────────────────────────────────────────
   let {
     pipelines = {
       traces: { stages: [], processors: {} },
-      logs: { stages: [], processors: {} },
-      metrics: { stages: [], processors: {} },
-    },
+    } as PipelinesBySignal,
     onValidate,
     onImport,
     onExport,
@@ -58,17 +57,7 @@
   } = $props()
 
   // ─── Node types ───────────────────────────────────────────────────────────
-  const nodeTypes = { stage: StageFlowNode, swimlane: SwimlaneNode }
-
-  // Try to get screenToFlowPosition from SvelteFlow context
-  let screenToFlowPosition:
-    | ((pos: { x: number; y: number }) => { x: number; y: number })
-    | undefined
-  try {
-    ({ screenToFlowPosition } = useSvelteFlow())
-  } catch {
-    // SvelteFlow context not yet available — drop handler will use fallback
-  }
+  const nodeTypes = { stage: StageFlowNode, swimlane: SwimlaneNode, infra: InfraNode }
 
   // ─── State ────────────────────────────────────────────────────────────────
   let nodes = $state.raw<Node<StageNodeData>[]>([])
@@ -83,21 +72,26 @@
   function getPipelinesHash(p: PipelinesBySignal): string {
     return JSON.stringify({
       traces: p.traces?.stages?.map((s) => s.id) ?? [],
-      logs: p.logs?.stages?.map((s) => s.id) ?? [],
-      metrics: p.metrics?.stages?.map((s) => s.id) ?? [],
     })
   }
 
   // ─── Pipelines → Flow (external pipeline changes) ─────────────────────────
   $effect(() => {
-    const hash = getPipelinesHash(pipelines)
+    const p = pipelines
+    const hash = getPipelinesHash(p)
     if (hash === lastPipelinesHash) return
     lastPipelinesHash = hash
 
-    const { nodes: flowNodes, edges: flowEdges } = pipelinesToFlow(pipelines)
+    const initial = pipelinesToFlow(p)
+    for (const node of initial.nodes) {
+      if (node.type === 'swimlane') {
+        node.draggable = false
+        node.selectable = false
+      }
+    }
     untrack(() => {
-      nodes = flowNodes as Node<StageNodeData>[]
-      edges = flowEdges
+      nodes = initial.nodes as Node<StageNodeData>[]
+      edges = initial.edges
     })
   })
 
@@ -161,28 +155,35 @@
   function handleDrop(event: DragEvent) {
     event.preventDefault()
     onResultClear?.()
-    const stageType = event.dataTransfer?.getData('application/svelteflow')
-    if (!stageType || (stageType !== 'transform' && stageType !== 'filter')) return
+    const stageType = event.dataTransfer?.getData('application/svelteflow') || undefined
+    const snippetData = event.dataTransfer?.getData('application/snippet')
+    if (!stageType && !snippetData) return
+
+    const type = (stageType || (snippetData ? JSON.parse(snippetData).type : 'transform')) as StageType
 
     const id = `stage-${nodeIdCounter++}`
-    const procName = `proc-${id}`
+    const procName = `${type}/${type}-${id}`
 
-    // Get flow coordinates from drop position
-    let flowPos: { x: number; y: number }
-    if (screenToFlowPosition) {
-      flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY })
-    } else {
-      // Fallback: calculate from canvas bounds
-      const canvas = event.currentTarget as HTMLElement
-      const rect = canvas.getBoundingClientRect()
-      flowPos = {
-        x: event.clientX - rect.left - 100,
-        y: event.clientY - rect.top - 30,
+    // Calculate position relative to canvas area (always use fallback bounding rect)
+    const canvasEl = event.currentTarget as HTMLElement
+    const rect = canvasEl.getBoundingClientRect()
+    const flowPos = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+
+    // If no swimlane nodes exist yet, create default swimlanes first
+    let currentNodes = [...nodes]
+    if (currentNodes.filter((n) => n.type === 'swimlane').length === 0) {
+      const defaultPipelines = {
+        traces: { stages: [], processors: {} },
+        logs: { stages: [], processors: {} },
+        metrics: { stages: [], processors: {} },
       }
+      const initial = pipelinesToFlow(defaultPipelines)
+      // Merge swimlane nodes in front of any existing nodes
+      currentNodes = [...initial.nodes.filter((n) => n.type === 'swimlane'), ...currentNodes]
     }
 
     // Determine target swimlane by checking which swimlane rect contains the drop
-    const swimlaneNodes = nodes.filter((n) => n.type === 'swimlane')
+    const swimlaneNodes = currentNodes.filter((n) => n.type === 'swimlane')
     let parentId: string | undefined
     let parentOrigin = { x: 0, y: 0 }
     for (const sn of swimlaneNodes) {
@@ -205,10 +206,18 @@
       }
     }
 
-    // Node position is relative to parent swimlane
+    // Find siblings for end-of-chain positioning and auto-connect
+    let siblings: Node<StageNodeData>[] = []
+    if (parentId) {
+      siblings = currentNodes.filter(
+        (n) => n.parentId === parentId && n.type === 'stage',
+      )
+    }
+
+    // Node position is at the end of the existing chain
     const position = {
-      x: flowPos.x - parentOrigin.x,
-      y: flowPos.y - parentOrigin.y,
+      x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + 220 : 20,
+      y: 35,
     }
 
     const newNode: Node<StageNodeData> = {
@@ -217,30 +226,33 @@
       parentId,
       position,
       data: {
-        stage: { id, type: stageType as StageType, processor_ref: procName },
-        processor: {},
-        stageIndex: nodes.filter((n) => n.parentId === parentId && n.type === 'stage').length,
+        stage: { id, type, processor_ref: procName },
+        processor: snippetData ? JSON.parse(snippetData).processor ?? {} : {},
+        stageIndex: siblings.length,
       },
     }
 
-    const newNodes = [...nodes, newNode]
+    const newNodes = [...currentNodes, newNode]
     const newEdges = [...edges]
 
     // Auto-connect from the last stage in the same swimlane to the new node
-    if (parentId) {
-      const siblings = nodes.filter(
-        (n) => n.parentId === parentId && n.type === 'stage',
-      )
-      if (siblings.length > 0) {
-        const lastSibling = siblings[siblings.length - 1]
-        newEdges.push({
-          id: `e-${lastSibling.id}-${id}`,
-          source: lastSibling.id,
-          target: id,
-          type: 'smoothstep',
-          markerEnd: { type: MarkerType.ArrowClosed },
-        })
-      }
+    if (siblings.length > 0) {
+      const lastSibling = siblings[siblings.length - 1]
+      newEdges.push({
+        id: `e-${lastSibling.id}-${id}`,
+        source: lastSibling.id,
+        target: id,
+        type: 'smoothstep',
+        markerEnd: { type: MarkerType.ArrowClosed },
+      })
+    }
+
+    // Expand swimlane to fit new node
+    const swimlaneNode = newNodes.find(n => n.id === (parentId || 'swimlane-traces'))
+    if (swimlaneNode) {
+      const siblingsAfter = newNodes.filter(n => n.parentId === swimlaneNode.id && n.type === 'stage')
+      const newWidth = Math.max(400, siblingsAfter.length * 220 + 100)
+      swimlaneNode.width = newWidth
     }
 
     nodes = newNodes
@@ -366,6 +378,70 @@
     deleteConfirmNodeId = null
   }
 
+  // ─── Snippet modal ─────────────────────────────────────────────────────────
+  let snippetModal = $state(false)
+  let snippetConfig = $state<SnippetTemplate | null>(null)
+
+  function handleSnippetView(snippet: SnippetTemplate) {
+    snippetConfig = snippet
+    snippetModal = true
+  }
+
+  function handleSnippetApply() {
+    if (!snippetConfig) return
+    const snippet = snippetConfig
+    const id = `snippet-${nodeIdCounter++}`
+    const type = snippet.type
+    const procName = `${type}/${type}-${id}`
+
+    const tracesSwimlane = nodes.find(n => n.id === 'swimlane-traces')
+    if (!tracesSwimlane) return
+
+    let processor = snippet.processor
+    try {
+      const configTextarea = document.getElementById('snippet-config-textarea') as HTMLTextAreaElement
+      if (configTextarea && configTextarea.value) {
+        const parsed = JSON.parse(configTextarea.value)
+        processor = parsed
+      }
+    } catch {
+      // Invalid JSON — use original
+    }
+
+    const siblings = nodes.filter(n => n.parentId === 'swimlane-traces' && n.type === 'stage')
+    const newNode: Node<StageNodeData> = {
+      id, type: 'stage', parentId: 'swimlane-traces',
+      position: {
+        x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + 220 : 20,
+        y: 35,
+      },
+      width: 160,
+      data: {
+        stage: { id, type: type as StageType, processor_ref: procName },
+        processor,
+        stageIndex: siblings.length,
+      } as any,
+    }
+
+    let newNodes = [...nodes, newNode]
+    let newEdges = [...edges]
+    if (siblings.length > 0) {
+      const last = siblings[siblings.length - 1]
+      newEdges.push({ id: `e-${last.id}-${id}`, source: last.id, target: id, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } })
+    }
+    // Expand swimlane
+    const swimlaneNode = newNodes.find(n => n.id === 'swimlane-traces')
+    if (swimlaneNode) {
+      const siblingsAfter = newNodes.filter(n => n.parentId === 'swimlane-traces' && n.type === 'stage')
+      swimlaneNode.width = Math.max(400, siblingsAfter.length * 220 + 100)
+    }
+    nodes = newNodes; edges = newEdges
+    snippetModal = false
+    snippetConfig = null
+  }
+
+  let showMiniMap = $state(true)
+
   // ─── Derived: has any stage nodes ─────────────────────────────────────────
   let hasStages = $derived(nodes.some((n) => n.type === 'stage'))
 </script>
@@ -374,14 +450,13 @@
 <div class="flow-container" onkeydown={(e) => e.key === 'Escape' && handleCancelDelete()}>
   <header class="builder-header">
     <h1>Pipeline Graph</h1>
-    <div class="actions">
-      <button onclick={handleValidate} class="btn btn-primary">Validate</button>
-      <button onclick={() => onExport?.()} class="btn btn-secondary">Export YAML</button>
-    </div>
+  <div class="actions">
+    <button onclick={handleValidate} class="btn btn-primary">Validate</button>
+  </div>
   </header>
 
   <div class="flow-layout">
-    <StagePalette {onImport} />
+    <StagePalette {onImport} onSnippetView={handleSnippetView} />
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="canvas-area" ondragover={handleDragOver} ondrop={handleDrop}>
       {#if connectError}
@@ -394,12 +469,15 @@
           <p>Drag stages from the palette to begin building your pipeline.</p>
           <p class="hint">Or click "Import YAML" to load an existing pipeline.</p>
         </div>
-      {:else}
+      {/if}
+      <div class="svelte-flow-wrapper" class:empty={!hasStages}>
         <SvelteFlow
           {nodeTypes}
           bind:nodes
           bind:edges
           fitView
+          minZoom={0.15}
+          fitViewOptions={{ padding: 0.5 }}
           onconnect={handleConnect}
           onnodeclick={handleNodeClick}
           onnodedragstop={handleNodeDragStop}
@@ -407,9 +485,12 @@
         >
           <Controls />
           <Background variant={BackgroundVariant.Dots} />
-          <MiniMap />
+          {#if showMiniMap}
+            <MiniMap pannable zoomable nodeStrokeColor="#334155" nodeColor="#1e293b" maskColor="rgba(0,0,0,0.7)" style={{ width: 120, height: 80 }} />
+          {/if}
+          <button class="minimap-toggle nodrag nopan" onclick={() => showMiniMap = !showMiniMap} title="Toggle minimap">🗺</button>
         </SvelteFlow>
-      {/if}
+      </div>
       {#if deleteConfirmNodeId}
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div class="confirm-overlay" onclick={handleCancelDelete} role="dialog" aria-modal="true">
@@ -418,6 +499,22 @@
             <div class="confirm-actions">
               <button class="confirm-btn confirm-btn-secondary" onclick={handleCancelDelete}>No</button>
               <button class="confirm-btn confirm-btn-danger" onclick={handleConfirmDelete}>Yes</button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {#if snippetModal && snippetConfig}
+        <div class="modal-overlay" onclick={() => { snippetModal = false; snippetConfig = null }} role="dialog">
+          <div class="snippet-modal" onclick={(e) => e.stopPropagation()}>
+            <h3>{snippetConfig.name}</h3>
+            <p class="modal-hint">Type: <strong>{snippetConfig.type}</strong></p>
+            <p class="modal-hint">{snippetConfig.description}</p>
+            <label class="modal-label" for="snippet-config-textarea">Processor Configuration (edit before applying):</label>
+            <textarea id="snippet-config-textarea" class="modal-textarea" rows="10">{JSON.stringify(snippetConfig.processor, null, 2)}</textarea>
+            <div class="modal-actions">
+              <button class="confirm-btn confirm-btn-secondary" onclick={() => { snippetModal = false; snippetConfig = null }}>Cancel</button>
+              <button class="confirm-btn confirm-btn-primary" onclick={handleSnippetApply}>Apply to Pipeline</button>
             </div>
           </div>
         </div>
@@ -489,6 +586,11 @@
 
   .canvas-area :global(.svelte-flow) {
     font-family: var(--font-family, inherit);
+    background: #0f172a;
+  }
+
+  .canvas-area :global(.svelte-flow__renderer) {
+    background: #0f172a;
   }
 
   .empty-state {
@@ -510,6 +612,16 @@
   .empty-state .hint {
     font-size: var(--font-size-sm, 0.8rem);
     opacity: 0.7;
+  }
+
+  .svelte-flow-wrapper {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+  .svelte-flow-wrapper.empty {
+    opacity: 0.3;
+    pointer-events: all;
   }
 
   .confirm-overlay {
@@ -556,9 +668,76 @@
     color: var(--color-text, #f1f5f9);
   }
 
+  .confirm-btn-primary {
+    background: var(--color-primary, #3b82f6);
+    color: #fff;
+  }
+
+  .confirm-btn-primary:hover {
+    background: var(--color-primary-hover, #2563eb);
+  }
+
   .confirm-btn-danger {
     background: var(--color-error, #ef4444);
     color: #fff;
+  }
+
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .snippet-modal {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 500px;
+    width: 90%;
+    color: #f1f5f9;
+  }
+
+  .snippet-modal h3 {
+    margin: 0 0 0.3rem;
+    font-size: 1rem;
+  }
+
+  .modal-hint {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin: 0.2rem 0;
+  }
+
+  .modal-label {
+    font-size: 0.8rem;
+    display: block;
+    margin: 0.5rem 0 0.3rem;
+    color: #cbd5e1;
+  }
+
+  .modal-textarea {
+    width: 100%;
+    background: #0f172a;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 0.5rem;
+    font-family: monospace;
+    font-size: 0.8rem;
+    resize: vertical;
+    box-sizing: border-box;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    justify-content: flex-end;
   }
 
   .toast-error {
@@ -576,6 +755,25 @@
     box-shadow: var(--shadow-lg, 0 8px 16px rgba(0, 0, 0, 0.3));
     pointer-events: none;
     animation: toast-in 0.2s ease-out;
+  }
+
+  .minimap-toggle {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 10;
+    background: var(--color-surface, #1e293b);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--color-text, #f1f5f9);
+    line-height: 1;
+  }
+
+  .minimap-toggle:hover {
+    background: var(--color-surface-hover, #334155);
   }
 
   @keyframes toast-in {
