@@ -1,4 +1,4 @@
-import type { StageDiff, DiffSpan, StageResult, SpanChange } from './types'
+import type { StageDiff, DiffSpan, StageResult, SpanChange, FullAttributeDiff } from './types'
 
 export function computeStageDiff(before: unknown, after: unknown, stageIndex: number): StageDiff {
   if (!before || !after) {
@@ -27,18 +27,18 @@ export function computeStageDiff(before: unknown, after: unknown, stageIndex: nu
   for (const [id, afterSpan] of afterMap) {
     const beforeSpan = beforeMap.get(id)
     if (!beforeSpan) {
-      added.push({ span_id: id, status: 'added', after: afterSpan })
+      added.push({ span_id: id, status: 'added', name: afterSpan['name'] as string | undefined, after: afterSpan })
     } else {
       if (JSON.stringify(beforeSpan) !== JSON.stringify(afterSpan)) {
         const changes = computeSpanChanges(beforeSpan, afterSpan)
-        modified.push({ span_id: id, status: 'modified', before: beforeSpan, after: afterSpan, changes })
+        modified.push({ span_id: id, status: 'modified', name: (afterSpan['name'] || beforeSpan['name']) as string | undefined, before: beforeSpan, after: afterSpan, changes })
       }
     }
   }
 
   for (const [id, beforeSpan] of beforeMap) {
     if (!afterMap.has(id)) {
-      removed.push({ span_id: id, status: 'removed', before: beforeSpan })
+      removed.push({ span_id: id, status: 'removed', name: beforeSpan['name'] as string | undefined, before: beforeSpan })
     }
   }
 
@@ -175,6 +175,35 @@ export function computeSpanChanges(before: unknown, after: unknown): SpanChange[
   }
 
   return changes
+}
+
+export function computeFullAttributeDiff(before: unknown, after: unknown): FullAttributeDiff[] {
+  const beforeAttrs = normalizeAttrs(
+    before && typeof before === 'object' ? (before as Record<string, unknown>)['attributes'] : undefined
+  )
+  const afterAttrs = normalizeAttrs(
+    after && typeof after === 'object' ? (after as Record<string, unknown>)['attributes'] : undefined
+  )
+
+  const allKeys = new Set([...Object.keys(beforeAttrs), ...Object.keys(afterAttrs)])
+
+  const result: FullAttributeDiff[] = []
+  for (const key of allKeys) {
+    const hasBefore = key in beforeAttrs
+    const hasAfter = key in afterAttrs
+
+    if (!hasAfter) {
+      result.push({ key, before: beforeAttrs[key], after: undefined, change_type: 'removed' })
+    } else if (!hasBefore) {
+      result.push({ key, before: undefined, after: afterAttrs[key], change_type: 'added' })
+    } else if (JSON.stringify(beforeAttrs[key]) !== JSON.stringify(afterAttrs[key])) {
+      result.push({ key, before: beforeAttrs[key], after: afterAttrs[key], change_type: 'changed' })
+    } else {
+      result.push({ key, before: beforeAttrs[key], after: afterAttrs[key], change_type: 'unchanged' })
+    }
+  }
+
+  return result
 }
 
 function normalizeAttrs(attr: unknown): Record<string, unknown> {

@@ -24,8 +24,16 @@ export interface SpanChange {
   after?: unknown
 }
 
+export interface FullAttributeDiff {
+  key: string
+  before?: unknown
+  after?: unknown
+  change_type: 'added' | 'removed' | 'changed' | 'unchanged'
+}
+
 export interface DiffSpan {
   span_id: string
+  name?: string
   status: 'added' | 'removed' | 'modified'
   before?: unknown
   after?: unknown
