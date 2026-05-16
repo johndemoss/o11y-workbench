@@ -12,6 +12,14 @@
 
   let snippetsOpen = $state(true)
 
+  let snippetsByType = $derived.by(() => {
+    const map: Record<string, typeof SNIPPETS> = {}
+    for (const st of stageTypes) {
+      map[st.type] = SNIPPETS.filter(s => s.type === st.type)
+    }
+    return map
+  })
+
   function onDragStart(event: DragEvent, stageType: string) {
     if (event.dataTransfer) {
       event.dataTransfer.setData('application/svelteflow', stageType)
@@ -50,16 +58,24 @@
     {snippetsOpen ? '▼' : '▶'} Snippets
   </button>
   {#if snippetsOpen}
-    {#each SNIPPETS as snippet}
-    <div class="snippet-row">
-      <div class="snippet-card" style="border-left-color: {STAGE_COLORS[snippet.type]?.border ?? '#334155'}" draggable={true}
-        ondragstart={(e) => onDragStartSnippet(e, snippet)}
-        onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}>
-        <span class="snippet-name">{snippet.name}</span>
-        <button class="snippet-eye-btn" onclick={() => onSnippetView?.(snippet)} aria-label="View snippet">👁</button>
-      </div>
-    </div>
-  {/each}
+    {#each stageTypes as st}
+      {#if (snippetsByType[st.type]?.length ?? 0) > 0}
+        <div class="snippet-subheader" style="color: {STAGE_COLORS[st.type]?.badge}">
+          <span class="subheader-dot" style="background: {STAGE_COLORS[st.type]?.badge}"></span>
+          {st.label}
+        </div>
+        {#each snippetsByType[st.type] as snippet}
+        <div class="snippet-row">
+          <div class="snippet-card" style="border-left-color: {STAGE_COLORS[snippet.type]?.border ?? '#334155'}" draggable={true}
+            ondragstart={(e) => onDragStartSnippet(e, snippet)}
+            onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}>
+            <span class="snippet-name">{snippet.name}</span>
+            <button class="snippet-eye-btn" onclick={() => onSnippetView?.(snippet)} aria-label="View snippet">👁</button>
+          </div>
+        </div>
+        {/each}
+      {/if}
+    {/each}
   {/if}
 
   <button class="import-btn" onclick={() => onImport?.()}>
@@ -200,6 +216,25 @@
     align-items: center;
     gap: 4px;
     padding: 2px 0;
+  }
+
+  .snippet-subheader {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 6px 0 2px 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .subheader-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
   }
 
   .snippet-name {
