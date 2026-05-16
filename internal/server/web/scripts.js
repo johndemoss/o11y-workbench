@@ -514,7 +514,6 @@ async function importTraces() {
     });
     runs[run.id] = run;
     renderRunList();
-    updateOttlRunSelector();
     status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
     setTimeout(() => closeImportModal(), 800);
   } catch(e) {
@@ -551,12 +550,7 @@ async function uploadScenarios() {
   btn.disabled = false;
 }
 
-document.body.addEventListener('htmx:afterSwap', function(evt) {
-  if (evt.detail.target && evt.detail.target.id === 'ottl-result-content') {
-    const panel = document.getElementById('ottl-result');
-    if (panel) panel.classList.remove('hidden');
-  }
-});
+
 
 
 
@@ -638,7 +632,6 @@ function startPolling() {
         }
       });
       renderRunList();
-      updateOttlRunSelector();
       // Show detail if viewing one
       const detail = document.getElementById('detail-section');
       if (!detail.classList.contains('hidden')) {
@@ -1103,428 +1096,24 @@ updateSeverityBars();
 updateMetricTypeBars();
 updateToggleAllBtn();
 
-function updateOttlRunSelector() {
-  const select = document.getElementById('ottl-run-select');
-  if (!select) return;
-  const currentVal = select.value;
-  while (select.options.length > 1) select.remove(1);
-  const entries = Object.values(runs).filter(r =>
-    r.status === 'completed' && (r.span_count > 0 || r.log_count > 0 || r.metric_count > 0)
-  );
-  entries.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
-  entries.forEach(r => {
-    const opt = document.createElement('option');
-    opt.value = r.id;
-    const hasTrace = !!r.trace_data;
-    const hasLog = !!(r.log_data || r.log_count || r.log_count_completed);
-    const hasMetric = !!(r.metric_data || r.metric_count || r.metric_count_completed);
-    const sig = hasTrace && hasLog ? 'T+L' : hasTrace && hasMetric ? 'T+M' : hasTrace ? 'T' : hasLog ? 'L' : 'M';
-    const label = r.output === 'import' ? r.id + ' (imported)' : r.id + (r.scenario ? ' [' + r.scenario + ']' : '');
-    opt.textContent = label + ' \u2014 ' + sig + ' ' + (r.span_count || 0) + ' spans' +
-      (hasLog ? ', ' + (r.log_count || r.log_count_completed || 0) + ' logs' : '') +
-      (hasMetric ? ', ' + (r.metric_count || r.metric_count_completed || 0) + ' metrics' : '');
-    select.appendChild(opt);
-  });
-  if (currentVal) {
-    for (let i = 0; i < select.options.length; i++) {
-      if (select.options[i].value === currentVal) {
-        select.selectedIndex = i;
-        break;
-      }
-    }
-  }
-}
 
-function updateOttlLineNumbers() {
-  const textarea = document.getElementById('ottl-input');
-  const numbers = document.getElementById('ottl-line-numbers');
-  if (!textarea || !numbers) return;
-  const lines = textarea.value.split('\n').length;
-  numbers.innerHTML = Array.from({length: lines}, (_, i) => '<span>' + (i + 1) + '</span>').join('');
-}
 
-function insertSnippet(content) {
-  const textarea = document.getElementById('ottl-input');
-  if (!textarea) return;
-  textarea.value = content;
-  textarea.dispatchEvent(new Event('input'));
-}
 
-// Load existing runs from the server so the run list and OTTL selector
-// are populated immediately on page load (not just after the first new run).
+
+
+
+// Load existing runs from the server so the run list
+// is populated immediately on page load.
 (async function loadExistingRuns() {
   try {
     const data = await api('/api/runs');
     if (data.runs) {
       data.runs.forEach(r => { runs[r.id] = r; });
       renderRunList();
-      updateOttlRunSelector();
     }
   } catch(e) { /* page may load before any runs exist */ }
   if (!pollTimer) startPolling();
 })();
 
-document.getElementById('ottl-input').addEventListener('input', updateOttlLineNumbers);
-updateOttlLineNumbers();
-
 updateAllPillState('signal-type');
-updateAllPillState('ottl-signal-checkboxes');
 updateAllPillState('run-filter-signals');
-
-// --- OTTL Prototyper: Diff & Tab Switching ---
-
-function canComputeDiff(data) {
-  if (!data) return false;
-  if (data._composite) return !!(data.traces || data.logs || data.metrics);
-  if (!data.original) return false;
-  const d = typeof data.original === 'string' ? JSON.parse(data.original) : data.original;
-  return d && (d.resource_spans || d.resource_logs);
-}
-
-function switchOttlResultTab(tab) {
-  const content = document.getElementById('ottl-result-content');
-  if (!content) return;
-
-  const data = window.__ottlTransformData;
-  const tabSections = content.querySelectorAll('[data-tab-content]');
-
-  const computeSummary = d => {
-    const diff = computeDiff(d.original, d.transformed);
-    return renderDiffSummary(diff) + renderDiffTable(diff);
-  };
-
-  if ((tab === 'summary' || tab === 'fulldiff') && data && canComputeDiff(data)) {
-    const isComposite = data._composite;
-    const hasData = isComposite
-      ? !!(data.traces?.original && data.traces?.transformed) ||
-        !!(data.logs?.original && data.logs?.transformed) ||
-        !!(data.metrics?.original && data.metrics?.transformed)
-      : !!(data.original && data.transformed);
-
-    if (hasData) {
-      tabSections.forEach(el => el.style.display = 'none');
-      const oldDiff = content.querySelector('[data-diff-content]');
-      if (oldDiff) oldDiff.remove();
-      const div = document.createElement('div');
-      div.setAttribute('data-diff-content', '');
-
-      if (tab === 'summary') {
-        if (isComposite) {
-          let html = '';
-          for (const st of ['traces', 'logs', 'metrics']) {
-            const sd = data[st];
-            if (sd && sd.original && sd.transformed) {
-              const label = st.charAt(0).toUpperCase() + st.slice(1);
-              html += '<div style="margin-bottom:16px">';
-              html += '<h3 style="margin:0 0 4px;font-size:14px;color:#e2e8f0">' + label + '</h3>';
-              html += computeSummary(sd);
-              html += '</div>';
-            }
-          }
-          div.innerHTML = html;
-        } else {
-          div.innerHTML = computeSummary(data);
-        }
-      } else {
-        // fulldiff tab
-        if (isComposite) {
-          let html = '';
-          for (const st of ['traces', 'logs', 'metrics']) {
-            const sd = data[st];
-            if (sd && sd.original && sd.transformed) {
-              const label = st.charAt(0).toUpperCase() + st.slice(1);
-              html += '<h3 style="margin:12px 0 4px;font-size:14px;color:#e2e8f0">' + label + '</h3>';
-              html += renderInlineDiff(sd.original, sd.transformed);
-            }
-          }
-          div.innerHTML = html;
-        } else {
-          div.innerHTML = renderInlineDiff(data.original, data.transformed);
-        }
-      }
-      content.appendChild(div);
-      return;
-    }
-  }
-
-  // Fall through to server-rendered tab sections
-  tabSections.forEach(el => {
-    el.style.display = el.getAttribute('data-tab-content') === tab ? '' : 'none';
-  });
-  const oldDiff = content.querySelector('[data-diff-content]');
-  if (oldDiff) oldDiff.remove();
-}
-
-function computeDiff(originalData, transformedData) {
-  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
-  let orig, trans;
-  try { orig = parse(originalData); } catch(e) { orig = null; }
-  try { trans = parse(transformedData); } catch(e) { trans = null; }
-  const result = { added: 0, removed: 0, modified: 0, totalSpans: 0, spanDiffs: [], spansRemoved: 0, spansAdded: 0, signalType: null };
-  if (!orig || !trans) return result;
-
-  // Detect signal type
-  if (orig.resource_spans) result.signalType = 'traces';
-  else if (orig.resource_logs) result.signalType = 'logs';
-  else if (orig.resource_metrics) result.signalType = 'metrics';
-  else return result;
-
-  // Extract records based on signal type
-  let origRecords, transRecords;
-  const getTraceRecords = td => {
-    const list = [];
-    if (td.resource_spans) td.resource_spans.forEach((rs, ri) => {
-      if (rs.scope_spans) rs.scope_spans.forEach((ss, si) => {
-        if (ss.spans) ss.spans.forEach((sp, pi) => {
-          const attrs = {};
-          if (sp.attributes) sp.attributes.forEach(a => { attrs[a.key] = a.value; });
-          list.push({ resourceIdx: ri, scopeIdx: si, recordIdx: pi, name: sp.name || 'span-' + pi, attrs });
-        });
-      });
-    });
-    return list;
-  };
-  const getLogRecords = td => {
-    const list = [];
-    if (td.resource_logs) td.resource_logs.forEach((rs, ri) => {
-      if (rs.scope_logs) rs.scope_logs.forEach((ss, si) => {
-        if (ss.log_records) ss.log_records.forEach((lr, li) => {
-          const attrs = {};
-          if (lr.attributes) lr.attributes.forEach(a => { attrs[a.key] = a.value; });
-          list.push({
-            resourceIdx: ri, scopeIdx: si, recordIdx: li,
-            name: lr.severity_text ? lr.severity_text + ': ' + formatAttrValue(lr.body) : formatAttrValue(lr.body),
-            attrs, body: formatAttrValue(lr.body)
-          });
-        });
-      });
-    });
-    return list;
-  };
-
-  if (result.signalType === 'traces') {
-    origRecords = getTraceRecords(orig);
-    transRecords = getTraceRecords(trans);
-  } else if (result.signalType === 'logs') {
-    origRecords = getLogRecords(orig);
-    transRecords = getLogRecords(trans);
-  } else {
-    return result;
-  }
-
-  result.totalSpans = Math.max(origRecords.length, transRecords.length);
-
-  // When record count differs (e.g. filter removed some), report
-  // record-level additions/removals and skip attribute comparison.
-  if (origRecords.length !== transRecords.length) {
-    if (origRecords.length > transRecords.length) {
-      result.spansRemoved = origRecords.length - transRecords.length;
-      for (let i = transRecords.length; i < origRecords.length; i++) {
-        const s = origRecords[i];
-        result.spanDiffs.push({
-          name: s.name, idx: i,
-          added: [], removed: [], modified: [], _removed: true
-        });
-      }
-      result.removed = result.spansRemoved;
-    }
-    if (transRecords.length > origRecords.length) {
-      result.spansAdded = transRecords.length - origRecords.length;
-      for (let i = origRecords.length; i < transRecords.length; i++) {
-        const s = transRecords[i];
-        result.spanDiffs.push({
-          name: s.name, idx: i,
-          added: [], removed: [], modified: [], _added: true
-        });
-      }
-      result.added = result.spansAdded;
-    }
-    return result;
-  }
-
-  // Attribute-level diff by index (transform mode: same number of records)
-  for (let i = 0; i < origRecords.length; i++) {
-    const os = origRecords[i];
-    const ts = transRecords[i];
-    const recDiff = { name: os.name, idx: i, added: [], removed: [], modified: [] };
-
-    // Compare body for log records
-    if (os.body !== undefined && ts.body !== undefined && os.body !== ts.body) {
-      recDiff.bodyOld = os.body;
-      recDiff.bodyNew = ts.body;
-      result.modified++;
-    }
-
-    const origKeys = Object.keys(os.attrs);
-    const transKeys = Object.keys(ts.attrs);
-    const allKeys = [...new Set([...origKeys, ...transKeys])];
-    for (const key of allKeys) {
-      const ov = key in os.attrs ? os.attrs[key] : undefined;
-      const tv = key in ts.attrs ? ts.attrs[key] : undefined;
-      if (ov === undefined && tv !== undefined) {
-        recDiff.added.push({ key, value: tv });
-        result.added++;
-      } else if (ov !== undefined && tv === undefined) {
-        recDiff.removed.push({ key, value: ov });
-        result.removed++;
-      } else if (JSON.stringify(ov) !== JSON.stringify(tv)) {
-        recDiff.modified.push({ key, oldValue: ov, newValue: tv });
-        result.modified++;
-      }
-    }
-    if (recDiff.added.length > 0 || recDiff.removed.length > 0 || recDiff.modified.length > 0 || recDiff.bodyOld !== undefined) {
-      result.spanDiffs.push(recDiff);
-    }
-  }
-  return result;
-}
-
-function renderDiffSummary(diff) {
-  const recordLabel = diff.signalType === 'logs' ? 'Log Records' : diff.signalType === 'traces' ? 'Spans' : 'Records';
-  let html = '<div class="ottl-diff-summary">';
-  html += '<div class="ottl-diff-stat ottl-diff-added"><div class="count">' + diff.added + '</div><div class="label">Added</div></div>';
-  html += '<div class="ottl-diff-stat ottl-diff-removed"><div class="count">' + diff.removed + '</div><div class="label">Removed</div></div>';
-  html += '<div class="ottl-diff-stat ottl-diff-modified"><div class="count">' + diff.modified + '</div><div class="label">Modified</div></div>';
-  html += '<div class="ottl-diff-stat" style="min-width:80px"><div class="count">' + diff.totalSpans + '</div><div class="label">' + recordLabel + '</div></div>';
-  html += '</div>';
-  return html;
-}
-
-function renderDiffTable(diff) {
-  if (diff.spanDiffs.length === 0) {
-    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found between original and transformed data.</div>';
-  }
-  const isLogs = diff.signalType === 'logs';
-  const recordLabel = isLogs ? 'log' : 'span';
-  const header1 = isLogs ? 'Body / Attribute' : 'Attribute';
-  let html = '<table class="ottl-diff-table"><tr><th style="width:30%">' + header1 + '</th><th style="width:35%">Original</th><th style="width:35%">Transformed</th></tr>';
-  for (const sd of diff.spanDiffs) {
-    if (sd._removed) {
-      html += '<tr class="span-header span-removed"><td colspan="3">' + escapeHtml(sd.name) + ' (' + recordLabel + ' ' + sd.idx + ') — removed</td></tr>';
-      continue;
-    }
-    if (sd._added) {
-      html += '<tr class="span-header span-added"><td colspan="3">' + escapeHtml(sd.name) + ' (' + recordLabel + ' ' + sd.idx + ') — added</td></tr>';
-      continue;
-    }
-    html += '<tr class="span-header"><td colspan="3">' + escapeHtml(sd.name) + ' (' + recordLabel + ' ' + sd.idx + ')</td></tr>';
-    // Show body changes for log records
-    if (sd.bodyOld !== undefined || sd.bodyNew !== undefined) {
-      if (sd.bodyOld !== undefined && sd.bodyNew !== undefined) {
-        html += '<tr class="modified"><td>body</td><td class="val-old">' + escapeHtml(sd.bodyOld) + '</td><td class="val-new">' + escapeHtml(sd.bodyNew) + '</td></tr>';
-      } else if (sd.bodyOld !== undefined) {
-        html += '<tr class="removed"><td>body</td><td class="val-old">' + escapeHtml(sd.bodyOld) + '</td><td></td></tr>';
-      } else {
-        html += '<tr class="added"><td>body</td><td></td><td class="val-new">' + escapeHtml(sd.bodyNew) + '</td></tr>';
-      }
-    }
-    for (const item of sd.removed) {
-      const v = formatAttrValue(item.value);
-      html += '<tr class="removed"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(v) + '</td><td></td></tr>';
-    }
-    for (const item of sd.added) {
-      const v = formatAttrValue(item.value);
-      html += '<tr class="added"><td>' + escapeHtml(item.key) + '</td><td></td><td class="val-new">' + escapeHtml(v) + '</td></tr>';
-    }
-    for (const item of sd.modified) {
-      const ov = formatAttrValue(item.oldValue);
-      const nv = formatAttrValue(item.newValue);
-      html += '<tr class="modified"><td>' + escapeHtml(item.key) + '</td><td class="val-old">' + escapeHtml(ov) + '</td><td class="val-new">' + escapeHtml(nv) + '</td></tr>';
-    }
-  }
-  html += '</table>';
-  return html;
-}
-
-function formatAttrValue(v) {
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'object') {
-    for (const key of ['stringValue', 'intValue', 'doubleValue', 'boolValue', 'arrayValue', 'kvlistValue']) {
-      if (key in v) {
-        const inner = v[key];
-        return typeof inner === 'object' ? JSON.stringify(inner) : String(inner);
-      }
-    }
-    return JSON.stringify(v);
-  }
-  return String(v);
-}
-
-// --- Full inline diff (unified diff of full JSON) ---
-
-function computeInlineDiff(originalData, transformedData) {
-  const parse = d => (typeof d === 'string' ? JSON.parse(d) : d);
-  let orig, trans;
-  try { orig = parse(originalData); } catch(e) { orig = null; }
-  try { trans = parse(transformedData); } catch(e) { trans = null; }
-  if (!orig || !trans) return [];
-
-  const origLines = JSON.stringify(orig, null, 2).split('\n');
-  const transLines = JSON.stringify(trans, null, 2).split('\n');
-
-  // Simple unified diff: walk both line arrays, matching lines forward.
-  const hunks = [];
-  let oi = 0, ti = 0;
-  while (oi < origLines.length && ti < transLines.length) {
-    if (origLines[oi] === transLines[ti]) {
-      hunks.push({ type: 'same', text: origLines[oi] });
-      oi++; ti++;
-      continue;
-    }
-    let found = false;
-    const lookAhead = Math.min(10, Math.max(origLines.length - oi, transLines.length - ti));
-    for (let ahead = 1; ahead <= lookAhead; ahead++) {
-      if (oi + ahead < origLines.length && origLines[oi + ahead] === transLines[ti]) {
-        for (let r = 0; r < ahead; r++) hunks.push({ type: 'removed', text: origLines[oi + r] });
-        oi += ahead;
-        found = true;
-        break;
-      }
-      if (ti + ahead < transLines.length && origLines[oi] === transLines[ti + ahead]) {
-        for (let a = 0; a < ahead; a++) hunks.push({ type: 'added', text: transLines[ti + a] });
-        ti += ahead;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      if (origLines[oi] !== undefined) hunks.push({ type: 'removed', text: origLines[oi] });
-      if (transLines[ti] !== undefined) hunks.push({ type: 'added', text: transLines[ti] });
-      oi++; ti++;
-    }
-  }
-  while (oi < origLines.length) hunks.push({ type: 'removed', text: origLines[oi++] });
-  while (ti < transLines.length) hunks.push({ type: 'added', text: transLines[ti++] });
-  return hunks;
-}
-
-function renderInlineDiff(originalData, transformedData) {
-  const hunks = computeInlineDiff(originalData, transformedData);
-  if (hunks.length === 0) {
-    return '<div style="padding:12px;color:#94a3b8;font-size:13px">No differences found.</div>';
-  }
-  let html = '<div class="ottl-inline-diff">';
-  let origLine = 0, transLine = 0;
-  for (const hunk of hunks) {
-    const type = hunk.type;
-    const cls = type === 'added' ? ' added' : type === 'removed' ? ' removed' : '';
-    let marker = ' ';
-    let lineNum = '';
-    if (type === 'added') {
-      marker = '+';
-      transLine++;
-      lineNum = '<span class="ln"></span><span class="ln" style="color:#22c55e">' + transLine + '</span>';
-    } else if (type === 'removed') {
-      marker = '-';
-      origLine++;
-      lineNum = '<span class="ln" style="color:#ef4444">' + origLine + '</span><span class="ln"></span>';
-    } else {
-      origLine++;
-      transLine++;
-      lineNum = '<span class="ln">' + origLine + '</span><span class="ln">' + transLine + '</span>';
-    }
-    html += '<div class="diff-line' + cls + '"><span class="marker">' + marker + '</span>' + lineNum + '<span class="text">' + escapeHtml(hunk.text) + '</span></div>';
-  }
-  html += '</div>';
-  return html;
-}

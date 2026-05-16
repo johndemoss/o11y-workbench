@@ -188,7 +188,7 @@
 <main class="app">
   <nav class="top-nav">
     <span class="app-title">Pipeline Prototyper</span>
-    <a href="/" class="nav-link">Classic OTTL Prototyper →</a>
+    <a href="/" class="nav-link">← Dashboard</a>
   </nav>
   <div class="tab-bar">
     <button
