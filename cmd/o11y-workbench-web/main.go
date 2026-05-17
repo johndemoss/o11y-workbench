@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/johndemoss/otel-workbench/internal/gen"
-	"github.com/johndemoss/otel-workbench/internal/server"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/server"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func main() {
 	flag.Parse()
 
 	pipelineEnabled := *pipelinePrototyper
-	if v := os.Getenv("OTEL_WORKBENCH_PIPELINE_PROTOTYPER"); v == "true" {
+	if v := os.Getenv("O11Y_WORKBENCH_PIPELINE_PROTOTYPER"); v == "true" {
 		pipelineEnabled = true
 	}
 

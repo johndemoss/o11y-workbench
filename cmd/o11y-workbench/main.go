@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/johndemoss/otel-workbench/internal/export"
-	"github.com/johndemoss/otel-workbench/internal/gen"
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 var cfgFile string
@@ -26,9 +26,9 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "otel-workbench",
+		Use:   "o11y-workbench",
 		Short: "Deterministic mock OTLP trace generator",
-		Long: `otel-workbench generates fake but structurally valid OpenTelemetry traces
+		Long: `o11y-workbench generates fake but structurally valid OpenTelemetry traces
 for testing distributed system scenarios, specifically trace-ID-aware
 load balancing across endpoints.
 
@@ -158,10 +158,10 @@ func initConfig() error {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		viper.AddConfigPath(".")
-		viper.SetConfigName("otel-workbench")
+		viper.SetConfigName("o11y-workbench")
 	}
 
-	viper.SetEnvPrefix("OTEL_WORKBENCH")
+	viper.SetEnvPrefix("O11Y_WORKBENCH")
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {

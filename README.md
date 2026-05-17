@@ -1,4 +1,4 @@
-# otel-workbench
+# o11y workbench
 
 **Deterministic mock OTLP trace generator** for testing distributed system scenarios, trace-ID-aware load balancing, and OpenTelemetry Transformation Language (OTTL) prototyping.
 
@@ -22,13 +22,13 @@ Generate structurally valid OpenTelemetry traces with reproducible outputs — f
 
 ```bash
 # Generate 5 flat-topology traces, output as JSON files
-go run ./cmd/otel-workbench --traces 5 --topology flat --format json
+go run ./cmd/o11y-workbench --traces 5 --topology flat --format json
 
 # Generate traces using the microservice scenario, streamed via OTLP
-go run ./cmd/otel-workbench --scenario microservice --output otlp --endpoint localhost:4317
+go run ./cmd/o11y-workbench --scenario microservice --output otlp --endpoint localhost:4317
 
 # Load a user-defined scenario file
-go run ./cmd/otel-workbench --scenario my-app --scenario-file ./scenarios.yaml
+go run ./cmd/o11y-workbench --scenario my-app --scenario-file ./scenarios.yaml
 ```
 
 ### Web Dashboard
@@ -46,16 +46,16 @@ The dashboard lets you configure trace parameters, run generation jobs, inspect 
 ### Docker
 
 ```bash
-docker build -f Dockerfile.web -t otel-workbench-web .
-docker run -p 8080:8080 otel-workbench-web
+docker build -f Dockerfile.web -t o11y-workbench-web .
+docker run -p 8080:8080 o11y-workbench-web
 ```
 
 ## CLI Reference
 
-### `otel-workbench` — Trace Generator
+### `o11y-workbench` — Trace Generator
 
 ```
-Usage: otel-workbench [flags]
+Usage: o11y-workbench [flags]
 
 Flags:
       --config string            Config file path (YAML, JSON, or TOML)
@@ -79,10 +79,10 @@ Flags:
 
 Precedence: CLI flag > environment variable (`OTEL_WORKBENCH_*`) > config file > built-in default.
 
-### `otel-workbench-web` — Web Dashboard Server
+### `o11y-workbench-web` — Web Dashboard Server
 
 ```
-Usage: otel-workbench-web [flags]
+Usage: o11y-workbench-web [flags]
 
 Flags:
       --addr string           HTTP listen address (default ":8080")
@@ -232,7 +232,7 @@ curl -X POST -H "Content-Type: application/x-protobuf" \
 Streams traces via gRPC to one or more collector endpoints. The `--endpoint` flag supports multiple values:
 
 ```bash
-otel-workbench --output otlp \
+o11y-workbench --output otlp \
   --endpoint localhost:4317 \
   --endpoint collector:4317
 ```
@@ -268,8 +268,8 @@ endpoint:
 
 ```
 ├── cmd/
-│   ├── otel-workbench/          # CLI trace generator
-│   └── otel-workbench-web/      # Web dashboard server
+│   ├── o11y-workbench/          # CLI trace generator
+│   └── o11y-workbench-web/      # Web dashboard server
 ├── internal/
 │   ├── export/                  # Output exporters (file, OTLP gRPC, JSON)
 │   ├── gen/                     # Trace generation engine, scenarios, topology
@@ -292,8 +292,8 @@ endpoint:
 ### Build
 
 ```bash
-go build ./cmd/otel-workbench
-go build ./cmd/otel-workbench-web
+go build ./cmd/o11y-workbench
+go build ./cmd/o11y-workbench-web
 ```
 
 ### Test

@@ -16,9 +16,9 @@ import (
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/export"
-	"github.com/johndemoss/otel-workbench/internal/gen"
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 type RunStatus string

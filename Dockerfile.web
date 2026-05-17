@@ -3,11 +3,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /otel-workbench-web ./cmd/otel-workbench-web/
+RUN CGO_ENABLED=0 go build -o /o11y-workbench-web ./cmd/o11y-workbench-web/
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /otel-workbench-web /otel-workbench-web
+COPY --from=builder /o11y-workbench-web /o11y-workbench-web
 EXPOSE 8080
-ENTRYPOINT ["/otel-workbench-web"]
+ENTRYPOINT ["/o11y-workbench-web"]
 CMD ["--addr", ":8080"]

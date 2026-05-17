@@ -10,8 +10,8 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/export"
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 type Config struct {
@@ -161,7 +161,7 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 						ScopeSpans: []*tracev1.ScopeSpans{
 							{
 								Scope: &commonv1.InstrumentationScope{
-									Name:    "otel-workbench",
+									Name:    "o11y-workbench",
 									Version: "0.1.0",
 								},
 								Spans: groupSpans,

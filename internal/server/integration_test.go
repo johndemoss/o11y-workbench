@@ -11,7 +11,7 @@ import (
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/johndemoss/otel-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
 )
 
 func TestIntegration_RunLifecycle(t *testing.T) {

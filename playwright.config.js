@@ -14,7 +14,7 @@ module.exports = defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'go run ./cmd/otel-workbench-web/ -addr :8080',
+    command: 'go run ./cmd/o11y-workbench-web/ -addr :8080',
     port: 8080,
     timeout: 30000,
     reuseExistingServer: !process.env.CI,

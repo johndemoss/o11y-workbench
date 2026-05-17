@@ -9,8 +9,8 @@ import (
 
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/export"
-	"github.com/johndemoss/otel-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
 )
 
 // mockExporter captures ResourceSpans for testing (no network).

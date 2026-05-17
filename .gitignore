@@ -6,6 +6,8 @@
 /mocktelemetrygen-web
 /otel-workbench
 /otel-workbench-web
+/o11y-workbench
+/o11y-workbench-web
 
 # Node.js
 node_modules/

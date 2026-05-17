@@ -3,7 +3,7 @@ package gen_test
 import (
 	"testing"
 
-	"github.com/johndemoss/otel-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
 )
 
 func TestGenerateScenario_Microservice(t *testing.T) {

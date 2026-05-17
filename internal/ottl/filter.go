@@ -1,5 +1,5 @@
 // Package ottl provides OTTL (OpenTelemetry Transformation Language) statement
-// validation, execution, and filtering for the otel-workbench web dashboard.
+// validation, execution, and filtering for the o11y-workbench web dashboard.
 package ottl
 
 import (

@@ -138,7 +138,7 @@ function onSignalCheckboxChange(changed) {
   traceArea.style.display = hasTraces ? '' : 'none';
   if (changed === 'traces' && hasTraces && traceArea.classList.contains('collapsed')) {
     traceArea.classList.remove('collapsed');
-    try { localStorage.removeItem('otel-workbench-config-trace-collapsed'); } catch(e) {}
+    try { localStorage.removeItem('o11y-workbench-config-trace-collapsed'); } catch(e) {}
   }
   // Show/hide trace-specific fields
   document.getElementById('trace-fields-group').classList.toggle('hidden', !hasTraces);
@@ -147,7 +147,7 @@ function onSignalCheckboxChange(changed) {
   logArea.style.display = hasLogs ? '' : 'none';
   if (changed === 'logs' && hasLogs && logArea.classList.contains('collapsed')) {
     logArea.classList.remove('collapsed');
-    try { localStorage.removeItem('otel-workbench-config-log-collapsed'); } catch(e) {}
+    try { localStorage.removeItem('o11y-workbench-config-log-collapsed'); } catch(e) {}
   }
   document.getElementById('log-per-span-field').style.display = (hasTraces && hasLogs) ? 'block' : 'none';
   document.getElementById('log-count-field').style.display = hasLogs ? 'block' : 'none';
@@ -156,7 +156,7 @@ function onSignalCheckboxChange(changed) {
   metricArea.style.display = hasMetrics ? '' : 'none';
   if (changed === 'metrics' && hasMetrics && metricArea.classList.contains('collapsed')) {
     metricArea.classList.remove('collapsed');
-    try { localStorage.removeItem('otel-workbench-config-metric-collapsed'); } catch(e) {}
+    try { localStorage.removeItem('o11y-workbench-config-metric-collapsed'); } catch(e) {}
   }
   updateSeverityBars();
   updateMetricTypeBars();
@@ -373,10 +373,10 @@ function toggleAllSignalConfigs() {
     var signal = el.id.replace('-config-area', '');
     if (anyCollapsed) {
       el.classList.remove('collapsed');
-      try { localStorage.removeItem('otel-workbench-config-' + signal + '-collapsed'); } catch(e) {}
+      try { localStorage.removeItem('o11y-workbench-config-' + signal + '-collapsed'); } catch(e) {}
     } else {
       el.classList.add('collapsed');
-      try { localStorage.setItem('otel-workbench-config-' + signal + '-collapsed', '1'); } catch(e) {}
+      try { localStorage.setItem('o11y-workbench-config-' + signal + '-collapsed', '1'); } catch(e) {}
     }
   });
   document.getElementById('toggle-all-btn').textContent = anyCollapsed ? 'Collapse All' : 'Expand All';
@@ -386,7 +386,7 @@ function toggleSignalConfig(signal) {
   const area = document.getElementById(signal + '-config-area');
   if (!area) return;
   const isCollapsed = area.classList.toggle('collapsed');
-  const key = 'otel-workbench-config-' + signal + '-collapsed';
+  const key = 'o11y-workbench-config-' + signal + '-collapsed';
   try { localStorage.setItem(key, isCollapsed ? '1' : ''); } catch(e) {}
   updateToggleAllBtn();
 }
@@ -1080,7 +1080,7 @@ loadScenarios();
 // Restore per-signal collapse states
 ['trace', 'log', 'metric'].forEach(function(signal) {
   try {
-    if (localStorage.getItem('otel-workbench-config-' + signal + '-collapsed') === '1') {
+    if (localStorage.getItem('o11y-workbench-config-' + signal + '-collapsed') === '1') {
       var el = document.getElementById(signal + '-config-area');
       if (el) el.classList.add('collapsed');
     }

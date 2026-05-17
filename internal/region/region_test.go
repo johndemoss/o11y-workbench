@@ -3,7 +3,7 @@ package region_test
 import (
 	"testing"
 
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 func TestAll_ReturnsThree(t *testing.T) {

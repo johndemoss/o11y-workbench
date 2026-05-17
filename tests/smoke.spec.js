@@ -4,7 +4,7 @@ test.describe('Smoke Tests', () => {
 
   test('page loads and shows title', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.logo-text')).toHaveText('otel-workbench');
+    await expect(page.locator('.logo-text')).toHaveText('o11y workbench');
   });
 
   test('no console errors on load', async ({ page }) => {
@@ -48,6 +48,38 @@ test.describe('Smoke Tests', () => {
     await expect(runList).not.toContainText('No runs yet');
     const cards = await page.locator('.run-card').count();
     expect(cards).toBeGreaterThan(0);
+  });
+
+  test.describe('Brand Assets', () => {
+
+    test('dashboard has favicon link', async ({ page }) => {
+      await page.goto('/');
+      const favicon = page.locator('link[rel="icon"]');
+      await expect(favicon).toHaveAttribute('href', '/assets/favicon.svg');
+    });
+
+    test('dashboard has logo image in header', async ({ page }) => {
+      await page.goto('/');
+      const logo = page.locator('.logo-img');
+      await expect(logo).toBeVisible();
+      await expect(logo).toHaveAttribute('src', '/assets/logo.svg');
+      await expect(logo).toHaveAttribute('alt', 'o11y workbench');
+    });
+
+    test('pipeline UI has favicon link', async ({ page }) => {
+      await page.goto('/pipeline/');
+      const favicon = page.locator('link[rel="icon"]');
+      await expect(favicon).toHaveAttribute('href', '/pipeline/favicon.svg');
+    });
+
+    test('pipeline UI has logo image in nav', async ({ page }) => {
+      await page.goto('/pipeline/');
+      const logo = page.locator('.app-logo');
+      await expect(logo).toBeVisible();
+      await expect(logo).toHaveAttribute('src', '/pipeline/logo.svg');
+      await expect(logo).toHaveAttribute('alt', 'o11y workbench');
+    });
+
   });
 
 });

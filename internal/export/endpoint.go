@@ -6,7 +6,7 @@ import (
 
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 // EndpointRouter dispatches ResourceSpans to per-endpoint exporters

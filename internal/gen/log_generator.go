@@ -14,8 +14,8 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/export"
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 // SeverityDistribution holds percentage weights for each severity level.
@@ -190,7 +190,7 @@ func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter, traceSpa
 
 		sl := &logsv1.ScopeLogs{
 			Scope: &commonv1.InstrumentationScope{
-				Name:    "otel-workbench",
+				Name:    "o11y-workbench",
 				Version: "0.1.0",
 			},
 			LogRecords: exportBatch,

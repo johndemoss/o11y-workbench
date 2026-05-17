@@ -93,7 +93,7 @@ func TestConfigEnvVar(t *testing.T) {
 	resetCfg()
 	t.Cleanup(resetCfg)
 
-	const envKey = "OTEL_WORKBENCH_SEED"
+	const envKey = "O11Y_WORKBENCH_SEED"
 	old := os.Getenv(envKey)
 	os.Setenv(envKey, "77")
 	t.Cleanup(func() { os.Setenv(envKey, old) })
@@ -111,7 +111,7 @@ func TestConfigEnvVarOverridesConfigFile(t *testing.T) {
 	resetCfg()
 	t.Cleanup(resetCfg)
 
-	const envKey = "OTEL_WORKBENCH_TRACES"
+	const envKey = "O11Y_WORKBENCH_TRACES"
 	old := os.Getenv(envKey)
 	os.Setenv(envKey, "100")
 	t.Cleanup(func() { os.Setenv(envKey, old) })

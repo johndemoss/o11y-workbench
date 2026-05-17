@@ -187,7 +187,10 @@
 
 <main class="app">
   <nav class="top-nav">
-    <span class="app-title">Pipeline Prototyper</span>
+    <div class="app-brand">
+      <img src="/pipeline/logo.svg" alt="o11y workbench" class="app-logo">
+      <span class="app-title">Pipeline Prototyper</span>
+    </div>
     <a href="/" class="nav-link">← Dashboard</a>
   </nav>
   <div class="tab-bar">
@@ -381,6 +384,15 @@
     background: var(--color-surface, #1e293b);
     border-bottom: 1px solid var(--color-border, #334155);
     margin-bottom: var(--space-md, 1rem);
+  }
+  .app-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .app-logo {
+    height: 28px;
+    width: auto;
   }
   .app-title {
     font-weight: 600;

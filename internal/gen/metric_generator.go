@@ -9,8 +9,8 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/export"
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 // MetricAttribute is a key-value pair attached to each metric data point.
@@ -90,7 +90,7 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 
 		sm := &metricspb.ScopeMetrics{
 			Scope: &commonv1.InstrumentationScope{
-				Name:    "otel-workbench",
+				Name:    "o11y-workbench",
 				Version: "0.1.0",
 			},
 			Metrics: exportBatch,

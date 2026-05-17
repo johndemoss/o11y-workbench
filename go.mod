@@ -1,4 +1,4 @@
-module github.com/johndemoss/otel-workbench
+module github.com/johndemoss/o11y-workbench
 
 go 1.26.3
 

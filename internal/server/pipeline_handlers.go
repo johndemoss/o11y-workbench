@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/johndemoss/otel-workbench/internal/ottl"
+	"github.com/johndemoss/o11y-workbench/internal/ottl"
 	"gopkg.in/yaml.v3"
 )
 

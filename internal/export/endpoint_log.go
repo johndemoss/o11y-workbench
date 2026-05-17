@@ -6,7 +6,7 @@ import (
 
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 // LogEndpointRouter dispatches ResourceLogs to per-endpoint log exporters

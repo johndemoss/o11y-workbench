@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johndemoss/otel-workbench/internal/gen"
-	"github.com/johndemoss/otel-workbench/internal/ottl"
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/ottl"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 //go:embed web
@@ -102,7 +102,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Store() *RunStore { return s.store }
 
 func (s *Server) ListenAndServe() error {
-		log.Printf("Starting otel-workbench web dashboard on %s", s.addr)
+		log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
 	return http.ListenAndServe(s.addr, s.mux)
 }
 

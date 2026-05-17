@@ -6,7 +6,7 @@ import (
 
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
-	"github.com/johndemoss/otel-workbench/internal/region"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 // MetricEndpointRouter dispatches ResourceMetrics to per-endpoint metric exporters

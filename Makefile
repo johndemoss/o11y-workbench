@@ -8,7 +8,7 @@ build-pipeline-ui:
 
 # Build everything
 build-all: build-pipeline-ui
-	go build ./cmd/otel-workbench-web/...
+	go build ./cmd/o11y-workbench-web/...
 
 # Run tests
 test:
@@ -16,7 +16,7 @@ test:
 
 # Build and start the web server, waiting for it to be ready.
 # Designed for agent/automation use - exits only when the server is accepting connections.
-# The PID is written to /tmp/otel-workbench-web.pid for cleanup.
+# The PID is written to /tmp/o11y-workbench-web.pid for cleanup.
 serve:
 	./scripts/serve.sh
 
