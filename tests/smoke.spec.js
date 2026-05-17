@@ -2,9 +2,9 @@ const { test, expect } = require('@playwright/test');
 
 test.describe('Smoke Tests', () => {
 
-  test('page loads and shows title', async ({ page }) => {
+  test('page loads and shows logo', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.logo-text')).toHaveText('o11y workbench');
+    await expect(page.locator('.logo-img')).toBeVisible();
   });
 
   test('no console errors on load', async ({ page }) => {
@@ -78,6 +78,37 @@ test.describe('Smoke Tests', () => {
       await expect(logo).toBeVisible();
       await expect(logo).toHaveAttribute('src', '/pipeline/logo.svg');
       await expect(logo).toHaveAttribute('alt', 'o11y workbench');
+    });
+
+    test('empty state shows otter illustration', async ({ page }) => {
+      await page.goto('/');
+      await page.waitForTimeout(1500);
+      // Clear any runs from previous tests and stop polling so otter SVG empty state stays visible
+      await page.evaluate(() => { clearInterval(pollTimer); pollTimer = null; runs = {}; renderRunList(); });
+      const empty = page.locator('.otter-empty-svg');
+      await expect(empty).toBeVisible();
+    });
+
+    test('footer has otter icon', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.locator('.app-footer')).toBeVisible();
+      await expect(page.locator('.footer-otter')).toBeVisible();
+    });
+
+    test('header has signal EQ bars', async ({ page }) => {
+      await page.goto('/');
+      const eq = page.locator('.signal-eq');
+      await expect(eq).toBeVisible();
+      const bars = await page.locator('.eq-bar').count();
+      expect(bars).toBe(3);
+    });
+
+    test('config section has signal border', async ({ page }) => {
+      await page.goto('/');
+      const section = page.locator('#config-section');
+      await expect(section).toBeVisible();
+      const borderColor = await section.evaluate(el => getComputedStyle(el).borderLeftColor);
+      expect(borderColor).toBe('rgb(59, 130, 246)');
     });
 
   });
