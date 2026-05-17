@@ -75,9 +75,23 @@
    */
   let skipNextFlowToPipelines = false
 
+  /** Counter incremented each time pipelines→flow effect fires — used to detect external vs internal changes */
+  let pipelineVersion = $state(0)
+
   function getPipelinesHash(p: PipelinesBySignal): string {
     return JSON.stringify({
-      traces: p.traces?.stages?.map((s) => s.id) ?? [],
+      traces: {
+        stageIds: p.traces?.stages?.map((s) => s.id) ?? [],
+        processorKeys: Object.keys(p.traces?.processors ?? {}),
+      },
+      logs: {
+        stageIds: p.logs?.stages?.map((s) => s.id) ?? [],
+        processorKeys: Object.keys(p.logs?.processors ?? {}),
+      },
+      metrics: {
+        stageIds: p.metrics?.stages?.map((s) => s.id) ?? [],
+        processorKeys: Object.keys(p.metrics?.processors ?? {}),
+      },
     })
   }
 
@@ -97,6 +111,7 @@
     }
     untrack(() => {
       skipNextFlowToPipelines = true
+      pipelineVersion++
       nodes = initial.nodes as Node<StageNodeData>[]
       edges = initial.edges
     })

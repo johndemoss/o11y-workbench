@@ -3,6 +3,7 @@
   import { exportPipelinesToYaml } from './export-yaml'
   import type { PipelinesBySignal } from './types'
   import yaml from 'js-yaml'
+  import { tick } from 'svelte'
 
   let {
     pipelines,
@@ -16,29 +17,46 @@
 
   let open = $state(true)
   let editorRef: CodeMirrorEditor | undefined = $state()
-  let yamlContent = $derived(exportPipelinesToYaml(pipelines))
+  let yamlContent = $state(exportPipelinesToYaml(pipelines))
+  let userIsEditing = $state(false)
+  let awaitingOwnSync = $state(false)
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   let editorWidth = $state(400)
   let isResizing = $state(false)
 
+  let syncStatus = $derived<'synced' | 'editing' | 'syncing'>(
+    awaitingOwnSync ? 'syncing' : userIsEditing ? 'editing' : 'synced'
+  )
+
   function handleEditorChange(_newValue: string) {
+    userIsEditing = true
+    yamlContent = _newValue  // immediate local feedback
+
     if (debounceTimer) clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(() => {
-      import('./export-yaml').then(({ importYamlToPipelines }) => {
-        try {
-          yaml.load(_newValue)
-        } catch {
-          return
-        }
+    debounceTimer = setTimeout(async () => {
+      try {
+        yaml.load(_newValue)  // pre-validate
+        const { importYamlToPipelines } = await import('./export-yaml')
         const parsed = importYamlToPipelines(_newValue)
         const isSame = JSON.stringify(parsed) === JSON.stringify(pipelines)
         if (!isSame) {
+          awaitingOwnSync = true
           onPipelinesChange?.(parsed)
+          await tick()         // drain effect queue before re-enabling sync
+          awaitingOwnSync = false
         }
-      }).catch(() => {
-        /* YAML parse error — linter handles visual feedback */
-      })
+        userIsEditing = false  // edit cycle complete
+      } catch {
+        // YAML parse error — linter handles visual feedback
+        // Keep userIsEditing = true so controlled sync doesn't overwrite editor content
+      }
     }, 500)
+  }
+
+  function resyncFromGraph() {
+    userIsEditing = false
+    awaitingOwnSync = false
+    yamlContent = exportPipelinesToYaml(pipelines)
   }
 
   function startResize(e: MouseEvent) {
@@ -59,6 +77,15 @@
     window.addEventListener('mouseup', onMouseUp)
   }
 
+  // Sync pipelines to yamlContent when not being edited
+  $effect(() => {
+    // Track pipelines prop changes
+    const _ = JSON.stringify(pipelines)
+    if (!userIsEditing && !awaitingOwnSync) {
+      yamlContent = exportPipelinesToYaml(pipelines)
+    }
+  })
+
   // Scroll editor when selectedNodeId changes
   $effect(() => {
     if (!selectedNodeId || !editorRef) return
@@ -77,6 +104,12 @@
   {#if open}
     <div class="editor-header">
       <span class="editor-title">Pipeline YAML</span>
+      <div class="sync-indicator">
+        <span class="sync-dot" class:synced={syncStatus === 'synced'} class:editing={syncStatus === 'editing'} class:syncing={syncStatus === 'syncing'}></span>
+        {#if syncStatus === 'editing'}
+          <button class="resync-btn" onclick={resyncFromGraph}>Resync</button>
+        {/if}
+      </div>
       <button class="toggle-btn" onclick={() => open = false} aria-label="Close editor">◀</button>
     </div>
     <div class="editor-content">
@@ -123,6 +156,41 @@
   .editor-title {
     font-size: 0.85rem;
     font-weight: 600;
+    color: var(--color-text, #f1f5f9);
+  }
+
+  .sync-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e; /* green — synced */
+    transition: background 0.2s;
+  }
+  .sync-dot.editing {
+    background: #eab308; /* yellow — editing */
+  }
+  .sync-dot.syncing {
+    background: #ef4444; /* red — syncing */
+  }
+
+  .resync-btn {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--color-border, #334155);
+    color: var(--color-text-secondary, #94a3b8);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .resync-btn:hover {
+    background: var(--color-border, #334155);
     color: var(--color-text, #f1f5f9);
   }
 

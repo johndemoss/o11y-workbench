@@ -67,6 +67,7 @@
   }
 
   $effect(() => {
+    if (isDebounceEdit) return  // Defensive double-lock: skip if triggered by own onchange
     const newVal = value
     if (newVal !== undefined && view) {
       const current = view.state.doc.toString()
