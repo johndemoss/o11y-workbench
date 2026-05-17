@@ -1,4 +1,6 @@
-# o11y workbench
+<div align="center">
+  <img src="assets/logo.svg" alt="o11y workbench" width="500">
+</div>
 
 **Deterministic mock OTLP telemetry generator** for testing distributed system scenarios, trace-ID-aware load balancing, [OpenTelemetry Transformation Language (OTTL)](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) prototyping, and pipeline authoring.
 

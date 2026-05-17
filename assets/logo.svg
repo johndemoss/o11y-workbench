@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="420" height="120">
+  <!--
+    CONCEPT 3: Full Lockup — "o11y workbench"
+    Horizontal brand lockup following the established layout pattern
+    (icon left, text right) from alt3-bold-mark.svg. The otter icon mark
+    pairs with a two-part wordmark: "o11y" in monospace/technical font,
+    "workbench" in clean sans-serif. Tagline grounds it in purpose.
+  -->
+  <!-- <rect width="420" height="120" rx="12" fill="#0f172a"/> -->
+
+  <!-- ============================================================ -->
+  <!-- ICON MARK — simplified otter face (65×65 area, left side)    -->
+  <!-- ============================================================ -->
+  <g transform="translate(8, 28)">
+    <!-- Icon background plate — subtle rounded square -->
+    <rect x="-2" y="-2" width="69" height="69" rx="16" fill="#1e293b" opacity="0.4"/>
+
+    <!-- Head base -->
+    <circle cx="32.5" cy="34" r="28" fill="#d97706"/>
+
+    <!-- Muzzle -->
+    <ellipse cx="32.5" cy="41" rx="18" ry="13" fill="#fbbf24"/>
+
+    <!-- Ears -->
+    <circle cx="15" cy="16" r="9" fill="#d97706"/>
+    <circle cx="50" cy="16" r="9" fill="#d97706"/>
+    <circle cx="15" cy="16" r="5" fill="#1e293b" opacity="0.4"/>
+    <circle cx="50" cy="16" r="5" fill="#1e293b" opacity="0.4"/>
+
+    <!-- Eyes -->
+    <circle cx="25" cy="30" r="5.5" fill="#0f172a"/>
+    <circle cx="40" cy="30" r="5.5" fill="#0f172a"/>
+    <!-- Teal catchlights -->
+    <circle cx="26.5" cy="28.5" r="2" fill="#ccfbf1"/>
+    <circle cx="41.5" cy="28.5" r="2" fill="#ccfbf1"/>
+
+    <!-- Nose -->
+    <ellipse cx="32.5" cy="42.5" rx="5" ry="3.5" fill="#1e293b"/>
+    <ellipse cx="32.5" cy="41.5" rx="2.5" ry="1.5" fill="#475569"/>
+
+    <!-- Whiskers (waveform, 3 per side) -->
+    <g stroke="#94a3b8" fill="none" stroke-width="1.5" stroke-linecap="round">
+      <path d="M 21 37 C 15 34, 12 40, 7 38"/>
+      <path d="M 21 41 C 15 39, 12 45, 7 43"/>
+      <path d="M 21 45 C 15 43, 12 49, 7 47"/>
+      <path d="M 44 37 C 50 34, 53 40, 58 38"/>
+      <path d="M 44 41 C 50 39, 53 45, 58 43"/>
+      <path d="M 44 45 C 50 43, 53 49, 58 47"/>
+    </g>
+
+    <!-- Subtle span-bar nod beneath icon (trace context) -->
+    <rect x="14" y="60" width="37" height="3" rx="1.5" fill="#0d9488" opacity="0.35"/>
+    <rect x="20" y="60" width="8" height="3" rx="1.5" fill="#14b8a6" opacity="0.5"/>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- WORDMARK — "o11y workbench" with technical type treatment    -->
+  <!-- ============================================================ -->
+
+  <g transform="translate(0, 27)">
+    <!-- "o11y" in monospace (technical/CLI feel) with letter-spacing tightened -->
+    <text x="90" y="51" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace" font-size="30" font-weight="700" fill="#f1f5f9" letter-spacing="-0.02em">o11y</text>
+
+    <!-- "workbench" in monospace to match o11y -->
+    <text x="180" y="51" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace" font-size="24" font-weight="700" fill="#f1f5f9" letter-spacing="-0.02em">workbench</text>
+
+    <!-- Vertical divider dot between monospace and sans — subtle brand punctuation -->
+    <circle cx="172" cy="42" r="1.5" fill="#0d9488" opacity="0.5"/>
+  </g>
+</svg>
