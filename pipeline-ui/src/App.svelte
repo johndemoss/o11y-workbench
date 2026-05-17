@@ -391,7 +391,7 @@
     gap: 8px;
   }
   .app-logo {
-    height: 28px;
+    height: 32px;
     width: auto;
   }
   .app-title {
