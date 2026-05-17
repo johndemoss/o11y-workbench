@@ -206,6 +206,53 @@ export function computeFullAttributeDiff(before: unknown, after: unknown): FullA
   return result
 }
 
+export interface UnifiedDiffLine {
+  type: 'context' | 'add' | 'remove'
+  text: string
+}
+
+export function computeUnifiedDiff(before: unknown, after: unknown): UnifiedDiffLine[] {
+  const beforeStr = JSON.stringify(before, null, 2)
+  const afterStr = JSON.stringify(after, null, 2)
+
+  if (beforeStr === afterStr) {
+    return []
+  }
+
+  const beforeLines = beforeStr.split('\n')
+  const afterLines = afterStr.split('\n')
+  const m = beforeLines.length
+  const n = afterLines.length
+
+  // LCS table
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = beforeLines[i - 1] === afterLines[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1])
+    }
+  }
+
+  // Backtrack
+  const reversed: UnifiedDiffLine[] = []
+  let i = m, j = n
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && beforeLines[i - 1] === afterLines[j - 1]) {
+      reversed.push({ type: 'context', text: beforeLines[i - 1] })
+      i--; j--
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      reversed.push({ type: 'add', text: afterLines[j - 1] })
+      j--
+    } else {
+      reversed.push({ type: 'remove', text: beforeLines[i - 1] })
+      i--
+    }
+  }
+
+  return reversed.reverse()
+}
+
 function normalizeAttrs(attr: unknown): Record<string, unknown> {
   const result: Record<string, unknown> = {}
   if (!attr || !Array.isArray(attr)) return result
