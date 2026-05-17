@@ -231,7 +231,6 @@
           <SwimlaneFlowBuilder
             pipelines={pipelinesBySignal}
             {result}
-            onValidate={handleValidate}
             onImport={() => { showImport = true }}
             onExport={handleExport}
             onNodeEdit={handleNodeEdit}

@@ -36,17 +36,16 @@
     pipelines = {
       traces: { stages: [], processors: {} },
     } as PipelinesBySignal,
-    onValidate,
-    onImport,
-    onExport,
-    onNodeEdit,
-    onPipelinesChange,
-    onNodeSelected,
-    result,
-    onResultClear,
-  }: {
-    pipelines: PipelinesBySignal
-    onValidate?: (p: PipelinesBySignal) => void
+  onImport,
+  onExport,
+  onNodeEdit,
+  onPipelinesChange,
+  onNodeSelected,
+  onResultClear,
+  selectedNodeId = $bindable(''),
+  result = null,
+}: {
+  pipelines: PipelinesBySignal
     onImport?: () => void
     onExport?: () => void
     onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig }) => void
@@ -436,11 +435,6 @@
     })
   }
 
-  // ─── Validate ─────────────────────────────────────────────────────────────
-  function handleValidate() {
-    onValidate?.(flowToPipelines(nodes as any, edges, pipelines))
-  }
-
   // ─── Delete handlers ─────────────────────────────────────────────────────
   function handleNodeDelete(nodeId: string) {
     onResultClear?.()
@@ -532,9 +526,6 @@
 <div class="flow-container" onkeydown={(e) => e.key === 'Escape' && handleCancelDelete()}>
   <header class="builder-header">
     <h1>Pipeline Graph</h1>
-  <div class="actions">
-    <button onclick={handleValidate} class="btn btn-primary">Validate</button>
-  </div>
   </header>
 
   <div class="flow-layout">
