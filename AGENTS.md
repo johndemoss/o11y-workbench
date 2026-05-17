@@ -73,7 +73,7 @@ After any `pipeline-ui/` change, you must run `./scripts/serve.sh` (which rebuil
 - **No framework** — standard `net/http` with Go 1.22+ route patterns (`GET /api/runs/{id}`).
 - **JSON everywhere** — all API responses use `encoding/json`. Protobuf only in the export layer.
 - **Errors** — wrap with `fmt.Errorf("context: %w", err)`. No sentinel errors, no panic.
-- **Config** — `github.com/spf13/cobra` + `viper` for CLI, env vars (`OTEL_WORKBENCH_*`), and config files.
+- **Config** — `github.com/spf13/cobra` + `viper` for CLI, env vars (`O11Y_WORKBENCH_*`), and config files.
 - **Logging** — `log.Printf` / `log.Fatal` in main. `testing.T` logging in tests. No structured logger dependency at runtime (zap is transitive).
 - **Exporter interface** — `export.Exporter` (traces), `export.LogExporter` (logs), `export.MetricExporter` (metrics). Each has `Export(ctx, data)` and `Shutdown(ctx)`.
 

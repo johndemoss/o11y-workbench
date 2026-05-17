@@ -1,11 +1,5 @@
 
 # Build artifacts
-/mocktracegen
-/mocktracegen-web
-/mocktelemetrygen
-/mocktelemetrygen-web
-/otel-workbench
-/otel-workbench-web
 /o11y-workbench
 /o11y-workbench-web
 

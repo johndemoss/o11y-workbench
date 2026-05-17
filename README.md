@@ -101,7 +101,7 @@ Flags:
       --insecure                 Use insecure gRPC connection (default true)
 ```
 
-Precedence: CLI flag > environment variable (`OTEL_WORKBENCH_*`) > config file > built-in default.
+Precedence: CLI flag > environment variable (`O11Y_WORKBENCH_*`) > config file > built-in default.
 
 ### `o11y-workbench-web` — Web Dashboard Server
 
@@ -275,7 +275,7 @@ Telemetry is routed by `cloud.region` resource attribute — each region's spans
 Configuration is resolved with this precedence (highest to lowest):
 
 1. CLI flags
-2. Environment variables (`OTEL_WORKBENCH_SEED`, `OTEL_WORKBENCH_TRACES`, etc.)
+2. Environment variables (`O11Y_WORKBENCH_SEED`, `O11Y_WORKBENCH_TRACES`, etc.)
 3. Config file (YAML, JSON, or TOML)
 4. Built-in defaults
 
