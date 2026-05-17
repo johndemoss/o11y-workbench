@@ -17,6 +17,7 @@
 
   let editorEl: HTMLDivElement
   let view: EditorView
+  let isDebounceEdit = false
 
   function createEditor() {
     const startState = EditorState.create({
@@ -28,7 +29,7 @@
         yamlLinter,
         lintGutter(),
         EditorView.updateListener.of((update: ViewUpdate) => {
-          if (update.docChanged) {
+          if (update.docChanged && !isDebounceEdit) {
             onchange?.(update.state.doc.toString())
           }
         }),
@@ -70,9 +71,11 @@
     if (newVal !== undefined && view) {
       const current = view.state.doc.toString()
       if (current !== newVal) {
+        isDebounceEdit = true
         view.dispatch({
           changes: { from: 0, to: current.length, insert: newVal }
         })
+        isDebounceEdit = false
       }
     }
   })
