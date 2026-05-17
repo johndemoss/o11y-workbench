@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { computeAllStageDiffs, base64ToHex, isZeroId } from './diff'
+  import { computeAllStageDiffs, computeUnifiedDiff, base64ToHex, isZeroId } from './diff'
+  import type { UnifiedDiffLine } from './diff'
   import type { PipelineResult, StageDiff } from './types'
 
   let { result, error, originalData }: {
@@ -52,10 +53,29 @@
     expandedRaw = next
   }
 
-  let diffView: 'inline' | 'side-by-side' = $state('inline')
+  let diffView: 'inline' | 'unified' = $state('inline')
 
   function toggleView() {
-    diffView = diffView === 'inline' ? 'side-by-side' : 'inline'
+    diffView = diffView === 'inline' ? 'unified' : 'inline'
+  }
+
+  let stageUnifiedDiffs: UnifiedDiffLine[][] = $derived(
+    result ? result.stages.map((stage, i) => {
+      const before = i === 0 ? originalData ?? null : result.stages[i - 1].intermediate_data
+      const after = stage.intermediate_data
+      return computeUnifiedDiff(before, after)
+    }) : []
+  )
+
+  function downloadJSON(data: unknown, filename: string) {
+    const json = JSON.stringify(data, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   function formatValue(val: unknown): string {
@@ -67,6 +87,21 @@
 
   function formatJSON(val: unknown): string {
     return JSON.stringify(val, null, 2)
+  }
+
+  function highlightJSON(str: string): string {
+    const escaped = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return escaped.replace(
+      /("(?:[^"\\]|\\.)*")\s*:|("(?:[^"\\]|\\.)*")|(\btrue\b|\bfalse\b)|(\bnull\b)|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g,
+      (_m, key, str, bool, nullVal, num) => {
+        if (key) return `<span class="json-key">${key}</span>:`
+        if (str) return `<span class="json-string">${str}</span>`
+        if (bool) return `<span class="json-bool">${bool}</span>`
+        if (nullVal) return `<span class="json-null">${nullVal}</span>`
+        if (num) return `<span class="json-number">${num}</span>`
+        return _m
+      }
+    )
   }
 </script>
 
@@ -117,7 +152,7 @@
                 <div class="diff-content">
                   <div class="diff-view-toggle">
                     <button class:active={diffView === 'inline'} onclick={toggleView}>Inline</button>
-                    <button class:active={diffView === 'side-by-side'} onclick={toggleView}>Side-by-Side</button>
+                    <button class:active={diffView === 'unified'} onclick={toggleView}>Unified Diff</button>
                   </div>
 
                   {#if diffView === 'inline'}
@@ -164,25 +199,17 @@
                       <div class="diff-empty">No changes detected</div>
                     {/if}
                   {:else}
-                    <div class="side-by-side">
-                      <div class="before-col">
-                        <div class="col-header">Before</div>
-                        {#each stageDiffs[stage.stage_index].modified as span}
-                          <pre class="side-pre">{formatJSON(span.before)}</pre>
+                    <div class="unified-diff">
+                      {#if stageUnifiedDiffs[stage.stage_index] && stageUnifiedDiffs[stage.stage_index].length > 0}
+                        {#each stageUnifiedDiffs[stage.stage_index] as line}
+                          <div class="diff-line diff-line-{line.type}">
+                            <span class="diff-prefix">{line.type === 'context' ? ' ' : line.type === 'add' ? '+' : '-'}</span>
+                            <span class="diff-text">{@html highlightJSON(line.text)}</span>
+                          </div>
                         {/each}
-                        {#each stageDiffs[stage.stage_index].removed as span}
-                          <pre class="side-pre">{formatJSON(span.before)}</pre>
-                        {/each}
-                      </div>
-                      <div class="after-col">
-                        <div class="col-header">After</div>
-                        {#each stageDiffs[stage.stage_index].modified as span}
-                          <pre class="side-pre">{formatJSON(span.after)}</pre>
-                        {/each}
-                        {#each stageDiffs[stage.stage_index].added as span}
-                          <pre class="side-pre">{formatJSON(span.after)}</pre>
-                        {/each}
-                      </div>
+                      {:else}
+                        <div class="diff-empty">No changes detected</div>
+                      {/if}
                     </div>
                   {/if}
                 </div>
@@ -203,7 +230,7 @@
             Show Raw Data
           </button>
           {#if expandedRaw.has(stage.stage_index) && stage.intermediate_data !== undefined}
-            <pre class="raw-data">{JSON.stringify(stage.intermediate_data, null, 2)}</pre>
+            <pre class="raw-data">{@html highlightJSON(formatJSON(stage.intermediate_data))}</pre>
           {/if}
         </div>
       {/each}
@@ -211,13 +238,18 @@
 
     {#if result.final_data !== undefined}
       <div class="final-data-section">
-        <button class="final-header" onclick={() => expandedFinal = !expandedFinal}>
-          <span>Final Result Data</span>
-          <span class="expand-icon">{expandedFinal ? '▾' : '▸'}</span>
-        </button>
+        <div class="final-header-row">
+          <button class="final-header" onclick={() => expandedFinal = !expandedFinal}>
+            <span>Final Result Data</span>
+            <span class="expand-icon">{expandedFinal ? '▾' : '▸'}</span>
+          </button>
+          <button class="export-btn" onclick={() => downloadJSON(result.final_data, 'pipeline-result.json')} title="Export as JSON">
+            Export JSON
+          </button>
+        </div>
         {#if expandedFinal}
           <div class="final-data">
-            <pre>{JSON.stringify(result.final_data, null, 2)}</pre>
+            <pre>{@html highlightJSON(formatJSON(result.final_data))}</pre>
           </div>
         {/if}
       </div>
@@ -502,35 +534,66 @@
   .change-arrow { color: var(--color-text-secondary, #94a3b8); }
   .change-value-before { color: var(--color-error, #ef4444); text-decoration: line-through; }
   .change-value-after { color: var(--color-success, #22c55e); }
-  .side-by-side {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-sm, 0.5rem);
-  }
-  .before-col {
-    border: 1px solid var(--color-error, #ef4444);
+  .unified-diff {
+    font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    background: var(--color-bg, #0f172a);
+    border: 1px solid var(--color-border, #334155);
     border-radius: var(--radius-sm, 4px);
-    padding: var(--space-sm, 0.5rem);
     overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
   }
-  .after-col {
-    border: 1px solid var(--color-success, #22c55e);
-    border-radius: var(--radius-sm, 4px);
-    padding: var(--space-sm, 0.5rem);
-    overflow-x: auto;
+  .diff-line {
+    display: flex;
+    padding: 0 0.5rem;
+    min-height: 1.25rem;
   }
-  .col-header {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-    color: var(--color-text-secondary, #94a3b8);
+  .diff-line-context { background: transparent; }
+  .diff-line-add { background: rgba(34, 197, 94, 0.1); }
+  .diff-line-remove { background: rgba(239, 68, 68, 0.1); }
+  .diff-prefix {
+    width: 1.2rem;
+    flex-shrink: 0;
+    color: var(--color-text-secondary, #64748b);
+    text-align: center;
+    user-select: none;
   }
-  .side-pre {
-    font-size: 0.7rem;
-    margin: 0.25rem 0;
-    white-space: pre-wrap;
-    word-break: break-all;
+  .diff-line-add .diff-prefix { color: var(--color-success, #22c55e); }
+  .diff-line-remove .diff-prefix { color: var(--color-error, #ef4444); }
+  .diff-text { white-space: pre; }
+
+  /* JSON syntax highlighting */
+  .json-key { color: #93c5fd; }
+  .json-string { color: #86efac; }
+  .json-number { color: #fca5a5; }
+  .json-bool { color: #c084fc; }
+  .json-null { color: #94a3b8; font-style: italic; }
+
+  /* Final data section header row with export button */
+  .final-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--color-border, #334155);
+  }
+  .final-header-row .final-header {
+    border-bottom: none;
+  }
+  .export-btn {
+    margin-right: 0.5rem;
+    padding: 0.4rem 0.9rem;
+    border: none;
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-primary, #3b82f6);
+    color: var(--color-text, #f1f5f9);
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .export-btn:hover {
+    background: var(--color-primary-hover, #2563eb);
   }
 </style>
