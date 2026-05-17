@@ -27,3 +27,4 @@ scripts/
 
 # Playwright cache
 pipeline-ui/playwright/.cache/
+screenshots/
