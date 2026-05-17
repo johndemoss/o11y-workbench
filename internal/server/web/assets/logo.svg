@@ -6,7 +6,7 @@
     pairs with a two-part wordmark: "o11y" in monospace/technical font,
     "workbench" in clean sans-serif. Tagline grounds it in purpose.
   -->
-  <rect width="420" height="120" rx="12" fill="#0f172a"/>
+  <!-- <rect width="420" height="120" rx="12" fill="#0f172a"/> -->
 
   <!-- ============================================================ -->
   <!-- ICON MARK — simplified otter face (65×65 area, left side)    -->
@@ -57,22 +57,14 @@
   <!-- WORDMARK — "o11y workbench" with technical type treatment    -->
   <!-- ============================================================ -->
 
-  <!-- "o11y" in monospace (technical/CLI feel) with letter-spacing tightened -->
-  <text x="90" y="51" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace" font-size="30" font-weight="700" fill="#f1f5f9" letter-spacing="-0.02em">o11y</text>
+  <g transform="translate(0, 27)">
+    <!-- "o11y" in monospace (technical/CLI feel) with letter-spacing tightened -->
+    <text x="90" y="51" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace" font-size="30" font-weight="700" fill="#f1f5f9" letter-spacing="-0.02em">o11y</text>
 
-  <!-- "workbench" in clean sans-serif (friendly, approachable) -->
-  <text x="180" y="51" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="400" fill="#f1f5f9" letter-spacing="-0.015em">workbench</text>
+    <!-- "workbench" in monospace to match o11y -->
+    <text x="180" y="51" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace" font-size="24" font-weight="700" fill="#f1f5f9" letter-spacing="-0.02em">workbench</text>
 
-  <!-- Vertical divider dot between monospace and sans — subtle brand punctuation -->
-  <circle cx="172" cy="42" r="1.5" fill="#0d9488" opacity="0.5"/>
-
-  <!-- ============================================================ -->
-  <!-- TAGLINE — describes the tool's purpose                       -->
-  <!-- ============================================================ -->
-  <text x="90" y="76" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace" font-size="10" fill="#64748b" letter-spacing="2.5">OBSERVABILITY TRACE TOOLKIT</text>
-
-  <!-- Thin decorative line under tagline (brand accent) -->
-  <line x1="90" y1="85" x2="350" y2="85" stroke="#334155" stroke-width="1" stroke-linecap="round"/>
-  <!-- Teal accent dot at line end -->
-  <circle cx="350" cy="85" r="2" fill="#0d9488" opacity="0.6"/>
+    <!-- Vertical divider dot between monospace and sans — subtle brand punctuation -->
+    <circle cx="172" cy="42" r="1.5" fill="#0d9488" opacity="0.5"/>
+  </g>
 </svg>
