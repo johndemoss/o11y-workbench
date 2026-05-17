@@ -7,6 +7,35 @@ async function api(path, opts) {
   return data;
 }
 
+// Party with o11y mode toggle
+function togglePartyMode() {
+  document.body.classList.toggle('party-mode');
+  const isParty = document.body.classList.contains('party-mode');
+  localStorage.setItem('partyMode', isParty);
+}
+
+// Restore party mode from localStorage on load
+document.addEventListener('DOMContentLoaded', () => {
+  if (localStorage.getItem('partyMode') === 'true') {
+    document.body.classList.add('party-mode');
+  }
+});
+
+// Favicon hover wiggle
+document.addEventListener('DOMContentLoaded', () => {
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (!favicon) return;
+  let wiggleTimer;
+  favicon.addEventListener('mouseenter', () => {
+    favicon.href = '/assets/favicon.svg#';
+    document.documentElement.classList.add('favicon-wiggle');
+    clearTimeout(wiggleTimer);
+    wiggleTimer = setTimeout(() => {
+      document.documentElement.classList.remove('favicon-wiggle');
+    }, 600);
+  });
+});
+
 let scenarios = [];
 
 // --- Modal toggles ---
@@ -615,6 +644,22 @@ async function resumeAllRuns() {
   renderRunList();
 }
 
+function showOtterToast(run) {
+  const existing = document.querySelector('.otter-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.className = 'otter-toast';
+  toast.innerHTML = '<span class="toast-icon">🦦</span><span class="toast-text">o11y the Otter finished <strong>' +
+    (run.label || 'run #' + run.id.slice(0,8)) + '</strong></span>';
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('out');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
 function startPolling() {
   const announcedCompleted = new Set();
   pollTimer = setInterval(async () => {
@@ -626,6 +671,7 @@ function startPolling() {
         // Show brief "Completed!" when a run transitions to completed
         if (r.status === 'completed' && prevStatus && prevStatus !== 'completed' && !announcedCompleted.has(r.id)) {
           announcedCompleted.add(r.id);
+          showOtterToast(r);
           const el = document.getElementById('run-status');
           el.textContent = 'Completed!';
           setTimeout(() => { if (el.textContent === 'Completed!') el.textContent = ''; }, 3000);
@@ -660,6 +706,8 @@ function getSignalBadge(signalType) {
   return '<span class="signal-badge traces">T</span>';
 }
 
+var _emptyStateHTML = null;
+
 function renderRunList() {
   const list = document.getElementById('run-list');
   const search = (document.getElementById('filter-search').value || '').toLowerCase();
@@ -678,7 +726,15 @@ function renderRunList() {
     entries = entries.filter(r => r.id.toLowerCase().includes(search) || (r.scenario || '').toLowerCase().includes(search));
   }
 
+  if (_emptyStateHTML === null) {
+    _emptyStateHTML = list.innerHTML;
+  }
+
   if (entries.length === 0) {
+    if (Object.keys(runs).length === 0) {
+      list.innerHTML = _emptyStateHTML;
+      return;
+    }
     list.innerHTML = '<div class="empty"><p>No jobs match the current filter.</p></div>';
     return;
   }
@@ -706,7 +762,7 @@ function renderRunList() {
       statsHtml += '<span>' + mc + ' metrics</span>';
     }
     statsHtml += '<span>' + formatDuration(r.duration_ns) + '</span>';
-    return `<div class="run-card" onclick="showDetail('${r.id}')">
+    return `<div class="run-card${r.status === 'running' ? ' running' : ''}${r.status === 'completed' ? ' completed' : ''}" onclick="showDetail('${r.id}')">
       ${signalBadge}
       <div class="status ${statusClass(r.status)}"></div>
       <div class="info">

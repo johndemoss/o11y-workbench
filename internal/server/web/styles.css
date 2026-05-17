@@ -396,3 +396,259 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .promo-cta:hover {
   background: #2563eb;
 }
+
+/* === FULL-WIDTH BRAND BAR === */
+.brand-bar {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  padding: 12px 0;
+  margin-bottom: 24px;
+  width: 100%;
+  transition: border-color 0.5s;
+}
+.brand-bar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+  width: 100%;
+}
+.brand-bar .logo-img.logo-xl {
+  height: 96px;
+  width: auto;
+  display: block;
+}
+.brand-bar .logo { position: relative; }
+
+/* Subtle teal glow behind logo */
+.brand-bar .logo::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 360px;
+  height: 120px;
+  background: radial-gradient(ellipse, rgba(20,184,166,0.06) 0%, transparent 70%);
+  pointer-events: none;
+  border-radius: 50%;
+  transition: all 0.5s;
+}
+
+/* === SIGNAL EQ BARS (party toggle, right side of brand bar) === */
+.signal-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 20px;
+  opacity: 0.4;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+.signal-eq:hover { opacity: 0.7; }
+.eq-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: #64748b;
+  animation: eq-pulse 2s ease-in-out infinite;
+}
+.eq-traces  { height: 12px; background: #3b82f6; animation-delay: 0s; }
+.eq-logs    { height: 18px; background: #8b5cf6; animation-delay: 0.3s; }
+.eq-metrics { height: 8px; background: #22c55e; animation-delay: 0.6s; }
+@keyframes eq-pulse {
+  0%, 100% { transform: scaleY(0.6); }
+  50% { transform: scaleY(1); }
+}
+
+/* === PARTY MODE STYLES === */
+body.party-mode .signal-eq { opacity: 0.9; }
+
+body.party-mode .brand-bar {
+  animation: party-border 3s ease-in-out infinite;
+}
+@keyframes party-border {
+  0%, 100% { border-bottom-color: #3b82f6; }
+  33% { border-bottom-color: #8b5cf6; }
+  66% { border-bottom-color: #22c55e; }
+}
+
+body.party-mode .brand-bar .logo::before {
+  animation: party-glow 2s ease-in-out infinite;
+  background: radial-gradient(ellipse, rgba(20,184,166,0.12) 0%, transparent 70%);
+}
+@keyframes party-glow {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+  50% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+}
+
+/* Party hat on otter */
+.brand-bar .logo::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 21px;
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 2;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6, #22c55e);
+  transform-origin: bottom center;
+}
+body.party-mode .brand-bar .logo::after {
+  opacity: 1;
+  animation: hat-bounce 0.6s ease-in-out infinite;
+}
+@keyframes hat-bounce {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
+
+/* Badge pulse in party mode — each signal at its own rhythm + intensity */
+body.party-mode .signal-pills label:has(input[value="traces"]:checked) {
+  --glow-max: 9px;
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+body.party-mode .signal-pills label:has(input[value="logs"]:checked) {
+  --glow-max: 6px;
+  animation: badge-pulse 2.7s ease-in-out infinite;
+}
+body.party-mode .signal-pills label:has(input[value="metrics"]:checked) {
+  --glow-max: 7.5px;
+  animation: badge-pulse 3.4s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 4px currentColor; }
+  50% { box-shadow: 0 0 var(--glow-max) currentColor; }
+}
+
+/* === FOOTER === */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  font-size: 12px;
+  color: #475569;
+  border-top: 1px solid #1e293b;
+  margin-top: 32px;
+}
+.footer-tagline {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.footer-otter {
+  opacity: 0.3;
+  transition: opacity 0.3s, filter 0.3s;
+  filter: grayscale(1);
+}
+.app-footer:hover .footer-otter {
+  opacity: 0.8;
+  filter: grayscale(0);
+}
+
+/* === OTTER EMPTY STATE === */
+.otter-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 20px;
+  text-align: center;
+  color: #64748b;
+}
+.otter-empty p {
+  font-size: 14px;
+  max-width: 320px;
+  line-height: 1.5;
+}
+.otter-empty-svg {
+  opacity: 0.7;
+  transition: opacity 0.3s;
+}
+.otter-empty-svg:hover { opacity: 1; }
+
+/* === OTTER TOAST === */
+.otter-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-left: 3px solid #22c55e;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  animation: toast-in 0.3s ease-out;
+  z-index: 1000;
+  font-size: 14px;
+  color: #e2e8f0;
+  pointer-events: none;
+}
+.otter-toast .toast-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: #3b82f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.otter-toast .toast-text strong { color: #4ade80; }
+.otter-toast.out { animation: toast-out 0.3s ease-in forwards; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(20px); }
+}
+
+/* === SIGNAL BORDER ACCENTS === */
+section { border-left: 3px solid transparent; }
+section#config-section   { border-left-color: #3b82f6; }
+section#ottl-section    { border-left-color: #8b5cf6; }
+section#runs-section    { border-left-color: #22c55e; }
+
+/* === SIGNAL GRADIENT PROGRESS === */
+.run-card { position: relative; overflow: hidden; }
+.run-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s;
+}
+.run-card.running::after {
+  transform: scaleX(1);
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #22c55e);
+  animation: progress-slide 1.5s ease-in-out infinite;
+}
+.run-card.completed::after {
+  transform: scaleX(1);
+  background: #22c55e;
+}
+@keyframes progress-slide {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* === FAVICON WIGGLE === */
+.favicon-wiggle link[rel="icon"] { animation: favicon-wiggle 0.3s ease-in-out 2; }
+@keyframes favicon-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-10deg); }
+  75% { transform: rotate(10deg); }
+}
