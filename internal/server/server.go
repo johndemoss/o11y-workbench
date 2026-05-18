@@ -27,14 +27,17 @@ type Server struct {
 	mux             *http.ServeMux
 	addr            string
 	pipelineEnabled bool
+	remotetap       *RemotetapManager
 }
 
 func New(addr string, pipelineEnabled bool) *Server {
+	store := NewRunStore()
 	s := &Server{
-		store:           NewRunStore(),
+		store:           store,
 		mux:             http.NewServeMux(),
 		addr:            addr,
 		pipelineEnabled: pipelineEnabled,
+		remotetap:       NewRemotetapManager(store),
 	}
 	s.registerRoutes()
 	return s
@@ -56,6 +59,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
 	s.mux.HandleFunc("POST /api/ottl/filter-validate", s.handleOTTLFilterValidate)
+
+	s.mux.HandleFunc("POST /api/remotetap/connect", s.handleRemotetapConnect)
+	s.mux.HandleFunc("POST /api/remotetap/disconnect", s.handleRemotetapDisconnect)
+	s.mux.HandleFunc("GET /api/remotetap/status", s.handleRemotetapStatus)
+	s.mux.HandleFunc("GET /api/remotetap/usage/{runID}", s.handleRemotetapUsage)
 
 	if s.pipelineEnabled {
 		s.mux.HandleFunc("POST /api/ottl/pipeline/validate", s.handlePipelineValidate)

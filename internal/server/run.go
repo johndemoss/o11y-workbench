@@ -30,6 +30,7 @@ const (
 	RunStatusCompleted RunStatus = "completed"
 	RunStatusFailed    RunStatus = "failed"
 	RunStatusStopped   RunStatus = "stopped"
+	RunStatusStreaming RunStatus = "streaming"
 )
 
 type Run struct {
@@ -49,6 +50,7 @@ type Run struct {
 	MetricCountCompleted int                `json:"metric_count_completed,omitempty"`
 	MetricData           *json.RawMessage   `json:"metric_data,omitempty"`
 	Scenario             string             `json:"scenario,omitempty"`
+	Source               string             `json:"source,omitempty"`
 	Error                string             `json:"error,omitempty"`
 	TraceData            *json.RawMessage   `json:"trace_data,omitempty"`
 	LogData              *json.RawMessage   `json:"log_data,omitempty"`
@@ -239,7 +241,7 @@ func (s *RunStore) List() []*Run {
 
 func marshalTraceJSON(spans []*tracev1.ResourceSpans) ([]byte, error) {
 	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
-	opts := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}
+	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
 	return opts.Marshal(req)
 }
 

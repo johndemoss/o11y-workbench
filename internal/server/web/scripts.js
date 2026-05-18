@@ -605,7 +605,7 @@ async function startRun() {
     });
     runs[run.id] = run;
     if (!pollTimer) startPolling();
-    statusEl.textContent = 'Run queued';
+    statusEl.textContent = 'Starting... (ID: ' + run.id + ')';
   } catch(e) {
     statusEl.textContent = 'Error: ' + e.message;
   }
@@ -780,7 +780,13 @@ function startPolling() {
         const r = runs[id];
         if (r) renderDetail(r);
       }
-    } catch(e) { /* ignore polling errors */ }
+    } catch(e) {
+      console.error('Polling error:', e);
+      const statusEl = document.getElementById('run-status');
+      if (statusEl && statusEl.textContent && statusEl.textContent.includes('Starting')) {
+        statusEl.textContent = 'Connection error - retrying...';
+      }
+    }
   }, 1000);
 }
 
@@ -1225,6 +1231,189 @@ function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+// --- Remotetap (Live Collector Data) ---
+
+let rtPollTimer = null;
+let rtUsagePollTimer = null;
+let rtRunID = null;
+
+async function connectRemotetap() {
+  const endpoint = document.getElementById('remotetap-endpoint').value;
+  const connectBtn = document.getElementById('remotetap-connect-btn');
+  const statusEl = document.getElementById('remotetap-status');
+
+  const servicesInput = document.getElementById('rt-filters-services');
+  const spanKindsSelect = document.getElementById('rt-filters-spankinds');
+  const minLogSeveritySelect = document.getElementById('rt-filters-minseverity');
+  const samplingTypeSelect = document.getElementById('rt-filters-sampling');
+  const samplingRateInput = document.getElementById('rt-filters-samplingrate');
+  const maxSpansInput = document.getElementById('rt-filters-maxspans');
+  const maxBytesInput = document.getElementById('rt-filters-maxbytes');
+
+  const filters = {
+    services: servicesInput ? servicesInput.value.split(',').map(s => s.trim()).filter(s => s) : [],
+    spanKinds: spanKindsSelect ? Array.from(spanKindsSelect.selectedOptions).map(o => o.value) : [],
+    resourceAttrs: {},
+    minLogSeverity: minLogSeveritySelect ? minLogSeveritySelect.value : '',
+    samplingType: samplingTypeSelect ? samplingTypeSelect.value : 'none',
+    samplingRate: samplingRateInput ? parseFloat(samplingRateInput.value) || 0 : 0,
+    maxSpans: maxSpansInput ? parseInt(maxSpansInput.value) || 10000 : 10000,
+    maxBytes: maxBytesInput ? parseInt(maxBytesInput.value) || 10485760 : 10485760,
+  };
+
+  connectBtn.disabled = true;
+  statusEl.textContent = 'Connecting...';
+  statusEl.className = 'status-connecting';
+  try {
+    const res = await fetch('/api/remotetap/connect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({endpoint, filters})
+    });
+    if (res.ok) {
+      const data = await res.json();
+      showRemotetapConnected();
+      rtRunID = data.run_id;
+      pollRemotetapStatus();
+      pollRemotetapUsage();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      statusEl.textContent = 'Connection failed: ' + (err.error || res.statusText);
+      statusEl.className = 'status-error';
+    }
+  } catch (err) {
+    statusEl.textContent = 'Connection error: ' + err.message;
+    statusEl.className = 'status-error';
+  }
+  connectBtn.disabled = false;
+}
+
+async function disconnectRemotetap() {
+  const disconnectBtn = document.getElementById('remotetap-disconnect-btn');
+  disconnectBtn.disabled = true;
+  try {
+    await fetch('/api/remotetap/disconnect', { method: 'POST' });
+  } catch (err) {
+    /* ignore disconnect errors */
+  }
+  showRemotetapDisconnected();
+  disconnectBtn.disabled = false;
+}
+
+async function pollRemotetapStatus() {
+  if (rtPollTimer) clearInterval(rtPollTimer);
+  rtPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/remotetap/status');
+      if (!res.ok) {
+        showRemotetapDisconnected();
+        return;
+      }
+      const status = await res.json();
+      if (!status.connected) {
+        showRemotetapDisconnected();
+        return;
+      }
+      document.getElementById('rt-span-count').textContent = status.span_count || 0;
+      document.getElementById('rt-log-count').textContent = status.log_count || 0;
+      document.getElementById('rt-metric-count').textContent = status.metric_count || 0;
+    } catch (err) {
+      /* ignore polling errors */
+    }
+  }, 2000);
+}
+
+async function pollRemotetapUsage() {
+  if (rtUsagePollTimer) clearInterval(rtUsagePollTimer);
+  if (!rtRunID) return;
+  rtUsagePollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/remotetap/usage/' + rtRunID);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const usageEl = document.getElementById('remotetap-usage');
+      usageEl.style.display = '';
+
+      const spanStr = (data.spanCount || 0).toLocaleString();
+      const maxSpanStr = (data.maxSpans || 10000).toLocaleString();
+      document.getElementById('rt-usage-spans').textContent = spanStr + ' / ' + maxSpanStr;
+
+      const bytes = data.currentBytes || 0;
+      let bytesStr;
+      if (bytes >= 1048576) {
+        bytesStr = (bytes / 1048576).toFixed(1) + ' MB';
+      } else if (bytes >= 1024) {
+        bytesStr = (bytes / 1024).toFixed(0) + ' KB';
+      } else {
+        bytesStr = bytes + ' B';
+      }
+      const maxBytes = data.maxBytes || 10485760;
+      let maxBytesStr;
+      if (maxBytes >= 1048576) {
+        maxBytesStr = (maxBytes / 1048576).toFixed(0) + ' MB';
+      } else {
+        maxBytesStr = maxBytes + ' B';
+      }
+      document.getElementById('rt-usage-bytes').textContent = bytesStr + ' / ' + maxBytesStr;
+
+      document.getElementById('rt-usage-evicted').textContent = data.evictedCount || 0;
+
+      const spanPct = data.maxSpans > 0 ? Math.min((data.spanCount || 0) / data.maxSpans, 1) : 0;
+      const bytePct = data.maxBytes > 0 ? Math.min((data.currentBytes || 0) / data.maxBytes, 1) : 0;
+
+      const spansBar = document.getElementById('rt-usage-spans-bar');
+      spansBar.style.width = (spanPct * 100) + '%';
+      spansBar.className = 'usage-progress-fill' + (spanPct > 0.8 ? ' danger' : spanPct > 0.6 ? ' warning' : '');
+
+      const bytesBar = document.getElementById('rt-usage-bytes-bar');
+      bytesBar.style.width = (bytePct * 100) + '%';
+      bytesBar.className = 'usage-progress-fill' + (bytePct > 0.8 ? ' danger' : bytePct > 0.6 ? ' warning' : '');
+
+      // Show warning when >80%
+      const warningEl = document.getElementById('rt-usage-warning');
+      if (spanPct > 0.8 || bytePct > 0.8) {
+        warningEl.style.display = '';
+      } else {
+        warningEl.style.display = 'none';
+      }
+    } catch (err) {
+      /* ignore polling errors */
+    }
+  }, 2000);
+}
+
+function showRemotetapConnected() {
+  document.getElementById('remotetap-connect-btn').style.display = 'none';
+  document.getElementById('remotetap-disconnect-btn').style.display = '';
+  document.getElementById('remotetap-stats').style.display = '';
+  document.getElementById('remotetap-usage').style.display = '';
+  const statusEl = document.getElementById('remotetap-status');
+  statusEl.textContent = 'Connected · Streaming';
+  statusEl.className = 'status-connected';
+}
+
+function showRemotetapDisconnected() {
+  if (rtPollTimer) {
+    clearInterval(rtPollTimer);
+    rtPollTimer = null;
+  }
+  if (rtUsagePollTimer) {
+    clearInterval(rtUsagePollTimer);
+    rtUsagePollTimer = null;
+  }
+  rtRunID = null;
+  document.getElementById('remotetap-connect-btn').style.display = '';
+  document.getElementById('remotetap-connect-btn').disabled = false;
+  document.getElementById('remotetap-disconnect-btn').style.display = 'none';
+  document.getElementById('remotetap-disconnect-btn').disabled = false;
+  document.getElementById('remotetap-stats').style.display = 'none';
+  document.getElementById('remotetap-usage').style.display = 'none';
+  const statusEl = document.getElementById('remotetap-status');
+  statusEl.textContent = 'Disconnected';
+  statusEl.className = 'status-disconnected';
 }
 
 loadScenarios();

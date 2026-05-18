@@ -774,7 +774,119 @@
   </div>
 </div>
 
+<!-- === Remotetap Section === -->
+<section id="remotetap-section" class="config-section">
+  <h2>Live Collector Data</h2>
+  <div class="form-grid">
+    <div class="field" style="grid-column: span 2;">
+      <label>Remotetap Endpoint</label>
+      <input type="text" id="remotetap-endpoint" placeholder="localhost:12001" value="localhost:12001">
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+      <button onclick="connectRemotetap()" id="remotetap-connect-btn" class="btn btn-primary">Connect</button>
+      <button onclick="disconnectRemotetap()" id="remotetap-disconnect-btn" class="btn btn-secondary" style="display:none">Disconnect</button>
+    </div>
+  </div>
+
+  <!-- Filters section (collapsible) -->
+  <div class="remotetap-filters" id="remotetap-filters">
+    <div class="remotetap-filters-header" onclick="toggleRemotetapFilters()">
+      <span>Filters</span>
+      <button class="signal-collapse-btn">▾</button>
+    </div>
+    <div class="remotetap-filters-body">
+      <div class="filter-grid">
+        <!-- Attribute filters -->
+        <div class="filter-group">
+          <label>Services (comma-separated)</label>
+          <input type="text" id="rt-filters-services" placeholder="svc1, svc2" />
+        </div>
+
+        <div class="filter-group">
+          <label>Span Kinds</label>
+          <select id="rt-filters-spankinds" multiple>
+            <option value="SERVER">SERVER</option>
+            <option value="CLIENT">CLIENT</option>
+            <option value="PRODUCER">PRODUCER</option>
+            <option value="CONSUMER">CONSUMER</option>
+            <option value="INTERNAL">INTERNAL</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Min Log Severity</label>
+          <select id="rt-filters-minlogseverity">
+            <option value="">All</option>
+            <option value="DEBUG">DEBUG</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+        </div>
+
+        <!-- Sampling -->
+        <div class="filter-group">
+          <label>Sampling Type</label>
+          <select id="rt-filters-samplingtype">
+            <option value="none">None (keep all)</option>
+            <option value="head">Head (keep first N)</option>
+            <option value="tail">Tail (keep every Nth)</option>
+            <option value="random">Random (probability)</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Sampling Rate</label>
+          <input type="number" id="rt-filters-samplingrate" placeholder="e.g., 1000" min="0" />
+        </div>
+
+        <!-- Limits -->
+        <div class="filter-group">
+          <label>Max Spans</label>
+          <input type="number" id="rt-filters-maxspans" value="10000" min="1" />
+        </div>
+
+        <div class="filter-group">
+          <label>Max Bytes</label>
+          <input type="number" id="rt-filters-maxbytes" value="10485760" min="1" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="remotetap-usage" id="remotetap-usage" style="display: none;">
+    <div class="usage-item">
+      <span class="usage-label">Spans</span>
+      <span class="usage-value" id="rt-usage-spans">0 / 10,000</span>
+      <div class="usage-progress"><div class="usage-progress-fill" id="rt-usage-spans-bar" style="width:0%"></div></div>
+    </div>
+    <div class="usage-item">
+      <span class="usage-label">Bytes</span>
+      <span class="usage-value" id="rt-usage-bytes">0 B / 10 MB</span>
+      <div class="usage-progress"><div class="usage-progress-fill" id="rt-usage-bytes-bar" style="width:0%"></div></div>
+    </div>
+    <div class="usage-item">
+      <span class="usage-label">Evicted</span>
+      <span class="usage-value" id="rt-usage-evicted">0</span>
+    </div>
+    <div class="usage-warning" id="rt-usage-warning" style="display: none;">
+      <span>⚠️</span>
+      <span>Approaching limits — spans or bytes exceed 80% capacity</span>
+    </div>
+  </div>
+
+  <div id="remotetap-status" class="status-disconnected">Disconnected</div>
+  <div id="remotetap-stats" style="display:none">
+    <p>Spans: <span id="rt-span-count">0</span> &middot; Logs: <span id="rt-log-count">0</span> &middot; Metrics: <span id="rt-metric-count">0</span></p>
+  </div>
+</section>
+
 <script src="scripts.js"></script>
+<script>
+function toggleRemotetapFilters() {
+  document.getElementById('remotetap-filters').classList.toggle('collapsed');
+}
+</script>
 <footer class="app-footer">
   <img src="/assets/favicon.svg" alt="" class="footer-otter" width="20" height="20">
   <span class="footer-tagline">Observe. Iterate. Improve.</span>
