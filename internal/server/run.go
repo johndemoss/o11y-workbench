@@ -570,6 +570,13 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 	}
 
+	// Duration expired — clean completion, not failure.
+	if (traceErr == context.DeadlineExceeded || logErr == context.DeadlineExceeded || metricErr == context.DeadlineExceeded) && cfg.Duration > 0 {
+		traceErr = nil
+		logErr = nil
+		metricErr = nil
+	}
+
 	// Determine the primary error.
 	err := traceErr
 	if err == nil {
