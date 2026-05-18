@@ -25,11 +25,11 @@ type Config struct {
 	BaseTime          time.Time
 	TraceDuration     time.Duration
 	Duration          time.Duration // max run duration; 0 = unlimited
-	Scenario          string // named scenario; "" means use Topology
-	ScenarioSpanCount int    // per-service span budget for scenarios; 0 means use SpanCount
-	SignalType        string       `json:"signal_type,omitempty"` // "traces" (default), "logs", or "both"
-	LogConfig         LogConfig    `json:"log_config,omitempty"`
-	MetricConfig      MetricConfig `json:"metric_config,omitempty"`
+	Scenario          string        // named scenario; "" means use Topology
+	ScenarioSpanCount int           // per-service span budget for scenarios; 0 means use SpanCount
+	SignalType        string        `json:"signal_type,omitempty"` // "traces" (default), "logs", or "both"
+	LogConfig         LogConfig     `json:"log_config,omitempty"`
+	MetricConfig      MetricConfig  `json:"metric_config,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -212,7 +212,7 @@ func (g *Generator) buildSpans(rng *SeededRNG, node *SpanNode, traceID [16]byte,
 
 	// --- Process children first (post-order) ---
 	var (
-		childList    []*tracev1.Span
+		childList     []*tracev1.Span
 		earliestStart time.Time
 		latestEnd     time.Time
 	)
@@ -257,15 +257,15 @@ func (g *Generator) buildSpans(rng *SeededRNG, node *SpanNode, traceID [16]byte,
 	}
 
 	otlpSpan := &tracev1.Span{
-		TraceId:                traceID[:],
-		SpanId:                 spanID[:],
-		ParentSpanId:           parentSpanIDBytes,
-		Name:                   node.Name,
-		Kind:                   tracev1.Span_SPAN_KIND_INTERNAL,
-		Attributes:             attrs,
-		StartTimeUnixNano:      uint64(startTime.UnixNano()),
-		EndTimeUnixNano:        uint64(endTime.UnixNano()),
-		Flags:                  1, // sampled
+		TraceId:           traceID[:],
+		SpanId:            spanID[:],
+		ParentSpanId:      parentSpanIDBytes,
+		Name:              node.Name,
+		Kind:              tracev1.Span_SPAN_KIND_INTERNAL,
+		Attributes:        attrs,
+		StartTimeUnixNano: uint64(startTime.UnixNano()),
+		EndTimeUnixNano:   uint64(endTime.UnixNano()),
+		Flags:             1, // sampled
 	}
 
 	if node.IsError {

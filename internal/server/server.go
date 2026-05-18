@@ -102,7 +102,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Store() *RunStore { return s.store }
 
 func (s *Server) ListenAndServe() error {
-		log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
+	log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
 	return http.ListenAndServe(s.addr, s.mux)
 }
 
@@ -174,9 +174,9 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 		"endpoints": endpoints, "insecure": true,
 		"signal_type": "traces",
 		"log_config": map[string]any{
-			"enabled":      logDef.Enabled,
+			"enabled":       logDef.Enabled,
 			"logs_per_span": logDef.LogsPerSpan,
-			"log_count":    logDef.LogCount,
+			"log_count":     logDef.LogCount,
 			"severity_dist": map[string]int{
 				"info":  logDef.SeverityDist.Info,
 				"warn":  logDef.SeverityDist.Warn,
@@ -187,36 +187,36 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 			"attributes":    []gen.LogAttribute{},
 		},
 		"metric_config": map[string]any{
-			"enabled":       false,
-			"metric_count":  20,
-			"gauge_ratio":   0.4,
-			"sum_ratio":     0.4,
-			"value_min":     0,
-			"value_max":     100,
-			"attributes":    []gen.MetricAttribute{},
+			"enabled":      false,
+			"metric_count": 20,
+			"gauge_ratio":  0.4,
+			"sum_ratio":    0.4,
+			"value_min":    0,
+			"value_max":    100,
+			"attributes":   []gen.MetricAttribute{},
 		},
 	})
 }
 
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Seed              int64              `json:"seed"`
-		TraceCount        int                `json:"trace_count"`
-		Rate              int                `json:"rate"`
-		Duration          int                `json:"duration"`
-		Topology          string             `json:"topology"`
-		Scenario          string             `json:"scenario"`
-		ScenarioSpanCount int                `json:"scenario_span_count"`
-		SpanCount         int                `json:"span_count"`
-		MaxDepth          int                `json:"max_depth"`
-		ServiceName       string             `json:"service_name"`
-		Output            string             `json:"output"`
-		Format            string             `json:"format"`
-		Endpoints         []string           `json:"endpoints"`
-		Insecure          *bool              `json:"insecure"`
-		SignalType        string             `json:"signal_type"`
-		LogConfig         gen.LogConfig      `json:"log_config"`
-		MetricConfig      gen.MetricConfig   `json:"metric_config"`
+		Seed              int64            `json:"seed"`
+		TraceCount        int              `json:"trace_count"`
+		Rate              int              `json:"rate"`
+		Duration          int              `json:"duration"`
+		Topology          string           `json:"topology"`
+		Scenario          string           `json:"scenario"`
+		ScenarioSpanCount int              `json:"scenario_span_count"`
+		SpanCount         int              `json:"span_count"`
+		MaxDepth          int              `json:"max_depth"`
+		ServiceName       string           `json:"service_name"`
+		Output            string           `json:"output"`
+		Format            string           `json:"format"`
+		Endpoints         []string         `json:"endpoints"`
+		Insecure          *bool            `json:"insecure"`
+		SignalType        string           `json:"signal_type"`
+		LogConfig         gen.LogConfig    `json:"log_config"`
+		MetricConfig      gen.MetricConfig `json:"metric_config"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -261,10 +261,10 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	cfg := gen.Config{
 		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate, Duration: time.Duration(body.Duration) * time.Second,
 		Topology: topoType, SpanCount: body.SpanCount, MaxDepth: body.MaxDepth,
-		ServiceName: body.ServiceName,
-		BaseTime:    time.Now(),
+		ServiceName:   body.ServiceName,
+		BaseTime:      time.Now(),
 		TraceDuration: 5 * time.Second,
-		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
+		Scenario:      body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
 		SignalType:   signalType,
 		LogConfig:    body.LogConfig,
 		MetricConfig: body.MetricConfig,
@@ -553,8 +553,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, ottl.TransformResult{
-			Valid:                 true,
-			MetricTransformedData: &transformed,
+			Valid:                  true,
+			MetricTransformedData:  &transformed,
 			MetricStatementsParsed: len(statements),
 		})
 		return
@@ -595,11 +595,11 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RunID      string         `json:"run_id"`
-		Config     string         `json:"config"`
+		RunID      string          `json:"run_id"`
+		Config     string          `json:"config"`
 		Mode       ottl.FilterMode `json:"mode"`
-		Conditions []string       `json:"conditions"` // backward compat
-		SignalType string         `json:"signal_type"`
+		Conditions []string        `json:"conditions"` // backward compat
+		SignalType string          `json:"signal_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -760,11 +760,11 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, ottl.FilterResult{
-			Valid:                true,
-			MetricFilteredData:   &filtered,
+			Valid:                  true,
+			MetricFilteredData:     &filtered,
 			MetricConditionsParsed: len(conditions),
-			TotalMetricCount:     total,
-			FilteredMetricCount:  kept,
+			TotalMetricCount:       total,
+			FilteredMetricCount:    kept,
 		})
 		return
 	}
@@ -804,9 +804,9 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config     string `json:"config"`
-		Conditions []string `json:"conditions"` // backward compat
-		SignalType string `json:"signal_type"`  // OTTL context (traces/logs/metrics)
+		Config     string   `json:"config"`
+		Conditions []string `json:"conditions"`  // backward compat
+		SignalType string   `json:"signal_type"` // OTTL context (traces/logs/metrics)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -936,18 +936,36 @@ func renderTransformHTML(result ottl.TransformResult, signalType string) string 
 		var scriptBuf strings.Builder
 		scriptBuf.WriteString(`<script>window.__ottlTransformData={_composite:true`)
 		if result.OriginalData != nil || result.TransformedData != nil {
-			orig := "null"; if result.OriginalData != nil { orig = string(*result.OriginalData) }
-			trans := "null"; if result.TransformedData != nil { trans = string(*result.TransformedData) }
+			orig := "null"
+			if result.OriginalData != nil {
+				orig = string(*result.OriginalData)
+			}
+			trans := "null"
+			if result.TransformedData != nil {
+				trans = string(*result.TransformedData)
+			}
 			fmt.Fprintf(&scriptBuf, `,traces:{original:%s,transformed:%s}`, orig, trans)
 		}
 		if result.LogOriginalData != nil || result.LogTransformedData != nil {
-			orig := "null"; if result.LogOriginalData != nil { orig = string(*result.LogOriginalData) }
-			trans := "null"; if result.LogTransformedData != nil { trans = string(*result.LogTransformedData) }
+			orig := "null"
+			if result.LogOriginalData != nil {
+				orig = string(*result.LogOriginalData)
+			}
+			trans := "null"
+			if result.LogTransformedData != nil {
+				trans = string(*result.LogTransformedData)
+			}
 			fmt.Fprintf(&scriptBuf, `,logs:{original:%s,transformed:%s}`, orig, trans)
 		}
 		if result.MetricOriginalData != nil || result.MetricTransformedData != nil {
-			orig := "null"; if result.MetricOriginalData != nil { orig = string(*result.MetricOriginalData) }
-			trans := "null"; if result.MetricTransformedData != nil { trans = string(*result.MetricTransformedData) }
+			orig := "null"
+			if result.MetricOriginalData != nil {
+				orig = string(*result.MetricOriginalData)
+			}
+			trans := "null"
+			if result.MetricTransformedData != nil {
+				trans = string(*result.MetricTransformedData)
+			}
 			fmt.Fprintf(&scriptBuf, `,metrics:{original:%s,transformed:%s}`, orig, trans)
 		}
 		scriptBuf.WriteString(`}</script>`)
@@ -1058,18 +1076,36 @@ func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) 
 		var scriptBuf strings.Builder
 		scriptBuf.WriteString(`<script>window.__ottlTransformData={_composite:true`)
 		if result.OriginalData != nil || result.FilteredData != nil {
-			orig := "null"; if result.OriginalData != nil { orig = string(*result.OriginalData) }
-			trans := "null"; if result.FilteredData != nil { trans = string(*result.FilteredData) }
+			orig := "null"
+			if result.OriginalData != nil {
+				orig = string(*result.OriginalData)
+			}
+			trans := "null"
+			if result.FilteredData != nil {
+				trans = string(*result.FilteredData)
+			}
 			fmt.Fprintf(&scriptBuf, `,traces:{original:%s,transformed:%s}`, orig, trans)
 		}
 		if result.LogOriginalData != nil || result.LogFilteredData != nil {
-			orig := "null"; if result.LogOriginalData != nil { orig = string(*result.LogOriginalData) }
-			trans := "null"; if result.LogFilteredData != nil { trans = string(*result.LogFilteredData) }
+			orig := "null"
+			if result.LogOriginalData != nil {
+				orig = string(*result.LogOriginalData)
+			}
+			trans := "null"
+			if result.LogFilteredData != nil {
+				trans = string(*result.LogFilteredData)
+			}
 			fmt.Fprintf(&scriptBuf, `,logs:{original:%s,transformed:%s}`, orig, trans)
 		}
 		if result.MetricOriginalData != nil || result.MetricFilteredData != nil {
-			orig := "null"; if result.MetricOriginalData != nil { orig = string(*result.MetricOriginalData) }
-			trans := "null"; if result.MetricFilteredData != nil { trans = string(*result.MetricFilteredData) }
+			orig := "null"
+			if result.MetricOriginalData != nil {
+				orig = string(*result.MetricOriginalData)
+			}
+			trans := "null"
+			if result.MetricFilteredData != nil {
+				trans = string(*result.MetricFilteredData)
+			}
 			fmt.Fprintf(&scriptBuf, `,metrics:{original:%s,transformed:%s}`, orig, trans)
 		}
 		scriptBuf.WriteString(`}</script>`)
@@ -1485,9 +1521,9 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 		copy(origCopy, *run.LogData)
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{
 			Valid: true, LogFilteredData: &filtered,
-			OriginalData: &origCopy,
+			OriginalData:        &origCopy,
 			LogConditionsParsed: len(conds),
-			TotalLogCount: total, FilteredLogCount: kept,
+			TotalLogCount:       total, FilteredLogCount: kept,
 		}, string(mode), signalType))
 		return
 	}
@@ -1511,9 +1547,9 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 		copy(origCopy, *run.MetricData)
 		writeHTML(w, renderFilterHTML(ottl.FilterResult{
 			Valid: true, MetricFilteredData: &filtered,
-			OriginalData: &origCopy,
+			OriginalData:           &origCopy,
 			MetricConditionsParsed: len(conds),
-			TotalMetricCount: total, FilteredMetricCount: kept,
+			TotalMetricCount:       total, FilteredMetricCount: kept,
 		}, string(mode), signalType))
 		return
 	}
@@ -1538,6 +1574,6 @@ func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
 	writeHTML(w, renderFilterHTML(ottl.FilterResult{
 		Valid: true, OriginalData: &origCopy, FilteredData: &filtered,
 		ConditionsParsed: len(conds),
-		TotalSpanCount: total, FilteredSpanCount: kept,
+		TotalSpanCount:   total, FilteredSpanCount: kept,
 	}, string(mode), signalType))
 }

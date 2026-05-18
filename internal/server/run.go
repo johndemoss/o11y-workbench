@@ -8,13 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
-	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
-	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
-	"google.golang.org/protobuf/encoding/protojson"
-	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
@@ -34,27 +34,27 @@ const (
 
 type Run struct {
 	mu                   sync.Mutex
-	ID                   string           `json:"id"`
-	Status               RunStatus        `json:"status"`
-	Config               gen.Config       `json:"config"`
-	StartedAt            time.Time        `json:"started_at"`
-	CompletedAt          *time.Time       `json:"completed_at,omitempty"`
-	DurationNs           int64            `json:"duration_ns"`
-	SpanCount            int              `json:"span_count"`
-	TraceCount           int              `json:"trace_count"`
-	TraceCountCompleted  int              `json:"trace_count_completed"`
-	LogCount             int              `json:"log_count,omitempty"`
-	LogCountCompleted    int              `json:"log_count_completed,omitempty"`
-	MetricCount          int              `json:"metric_count,omitempty"`
-	MetricCountCompleted int              `json:"metric_count_completed,omitempty"`
-	MetricData           *json.RawMessage `json:"metric_data,omitempty"`
-	Scenario             string           `json:"scenario,omitempty"`
-	Error                string           `json:"error,omitempty"`
-	TraceData            *json.RawMessage `json:"trace_data,omitempty"`
-	LogData              *json.RawMessage `json:"log_data,omitempty"`
-	Endpoints            []string         `json:"endpoints"`
-	Insecure             bool             `json:"insecure"`
-	Output               string           `json:"output"`
+	ID                   string             `json:"id"`
+	Status               RunStatus          `json:"status"`
+	Config               gen.Config         `json:"config"`
+	StartedAt            time.Time          `json:"started_at"`
+	CompletedAt          *time.Time         `json:"completed_at,omitempty"`
+	DurationNs           int64              `json:"duration_ns"`
+	SpanCount            int                `json:"span_count"`
+	TraceCount           int                `json:"trace_count"`
+	TraceCountCompleted  int                `json:"trace_count_completed"`
+	LogCount             int                `json:"log_count,omitempty"`
+	LogCountCompleted    int                `json:"log_count_completed,omitempty"`
+	MetricCount          int                `json:"metric_count,omitempty"`
+	MetricCountCompleted int                `json:"metric_count_completed,omitempty"`
+	MetricData           *json.RawMessage   `json:"metric_data,omitempty"`
+	Scenario             string             `json:"scenario,omitempty"`
+	Error                string             `json:"error,omitempty"`
+	TraceData            *json.RawMessage   `json:"trace_data,omitempty"`
+	LogData              *json.RawMessage   `json:"log_data,omitempty"`
+	Endpoints            []string           `json:"endpoints"`
+	Insecure             bool               `json:"insecure"`
+	Output               string             `json:"output"`
 	cancel               context.CancelFunc // not exported, not json
 	pauseCh              chan struct{}      // nil when running; non-nil live channel when paused; not exported
 }
