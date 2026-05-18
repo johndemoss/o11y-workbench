@@ -56,9 +56,6 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/ottl/transform", s.handleOTTLTransform)
 	s.mux.HandleFunc("POST /api/ottl/filter", s.handleOTTLFilter)
 	s.mux.HandleFunc("POST /api/ottl/filter-validate", s.handleOTTLFilterValidate)
-	s.mux.HandleFunc("POST /api/ottl/validate-html", s.handleOTTLValidateHTML)
-	s.mux.HandleFunc("POST /api/ottl/transform-html", s.handleOTTLTransformHTML)
-	s.mux.HandleFunc("POST /api/ottl/filter-html", s.handleOTTLFilterHTML)
 
 	if s.pipelineEnabled {
 		s.mux.HandleFunc("POST /api/ottl/pipeline/validate", s.handlePipelineValidate)
@@ -102,7 +99,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Store() *RunStore { return s.store }
 
 func (s *Server) ListenAndServe() error {
-	log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
+		log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
 	return http.ListenAndServe(s.addr, s.mux)
 }
 
@@ -167,16 +164,16 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"seed": def.Seed, "trace_count": def.TraceCount,
-		"rate": 1, "duration": 10, "topology": def.Topology.String(),
+		"rate": 0, "topology": def.Topology.String(),
 		"span_count": def.SpanCount, "max_depth": def.MaxDepth,
 		"service_name": def.ServiceName, "scenario_span_count": 0,
 		"output": "file", "format": "json",
 		"endpoints": endpoints, "insecure": true,
 		"signal_type": "traces",
 		"log_config": map[string]any{
-			"enabled":       logDef.Enabled,
+			"enabled":      logDef.Enabled,
 			"logs_per_span": logDef.LogsPerSpan,
-			"log_count":     logDef.LogCount,
+			"log_count":    logDef.LogCount,
 			"severity_dist": map[string]int{
 				"info":  logDef.SeverityDist.Info,
 				"warn":  logDef.SeverityDist.Warn,
@@ -187,36 +184,35 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 			"attributes":    []gen.LogAttribute{},
 		},
 		"metric_config": map[string]any{
-			"enabled":      false,
-			"metric_count": 20,
-			"gauge_ratio":  0.4,
-			"sum_ratio":    0.4,
-			"value_min":    0,
-			"value_max":    100,
-			"attributes":   []gen.MetricAttribute{},
+			"enabled":       false,
+			"metric_count":  20,
+			"gauge_ratio":   0.4,
+			"sum_ratio":     0.4,
+			"value_min":     0,
+			"value_max":     100,
+			"attributes":    []gen.MetricAttribute{},
 		},
 	})
 }
 
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Seed              int64            `json:"seed"`
-		TraceCount        int              `json:"trace_count"`
-		Rate              int              `json:"rate"`
-		Duration          int              `json:"duration"`
-		Topology          string           `json:"topology"`
-		Scenario          string           `json:"scenario"`
-		ScenarioSpanCount int              `json:"scenario_span_count"`
-		SpanCount         int              `json:"span_count"`
-		MaxDepth          int              `json:"max_depth"`
-		ServiceName       string           `json:"service_name"`
-		Output            string           `json:"output"`
-		Format            string           `json:"format"`
-		Endpoints         []string         `json:"endpoints"`
-		Insecure          *bool            `json:"insecure"`
-		SignalType        string           `json:"signal_type"`
-		LogConfig         gen.LogConfig    `json:"log_config"`
-		MetricConfig      gen.MetricConfig `json:"metric_config"`
+		Seed              int64              `json:"seed"`
+		TraceCount        int                `json:"trace_count"`
+		Rate              int                `json:"rate"`
+		Topology          string             `json:"topology"`
+		Scenario          string             `json:"scenario"`
+		ScenarioSpanCount int                `json:"scenario_span_count"`
+		SpanCount         int                `json:"span_count"`
+		MaxDepth          int                `json:"max_depth"`
+		ServiceName       string             `json:"service_name"`
+		Output            string             `json:"output"`
+		Format            string             `json:"format"`
+		Endpoints         []string           `json:"endpoints"`
+		Insecure          *bool              `json:"insecure"`
+		SignalType        string             `json:"signal_type"`
+		LogConfig         gen.LogConfig      `json:"log_config"`
+		MetricConfig      gen.MetricConfig   `json:"metric_config"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -259,12 +255,12 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := gen.Config{
-		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate, Duration: time.Duration(body.Duration) * time.Second,
+		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate,
 		Topology: topoType, SpanCount: body.SpanCount, MaxDepth: body.MaxDepth,
-		ServiceName:   body.ServiceName,
-		BaseTime:      time.Now(),
+		ServiceName: body.ServiceName,
+		BaseTime:    time.Now(),
 		TraceDuration: 5 * time.Second,
-		Scenario:      body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
+		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
 		SignalType:   signalType,
 		LogConfig:    body.LogConfig,
 		MetricConfig: body.MetricConfig,
@@ -553,8 +549,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, ottl.TransformResult{
-			Valid:                  true,
-			MetricTransformedData:  &transformed,
+			Valid:                 true,
+			MetricTransformedData: &transformed,
 			MetricStatementsParsed: len(statements),
 		})
 		return
@@ -595,11 +591,11 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RunID      string          `json:"run_id"`
-		Config     string          `json:"config"`
+		RunID      string         `json:"run_id"`
+		Config     string         `json:"config"`
 		Mode       ottl.FilterMode `json:"mode"`
-		Conditions []string        `json:"conditions"` // backward compat
-		SignalType string          `json:"signal_type"`
+		Conditions []string       `json:"conditions"` // backward compat
+		SignalType string         `json:"signal_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -760,11 +756,11 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, ottl.FilterResult{
-			Valid:                  true,
-			MetricFilteredData:     &filtered,
+			Valid:                true,
+			MetricFilteredData:   &filtered,
 			MetricConditionsParsed: len(conditions),
-			TotalMetricCount:       total,
-			FilteredMetricCount:    kept,
+			TotalMetricCount:     total,
+			FilteredMetricCount:  kept,
 		})
 		return
 	}
@@ -804,9 +800,9 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config     string   `json:"config"`
-		Conditions []string `json:"conditions"`  // backward compat
-		SignalType string   `json:"signal_type"` // OTTL context (traces/logs/metrics)
+		Config     string `json:"config"`
+		Conditions []string `json:"conditions"` // backward compat
+		SignalType string `json:"signal_type"`  // OTTL context (traces/logs/metrics)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -842,738 +838,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
-}
-
-func writeHTML(w http.ResponseWriter, html string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(html))
-}
-
-// --- HTMX HTML endpoint helpers ---
-
-func renderValidateHTML(result ottl.ValidateResult) string {
-	if result.Valid {
-		return fmt.Sprintf(`<div class="ottl-success">All %d statement(s) valid.</div>`, result.Parsed)
-	}
-	var sb strings.Builder
-	sb.WriteString(`<div class="ottl-error">`)
-	for _, e := range result.Errors {
-		sb.WriteString(fmt.Sprintf(`<div class="ottl-error-item">%s</div>`, escapeHTMLEntity(e)))
-	}
-	sb.WriteString(`</div>`)
-	return sb.String()
-}
-
-func renderTransformHTML(result ottl.TransformResult, signalType string) string {
-	if !result.Valid {
-		var sb strings.Builder
-		sb.WriteString(`<div class="ottl-error">`)
-		for _, e := range result.Errors {
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-error-item">%s</div>`, escapeHTMLEntity(e)))
-		}
-		sb.WriteString(`</div>`)
-		return sb.String()
-	}
-
-	var parts []string
-
-	if signalType == "both" || signalType == "all" {
-		if result.StatementsParsed > 0 {
-			parts = append(parts, fmt.Sprintf(`<span>✓ %d trace statement(s) parsed, %d spans transformed</span>`, result.StatementsParsed, result.TransformedCount))
-		}
-		if result.LogStatementsParsed > 0 {
-			parts = append(parts, fmt.Sprintf(`<span>✓ %d log statement(s) parsed</span>`, result.LogStatementsParsed))
-		}
-		if result.MetricStatementsParsed > 0 {
-			parts = append(parts, fmt.Sprintf(`<span>✓ %d metric statement(s) parsed</span>`, result.MetricStatementsParsed))
-		}
-	} else {
-		switch signalType {
-		case "logs":
-			parts = append(parts, fmt.Sprintf(`<span>✓ %d log statement(s) parsed</span>`, result.LogStatementsParsed))
-		case "metrics":
-			parts = append(parts, fmt.Sprintf(`<span>✓ %d metric statement(s) parsed</span>`, result.MetricStatementsParsed))
-		default:
-			parts = append(parts, fmt.Sprintf(`<span>✓ %d statement(s) parsed, %d spans transformed</span>`, result.StatementsParsed, result.TransformedCount))
-		}
-	}
-
-	var sb strings.Builder
-
-	sb.WriteString(`<div data-tab-content="summary">`)
-	sb.WriteString(`<div class="ottl-summary">`)
-	for i, p := range parts {
-		if i > 0 {
-			sb.WriteString(`<br>`)
-		}
-		sb.WriteString(p)
-	}
-	sb.WriteString(`</div>`)
-	sb.WriteString(`</div>`)
-
-	sb.WriteString(`<div data-tab-content="json" style="display:none">`)
-	if result.TransformedData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Transformed Trace Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.TransformedData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	if result.LogTransformedData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Transformed Log Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.LogTransformedData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	if result.MetricTransformedData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Transformed Metric Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricTransformedData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	sb.WriteString(`</div>`)
-
-	// Always (re)set __ottlTransformData to clear stale trace data from prior transform results.
-	// For composite signal types, embed per-signal data so the client can render diffs for each.
-	if signalType == "both" || signalType == "all" {
-		var scriptBuf strings.Builder
-		scriptBuf.WriteString(`<script>window.__ottlTransformData={_composite:true`)
-		if result.OriginalData != nil || result.TransformedData != nil {
-			orig := "null"
-			if result.OriginalData != nil {
-				orig = string(*result.OriginalData)
-			}
-			trans := "null"
-			if result.TransformedData != nil {
-				trans = string(*result.TransformedData)
-			}
-			fmt.Fprintf(&scriptBuf, `,traces:{original:%s,transformed:%s}`, orig, trans)
-		}
-		if result.LogOriginalData != nil || result.LogTransformedData != nil {
-			orig := "null"
-			if result.LogOriginalData != nil {
-				orig = string(*result.LogOriginalData)
-			}
-			trans := "null"
-			if result.LogTransformedData != nil {
-				trans = string(*result.LogTransformedData)
-			}
-			fmt.Fprintf(&scriptBuf, `,logs:{original:%s,transformed:%s}`, orig, trans)
-		}
-		if result.MetricOriginalData != nil || result.MetricTransformedData != nil {
-			orig := "null"
-			if result.MetricOriginalData != nil {
-				orig = string(*result.MetricOriginalData)
-			}
-			trans := "null"
-			if result.MetricTransformedData != nil {
-				trans = string(*result.MetricTransformedData)
-			}
-			fmt.Fprintf(&scriptBuf, `,metrics:{original:%s,transformed:%s}`, orig, trans)
-		}
-		scriptBuf.WriteString(`}</script>`)
-		sb.WriteString(scriptBuf.String())
-	} else {
-		origJSON := "null"
-		transJSON := "null"
-		if result.OriginalData != nil {
-			origJSON = string(*result.OriginalData)
-		}
-		if result.TransformedData != nil {
-			transJSON = string(*result.TransformedData)
-		} else if result.LogTransformedData != nil {
-			transJSON = string(*result.LogTransformedData)
-		} else if result.MetricTransformedData != nil {
-			transJSON = string(*result.MetricTransformedData)
-		}
-		sb.WriteString(fmt.Sprintf(`<script>window.__ottlTransformData={original:%s,transformed:%s}</script>`, origJSON, transJSON))
-	}
-
-	return sb.String()
-}
-
-func renderFilterHTML(result ottl.FilterResult, mode string, signalType string) string {
-	if !result.Valid {
-		var sb strings.Builder
-		sb.WriteString(`<div class="ottl-error">`)
-		for _, e := range result.Errors {
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-error-item">%s</div>`, escapeHTMLEntity(e)))
-		}
-		sb.WriteString(`</div>`)
-		return sb.String()
-	}
-
-	var sb strings.Builder
-
-	// Summary tab
-	sb.WriteString(`<div data-tab-content="summary">`)
-
-	if signalType == "both" || signalType == "all" {
-		if result.ConditionsParsed > 0 {
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
-				result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
-		}
-		if result.LogConditionsParsed > 0 {
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary" style="margin-top:4px">✓ %d log condition(s) applied, kept %d of %d logs (%s mode)</div>`,
-				result.LogConditionsParsed, result.FilteredLogCount, result.TotalLogCount, mode))
-		}
-		if result.MetricConditionsParsed > 0 {
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary" style="margin-top:4px">✓ %d metric condition(s) applied, kept %d of %d metrics (%s mode)</div>`,
-				result.MetricConditionsParsed, result.FilteredMetricCount, result.TotalMetricCount, mode))
-		}
-	} else {
-		switch signalType {
-		case "logs":
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d logs (%s mode)</div>`,
-				result.LogConditionsParsed, result.FilteredLogCount, result.TotalLogCount, mode))
-		case "metrics":
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d metrics (%s mode)</div>`,
-				result.MetricConditionsParsed, result.FilteredMetricCount, result.TotalMetricCount, mode))
-		default:
-			sb.WriteString(fmt.Sprintf(`<div class="ottl-summary">✓ %d condition(s) applied, kept %d of %d spans (%s mode)</div>`,
-				result.ConditionsParsed, result.FilteredSpanCount, result.TotalSpanCount, mode))
-		}
-	}
-
-	// Filtered data preview in summary
-	if result.FilteredData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Filtered Trace Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.FilteredData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	if result.LogFilteredData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Filtered Log Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.LogFilteredData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	if result.MetricFilteredData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Filtered Metric Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricFilteredData)))
-		sb.WriteString(`</pre></div>`)
-	}
-
-	sb.WriteString(`</div>`) // end summary tab
-
-	// Raw JSON tab
-	sb.WriteString(`<div data-tab-content="json" style="display:none">`)
-	if result.FilteredData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Filtered Trace Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.FilteredData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	if result.LogFilteredData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Filtered Log Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.LogFilteredData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	if result.MetricFilteredData != nil {
-		sb.WriteString(`<div class="ottl-section"><h4>Filtered Metric Data</h4><pre class="ottl-json">`)
-		sb.WriteString(escapeHTMLEntity(prettyJSON(*result.MetricFilteredData)))
-		sb.WriteString(`</pre></div>`)
-	}
-	sb.WriteString(`</div>`) // end json tab
-
-	// Always (re)set __ottlTransformData to clear stale trace data from prior filter results.
-	// For composite signal types, embed per-signal data so the client can render diffs for each.
-	if signalType == "both" || signalType == "all" {
-		var scriptBuf strings.Builder
-		scriptBuf.WriteString(`<script>window.__ottlTransformData={_composite:true`)
-		if result.OriginalData != nil || result.FilteredData != nil {
-			orig := "null"
-			if result.OriginalData != nil {
-				orig = string(*result.OriginalData)
-			}
-			trans := "null"
-			if result.FilteredData != nil {
-				trans = string(*result.FilteredData)
-			}
-			fmt.Fprintf(&scriptBuf, `,traces:{original:%s,transformed:%s}`, orig, trans)
-		}
-		if result.LogOriginalData != nil || result.LogFilteredData != nil {
-			orig := "null"
-			if result.LogOriginalData != nil {
-				orig = string(*result.LogOriginalData)
-			}
-			trans := "null"
-			if result.LogFilteredData != nil {
-				trans = string(*result.LogFilteredData)
-			}
-			fmt.Fprintf(&scriptBuf, `,logs:{original:%s,transformed:%s}`, orig, trans)
-		}
-		if result.MetricOriginalData != nil || result.MetricFilteredData != nil {
-			orig := "null"
-			if result.MetricOriginalData != nil {
-				orig = string(*result.MetricOriginalData)
-			}
-			trans := "null"
-			if result.MetricFilteredData != nil {
-				trans = string(*result.MetricFilteredData)
-			}
-			fmt.Fprintf(&scriptBuf, `,metrics:{original:%s,transformed:%s}`, orig, trans)
-		}
-		scriptBuf.WriteString(`}</script>`)
-		sb.WriteString(scriptBuf.String())
-	} else {
-		origJSON := "null"
-		filteredJSON := "null"
-		if result.OriginalData != nil {
-			origJSON = string(*result.OriginalData)
-		}
-		if result.FilteredData != nil {
-			filteredJSON = string(*result.FilteredData)
-		} else if result.LogFilteredData != nil {
-			filteredJSON = string(*result.LogFilteredData)
-		} else if result.MetricFilteredData != nil {
-			filteredJSON = string(*result.MetricFilteredData)
-		}
-		sb.WriteString(fmt.Sprintf(`<script>window.__ottlTransformData={original:%s,transformed:%s}</script>`, origJSON, filteredJSON))
-	}
-
-	return sb.String()
-}
-
-func escapeHTMLEntity(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	s = strings.ReplaceAll(s, "'", "&#39;")
-	return s
-}
-
-func prettyJSON(raw json.RawMessage) string {
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return string(raw)
-	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return string(raw)
-	}
-	return string(b)
-}
-
-func (s *Server) handleOTTLValidateHTML(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid form data</div></div>`)
-		return
-	}
-	config := r.PostFormValue("config")
-	mode := r.PostFormValue("mode")
-
-	if mode == "filter" {
-		conditions, err := ottl.ParseFilterConditions(config)
-		if err != nil {
-			writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
-			return
-		}
-		signalType := r.PostFormValue("signal_type")
-		if signalType == "" {
-			signalType = "traces"
-		}
-		result := ottl.ValidateFilterConditionsParse(conditions, signalType)
-		writeHTML(w, renderValidateHTML(result))
-		return
-	}
-
-	// Transform mode (default)
-	statements, err := ottl.ParseTransformStatements(config)
-	if err != nil {
-		writeHTML(w, renderValidateHTML(ottl.ValidateResult{Valid: false, Errors: []string{err.Error()}}))
-		return
-	}
-	result := ottl.ValidateStatements(statements)
-	writeHTML(w, renderValidateHTML(result))
-}
-
-func (s *Server) handleOTTLTransformHTML(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid form data</div></div>`)
-		return
-	}
-	runID := r.PostFormValue("run_id")
-	config := r.PostFormValue("config")
-	signalType := r.PostFormValue("signal_type")
-	if runID == "" {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run_id is required</div></div>`)
-		return
-	}
-
-	run := s.store.Get(runID)
-	if run == nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run not found</div></div>`)
-		return
-	}
-
-	if signalType == "" {
-		signalType = "traces"
-	}
-
-	var result ottl.TransformResult
-
-	if signalType == "both" {
-		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(config)
-		if err != nil {
-			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-			return
-		}
-		result = ottl.TransformResult{Valid: true}
-		if len(traceStmts) > 0 && run.TraceData != nil {
-			origCopy := make(json.RawMessage, len(*run.TraceData))
-			copy(origCopy, *run.TraceData)
-			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
-			if err != nil {
-				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, signalType))
-				return
-			}
-			result.OriginalData = &origCopy
-			result.TransformedData = &transformed
-			result.StatementsParsed = len(traceStmts)
-			result.SpanCount = spanCount
-			result.TransformedCount = spanCount
-		}
-		if len(logStmts) > 0 && run.LogData != nil {
-			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
-			if err != nil {
-				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"log: " + err.Error()}}, signalType))
-				return
-			}
-			logOrigCopy := make(json.RawMessage, len(*run.LogData))
-			copy(logOrigCopy, *run.LogData)
-			result.LogOriginalData = &logOrigCopy
-			if result.OriginalData == nil {
-				result.OriginalData = &logOrigCopy
-			}
-			result.LogTransformedData = &transformed
-			result.LogStatementsParsed = len(logStmts)
-		}
-		writeHTML(w, renderTransformHTML(result, signalType))
-		return
-	}
-
-	if signalType == "all" {
-		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(config)
-		if err != nil {
-			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-			return
-		}
-		result = ottl.TransformResult{Valid: true}
-		if len(traceStmts) > 0 && run.TraceData != nil {
-			origCopy := make(json.RawMessage, len(*run.TraceData))
-			copy(origCopy, *run.TraceData)
-			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
-			if err != nil {
-				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, signalType))
-				return
-			}
-			result.OriginalData = &origCopy
-			result.TransformedData = &transformed
-			result.StatementsParsed = len(traceStmts)
-			result.SpanCount = spanCount
-			result.TransformedCount = spanCount
-		}
-		if len(logStmts) > 0 && run.LogData != nil {
-			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
-			if err != nil {
-				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"log: " + err.Error()}}, signalType))
-				return
-			}
-			logOrigCopy := make(json.RawMessage, len(*run.LogData))
-			copy(logOrigCopy, *run.LogData)
-			result.LogOriginalData = &logOrigCopy
-			if result.OriginalData == nil {
-				result.OriginalData = &logOrigCopy
-			}
-			result.LogTransformedData = &transformed
-			result.LogStatementsParsed = len(logStmts)
-		}
-		if len(metricStmts) > 0 && run.MetricData != nil {
-			transformed, err := ottl.TransformMetricRunData(*run.MetricData, metricStmts)
-			if err != nil {
-				writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, signalType))
-				return
-			}
-			metricOrigCopy := make(json.RawMessage, len(*run.MetricData))
-			copy(metricOrigCopy, *run.MetricData)
-			result.MetricOriginalData = &metricOrigCopy
-			if result.OriginalData == nil {
-				result.OriginalData = &metricOrigCopy
-			}
-			result.MetricTransformedData = &transformed
-			result.MetricStatementsParsed = len(metricStmts)
-		}
-		writeHTML(w, renderTransformHTML(result, signalType))
-		return
-	}
-
-	if signalType == "logs" {
-		if run.LogData == nil {
-			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no log data</div></div>`)
-			return
-		}
-		var statements []string
-		var err error
-		statements, err = ottl.ParseTransformStatements(config)
-		if err != nil {
-			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-			return
-		}
-		transformed, err := ottl.TransformLogRunData(*run.LogData, statements)
-		if err != nil {
-			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-			return
-		}
-		origCopy := make(json.RawMessage, len(*run.LogData))
-		copy(origCopy, *run.LogData)
-		result = ottl.TransformResult{Valid: true, OriginalData: &origCopy, LogTransformedData: &transformed, LogStatementsParsed: len(statements)}
-		writeHTML(w, renderTransformHTML(result, signalType))
-		return
-	}
-
-	if signalType == "metrics" {
-		if run.MetricData == nil {
-			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no metric data</div></div>`)
-			return
-		}
-		var statements []string
-		var err error
-		statements, err = ottl.ParseTransformStatements(config)
-		if err != nil {
-			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-			return
-		}
-		transformed, err := ottl.TransformMetricRunData(*run.MetricData, statements)
-		if err != nil {
-			writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-			return
-		}
-		origCopy := make(json.RawMessage, len(*run.MetricData))
-		copy(origCopy, *run.MetricData)
-		result = ottl.TransformResult{Valid: true, OriginalData: &origCopy, MetricTransformedData: &transformed, MetricStatementsParsed: len(statements)}
-		writeHTML(w, renderTransformHTML(result, signalType))
-		return
-	}
-
-	// Traces (default)
-	if run.TraceData == nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no trace data</div></div>`)
-		return
-	}
-	var statements []string
-	var err error
-	statements, err = ottl.ParseTransformStatements(config)
-	if err != nil {
-		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-		return
-	}
-	origCopy := make(json.RawMessage, len(*run.TraceData))
-	copy(origCopy, *run.TraceData)
-	transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, statements)
-	if err != nil {
-		writeHTML(w, renderTransformHTML(ottl.TransformResult{Valid: false, Errors: []string{err.Error()}}, signalType))
-		return
-	}
-	result = ottl.TransformResult{Valid: true, OriginalData: &origCopy, TransformedData: &transformed, StatementsParsed: len(statements), SpanCount: spanCount, TransformedCount: spanCount}
-	writeHTML(w, renderTransformHTML(result, signalType))
-}
-
-func (s *Server) handleOTTLFilterHTML(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">invalid form data</div></div>`)
-		return
-	}
-	runID := r.PostFormValue("run_id")
-	config := r.PostFormValue("config")
-	mode := ottl.FilterMode(r.PostFormValue("mode"))
-	signalType := r.PostFormValue("signal_type")
-	if runID == "" {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run_id is required</div></div>`)
-		return
-	}
-	if mode == "" {
-		mode = ottl.FilterModeInclude
-	}
-
-	run := s.store.Get(runID)
-	if run == nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run not found</div></div>`)
-		return
-	}
-
-	if signalType == "" {
-		signalType = "traces"
-	}
-
-	if signalType == "both" {
-		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(config)
-		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-			return
-		}
-		result := ottl.FilterResult{Valid: true}
-		if len(traceConds) > 0 && run.TraceData != nil {
-			origCopy := make(json.RawMessage, len(*run.TraceData))
-			copy(origCopy, *run.TraceData)
-			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, mode)
-			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(mode), signalType))
-				return
-			}
-			result.OriginalData = &origCopy
-			result.FilteredData = &filtered
-			result.ConditionsParsed = len(traceConds)
-			result.TotalSpanCount = total
-			result.FilteredSpanCount = kept
-		}
-		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, mode)
-			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(mode), signalType))
-				return
-			}
-			logOrigCopy := make(json.RawMessage, len(*run.LogData))
-			copy(logOrigCopy, *run.LogData)
-			result.LogOriginalData = &logOrigCopy
-			if result.OriginalData == nil {
-				result.OriginalData = &logOrigCopy
-			}
-			result.LogFilteredData = &filtered
-			result.LogConditionsParsed = len(logConds)
-			result.TotalLogCount = total
-			result.FilteredLogCount = kept
-		}
-		writeHTML(w, renderFilterHTML(result, string(mode), signalType))
-		return
-	}
-
-	if signalType == "all" {
-		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(config)
-		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-			return
-		}
-		result := ottl.FilterResult{Valid: true}
-		if len(traceConds) > 0 && run.TraceData != nil {
-			origCopy := make(json.RawMessage, len(*run.TraceData))
-			copy(origCopy, *run.TraceData)
-			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, mode)
-			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}}, string(mode), signalType))
-				return
-			}
-			result.OriginalData = &origCopy
-			result.FilteredData = &filtered
-			result.ConditionsParsed = len(traceConds)
-			result.TotalSpanCount = total
-			result.FilteredSpanCount = kept
-		}
-		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, mode)
-			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}}, string(mode), signalType))
-				return
-			}
-			logOrigCopy := make(json.RawMessage, len(*run.LogData))
-			copy(logOrigCopy, *run.LogData)
-			result.LogOriginalData = &logOrigCopy
-			if result.OriginalData == nil {
-				result.OriginalData = &logOrigCopy
-			}
-			result.LogFilteredData = &filtered
-			result.LogConditionsParsed = len(logConds)
-			result.TotalLogCount = total
-			result.FilteredLogCount = kept
-		}
-		if len(metricConds) > 0 && run.MetricData != nil {
-			filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, metricConds, mode)
-			if err != nil {
-				writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}}, string(mode), signalType))
-				return
-			}
-			metricOrigCopy := make(json.RawMessage, len(*run.MetricData))
-			copy(metricOrigCopy, *run.MetricData)
-			result.MetricOriginalData = &metricOrigCopy
-			if result.OriginalData == nil {
-				result.OriginalData = &metricOrigCopy
-			}
-			result.MetricFilteredData = &filtered
-			result.MetricConditionsParsed = len(metricConds)
-			result.TotalMetricCount = total
-			result.FilteredMetricCount = kept
-		}
-		writeHTML(w, renderFilterHTML(result, string(mode), signalType))
-		return
-	}
-
-	if signalType == "logs" {
-		if run.LogData == nil {
-			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no log data</div></div>`)
-			return
-		}
-		conds, err := ottl.ParseFilterConditions(config)
-		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-			return
-		}
-		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conds, mode)
-		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-			return
-		}
-		origCopy := make(json.RawMessage, len(*run.LogData))
-		copy(origCopy, *run.LogData)
-		writeHTML(w, renderFilterHTML(ottl.FilterResult{
-			Valid: true, LogFilteredData: &filtered,
-			OriginalData:        &origCopy,
-			LogConditionsParsed: len(conds),
-			TotalLogCount:       total, FilteredLogCount: kept,
-		}, string(mode), signalType))
-		return
-	}
-
-	if signalType == "metrics" {
-		if run.MetricData == nil {
-			writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no metric data</div></div>`)
-			return
-		}
-		conds, err := ottl.ParseFilterConditions(config)
-		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-			return
-		}
-		filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, conds, mode)
-		if err != nil {
-			writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-			return
-		}
-		origCopy := make(json.RawMessage, len(*run.MetricData))
-		copy(origCopy, *run.MetricData)
-		writeHTML(w, renderFilterHTML(ottl.FilterResult{
-			Valid: true, MetricFilteredData: &filtered,
-			OriginalData:           &origCopy,
-			MetricConditionsParsed: len(conds),
-			TotalMetricCount:       total, FilteredMetricCount: kept,
-		}, string(mode), signalType))
-		return
-	}
-
-	// Traces (default)
-	if run.TraceData == nil {
-		writeHTML(w, `<div class="ottl-error"><div class="ottl-error-item">run has no trace data</div></div>`)
-		return
-	}
-	conds, err := ottl.ParseFilterConditions(config)
-	if err != nil {
-		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-		return
-	}
-	origCopy := make(json.RawMessage, len(*run.TraceData))
-	copy(origCopy, *run.TraceData)
-	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conds, mode)
-	if err != nil {
-		writeHTML(w, renderFilterHTML(ottl.FilterResult{Valid: false, Errors: []string{err.Error()}}, string(mode), signalType))
-		return
-	}
-	writeHTML(w, renderFilterHTML(ottl.FilterResult{
-		Valid: true, OriginalData: &origCopy, FilteredData: &filtered,
-		ConditionsParsed: len(conds),
-		TotalSpanCount:   total, FilteredSpanCount: kept,
-	}, string(mode), signalType))
 }

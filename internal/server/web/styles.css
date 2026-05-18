@@ -68,63 +68,6 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
 .ottl-error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 12px; border-radius: 6px; font-size: 13px; white-space: pre-wrap; }
 .ottl-error-item { padding: 4px 0; border-bottom: 1px solid rgba(153,27,27,0.3); }
 .ottl-error-item:last-child { border-bottom: none; }
-.ottl-transform-result { margin-top: 8px; border: 1px solid #334155; border-radius: 6px; overflow: hidden; }
-.ottl-transform-result .header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #1e293b; border-bottom: 1px solid #334155; font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
-.ottl-transform-result .header .badge { background: #22c55e; color: #052e16; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-.ottl-transform-result pre { margin: 0; padding: 12px; background: #0f172a; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; }
-.ottl-transform-result pre::-webkit-scrollbar { width: 6px; height: 6px; }
-.ottl-transform-result pre::-webkit-scrollbar-track { background: #1e293b; }
-.ottl-transform-result pre::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-.ottl-tabs { display: flex; gap: 0; border-bottom: 1px solid #334155; background: #1e293b; }
-.ottl-tab { padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.15s; }
-.ottl-tab:hover { color: #e2e8f0; }
-.ottl-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
-.ottl-diff-summary { display: flex; gap: 24px; padding: 12px 16px; background: #0f172a; border-radius: 6px; margin: 8px 0; }
-.ottl-filter-summary { display: flex; gap: 32px; padding: 12px 16px; background: #0f172a; border-radius: 6px; margin: 8px 0; }
-.ottl-diff-stat { text-align: center; min-width: 60px; }
-.ottl-diff-stat .count { font-size: 20px; font-weight: 700; }
-.ottl-diff-stat .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
-.ottl-diff-added .count { color: #22c55e; }
-.ottl-diff-removed .count { color: #ef4444; }
-.ottl-diff-modified .count { color: #f59e0b; }
-.ottl-diff-unchanged .count { color: #64748b; }
-.ottl-diff-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; margin-top: 8px; }
-.ottl-diff-table th { text-align: left; padding: 8px 12px; background: #1e293b; color: #94a3b8; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #334155; }
-.ottl-diff-table td { padding: 6px 12px; border-bottom: 1px solid #1e293b; vertical-align: top; }
-.ottl-diff-table .added { background: rgba(34, 197, 94, 0.08); }
-.ottl-diff-table .removed { background: rgba(239, 68, 68, 0.08); }
-.ottl-diff-table .modified { background: rgba(245, 158, 11, 0.08); }
-.ottl-diff-table .span-header td { padding: 8px 12px; border-top: 1px solid #334155; background: #0f172a; font-weight: 600; font-size: 13px; }
-.ottl-diff-table .span-header:first-child td { border-top: none; }
-.ottl-diff-table .span-header.span-removed td { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
-.ottl-diff-table .span-header.span-added td { background: rgba(34, 197, 94, 0.12); color: #86efac; }
-.ottl-diff-table .val-old { color: #ef4444; text-decoration: line-through; }
-.ottl-diff-table .val-new { color: #22c55e; }
-.ottl-save-area { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #0f172a; border-radius: 6px; margin-top: 8px; }
-.ottl-save-status { font-size: 12px; }
-.ottl-source-data { margin-top: 8px; border: 1px solid #334155; border-radius: 6px; overflow: hidden; font-size: 12px; }
-.ottl-source-data .header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1e293b; cursor: pointer; user-select: none; }
-.ottl-source-data .header:hover { background: #263348; }
-.ottl-source-data .header .arrow { display: inline-block; width: 12px; color: #64748b; transition: transform 0.15s; }
-.ottl-source-data .header .arrow.expanded { transform: rotate(90deg); }
-.ottl-source-data .header .summary { color: #94a3b8; font-size: 11px; }
-.ottl-source-data .body { display: none; }
-.ottl-source-data .body.open { display: block; }
-.ottl-source-data .stats { display: flex; gap: 20px; padding: 8px 12px; background: #0f172a; border-bottom: 1px solid #334155; }
-.ottl-source-data .stats span { color: #94a3b8; font-size: 11px; }
-.ottl-source-data .stats strong { color: #e2e8f0; font-weight: 600; }
-.ottl-source-data pre { margin: 0; padding: 12px; background: #0f172a; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre; }
-.ottl-inline-diff { margin: 0; padding: 0; background: #0f172a; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; overflow-x: auto; max-height: 500px; overflow-y: auto; line-height: 1.6; }
-.ottl-inline-diff .diff-line { display: flex; padding: 0 12px; white-space: pre; }
-.ottl-inline-diff .diff-line .ln { display: inline-block; width: 40px; text-align: right; color: #475569; margin-right: 16px; user-select: none; flex-shrink: 0; }
-.ottl-inline-diff .diff-line.added { background: rgba(34, 197, 94, 0.12); }
-.ottl-inline-diff .diff-line.added .ln { color: #22c55e; }
-.ottl-inline-diff .diff-line.removed { background: rgba(239, 68, 68, 0.12); }
-.ottl-inline-diff .diff-line.removed .ln { color: #ef4444; }
-.ottl-inline-diff .diff-line .marker { display: inline-block; width: 16px; color: #64748b; user-select: none; flex-shrink: 0; }
-.ottl-inline-diff .diff-line.added .marker { color: #22c55e; }
-.ottl-inline-diff .diff-line.removed .marker { color: #ef4444; }
-
 /* --- Modals --- */
 .modal-overlay {
   display: none;
@@ -197,30 +140,6 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   margin-bottom: 12px;
 }
 
-/* === OTTL Prototyper Option 2 === */
-.ottl-prototyper-tabs { display:flex; gap:0; border-bottom:1px solid #334155; margin-bottom:12px; background:#1e293b; border-radius:6px 6px 0 0; }
-.ottl-prototyper-tab { padding:10px 24px; background:transparent; border:none; color:#64748b; font-size:13px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
-.ottl-prototyper-tab:hover { color:#94a3b8; background:#0f172a; }
-.ottl-prototyper-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; background:#0f172a; }
-
-
-.ottl-editor-container { display:flex; gap:0; border:1px solid #334155; border-radius:6px; overflow:hidden; }
-.ottl-line-numbers { width:48px; flex-shrink:0; padding:12px 8px; text-align:right; color:#475569; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; background:#0f172a; border-right:1px solid #334155; user-select:none; overflow:hidden; padding-top:13px; }
-.ottl-line-numbers span { display:block; }
-.ottl-textarea { flex:1; border:none !important; border-radius:0 !important; resize:vertical; min-height:120px; font-family:"SF Mono","Fira Code",monospace; font-size:13px; line-height:1.5; }
-.ottl-sidebar { width:240px; flex-shrink:0; padding:12px; background:#0f172a; border-left:1px solid #334155; max-height:320px; overflow-y:auto; }
-.ottl-sidebar h4 { font-size:11px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; }
-.ottl-snippet-group { margin-bottom:16px; }
-.ottl-snippet-group:last-child { margin-bottom:0; }
-.ottl-snippet { padding:7px 10px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; background:#1e293b; border-radius:4px; cursor:pointer; color:#94a3b8; margin-bottom:4px; transition:all 0.15s; word-break:break-all; }
-.ottl-snippet:hover { background:#334155; color:#e2e8f0; }
-.ottl-result-panel { margin-top:12px; border:1px solid #334155; border-radius:6px; overflow:hidden; }
-.ottl-result-tabs { display:flex; gap:0; border-bottom:1px solid #334155; background:#0f172a; }
-.ottl-result-tab { padding:8px 16px; background:transparent; border:none; color:#64748b; font-size:12px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
-.ottl-result-tab:hover { color:#94a3b8; background:#1e293b; }
-.ottl-result-tab.active { color:#e2e8f0; border-bottom-color:#3b82f6; }
-.ottl-result-content { padding:4px; background:transparent; }
-.ottl-result-content pre { margin:0; padding:12px; font-size:12px; font-family:"SF Mono","Fira Code",monospace; overflow-x:auto; max-height:400px; overflow-y:auto; white-space:pre; background:transparent; }
 .ottl-summary { padding:8px 12px; color:#94a3b8; font-size:13px; }
 .ottl-section { margin:8px 4px; }
 .ottl-section h4 { font-size:12px; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin:0 0 6px; }

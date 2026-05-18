@@ -77,14 +77,13 @@ After any `pipeline-ui/` change, you must run `./scripts/serve.sh` (which rebuil
 - **Logging** — `log.Printf` / `log.Fatal` in main. `testing.T` logging in tests. No structured logger dependency at runtime (zap is transitive).
 - **Exporter interface** — `export.Exporter` (traces), `export.LogExporter` (logs), `export.MetricExporter` (metrics). Each has `Export(ctx, data)` and `Shutdown(ctx)`.
 
-### Dashboard (HTMX)
+### Dashboard (Vanilla JS)
 
-The main dashboard (`internal/server/web/`) is a single-page HTMX app with server-rendered HTML fragments:
-
+The main dashboard (`internal/server/web/`) is a single-page app with vanilla JS (no framework):
 - `index.html` — shell with config form, run list, OTTL panels
 - `styles.css` — all styling (no framework)
-- `scripts.js` — HTMX-driven interactions + party mode toggle
-- Server handlers return HTML fragments for OTTL endpoints (`*-html` routes) and run progress updates
+- `scripts.js` — fetch-driven interactions + party mode toggle (no HTMX, no framework)
+- Server handlers return JSON; JS updates the DOM directly
 
 ### Pipeline UI (Svelte)
 
@@ -147,14 +146,33 @@ npx playwright test --config tests/playwright.config.js    # browser smoke tests
 
 ## Common Gotchas for Agents
 
-1. **Stale embedded assets** — After editing Svelte code, you MUST run `./scripts/serve.sh` (not just restart the binary). The frontend won't update otherwise.
+1. **Stale embedded assets** — After editing Svelte code, use the two-terminal dev workflow (see "Dev Workflow" below) for hot-reload during development, or run `./scripts/serve.sh` for a production-style rebuild that bakes assets into the binary.
 2. **serve.sh writes binary to /tmp** — The binary at `/tmp/o11y-workbench-web` is what runs. The source tree `o11y-workbench-web` at root is NOT the binary.
 3. **`--pipeline-prototyper` is NOT default in the binary** — `serve.sh` passes it, but if you run the binary directly you must add `--pipeline-prototyper` or set `O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true`.
 4. **`internal/server/pipeline-ui/dist/` is gitignored but synced** — The embedded dist is copied here by the build. It's in `.gitignore`. Don't edit it directly.
 5. **Go 1.26+ route syntax** — Routes use `METHOD /path/{param}` syntax (e.g., `GET /api/runs/{id}`). Not compatible with older Go versions.
-6. **HTMX + HTML endpoints** — OTTL handlers have dual JSON and HTML variants. The HTML variants return fragments for HTMX swapping. Always test both if you change OTTL handler logic.
-7. **Dockerfile doesn't include pipeline-ui** — `Dockerfile.web` builds the Go binary but does NOT build the Svelte frontend. The embedded `pipeline-ui/dist/` must exist before docker build.
-8. **Run IDs are auto-incremented** — `runIDCounter` in `internal/server/run.go`. Don't assume UUIDs.
+6. **Dockerfile doesn't include pipeline-ui** — `Dockerfile.web` builds the Go binary but does NOT build the Svelte frontend. The embedded `pipeline-ui/dist/` must exist before docker build.
+7. **Run IDs are auto-incremented** — `runIDCounter` in `internal/server/run.go`. Don't assume UUIDs.
+
+---
+
+## Dev Workflow (Svelte SPA)
+
+For rapid iteration on the pipeline prototyper, use two terminals:
+
+**Terminal 1** — Go backend:
+```bash
+go run ./cmd/o11y-workbench-web --pipeline-prototyper
+```
+
+**Terminal 2** — Vite dev server (HMR):
+```bash
+cd pipeline-ui && npm run dev
+```
+
+The Vite config proxies `/api/*` to `http://localhost:8080`, so the Svelte SPA development server talks to the live Go backend. No rebuild needed between changes.
+
+For production builds, continue using `./scripts/serve.sh` which rebuilds everything atomically.
 
 ---
 
