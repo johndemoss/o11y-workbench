@@ -565,6 +565,27 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				}
 			}
 			run.SpanCount = total
+			if len(buf.spans) > 0 {
+				data, err := marshalTraceJSON(buf.spans)
+				if err == nil {
+					raw := json.RawMessage(data)
+					run.TraceData = &raw
+				}
+			}
+			if len(logBuf.logs) > 0 {
+				data, err := marshalLogJSON(logBuf.logs)
+				if err == nil {
+					raw := json.RawMessage(data)
+					run.LogData = &raw
+				}
+			}
+			if len(metricBuf.metrics) > 0 {
+				data, err := marshalMetricJSON(metricBuf.metrics)
+				if err == nil {
+					raw := json.RawMessage(data)
+					run.MetricData = &raw
+				}
+			}
 			run.mu.Unlock()
 			return
 		}

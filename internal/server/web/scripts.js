@@ -688,6 +688,15 @@ async function resumeRun(id) {
   }
 }
 
+async function stopRun(id) {
+  try {
+    await api('/api/runs/' + id + '/stop', { method: 'POST' });
+    renderRunList();
+  } catch(e) {
+    console.error('stop run:', e);
+  }
+}
+
 async function stopAllRuns() {
   const active = Object.values(runs).filter(r => r.status === 'running' || r.status === 'pending' || r.status === 'paused');
   if (active.length === 0) return;
