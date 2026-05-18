@@ -72,6 +72,12 @@ func NewGenerator(config Config) *Generator {
 // traces per second. The actual rate may be lower if generation + export
 // takes longer than the tick interval.
 func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
+	if g.config.Duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, g.config.Duration)
+		defer cancel()
+	}
+
 	var ticker *time.Ticker
 	if g.config.Rate > 0 {
 		interval := time.Second / time.Duration(g.config.Rate)
@@ -87,11 +93,17 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 			select {
 			case <-ticker.C:
 			case <-ctx.Done():
+				if ctx.Err() == context.DeadlineExceeded {
+					return nil
+				}
 				return ctx.Err()
 			}
 		}
 		select {
 		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil
+			}
 			return ctx.Err()
 		default:
 		}

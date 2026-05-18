@@ -317,7 +317,15 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 		run.MetricCount = cfg.MetricConfig.MetricCount
 	}
 	store.Add(run)
-	genCtx, cancel := context.WithCancel(context.Background())
+
+	var genCtx context.Context
+	var cancel context.CancelFunc
+	if cfg.Duration > 0 {
+		genCtx, cancel = context.WithTimeout(context.Background(), cfg.Duration)
+	} else {
+		genCtx, cancel = context.WithCancel(context.Background())
+	}
+
 	run.mu.Lock()
 	run.cancel = cancel
 	run.mu.Unlock()

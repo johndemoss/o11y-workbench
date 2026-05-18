@@ -1207,5 +1207,45 @@ func TestGenerator_Scenario_RootTiming(t *testing.T) {
 	}
 }
 
+func TestGenerator_RunDuration(t *testing.T) {
+	cfg := gen.Config{
+		Seed:       42,
+		TraceCount: 0, // infinite
+		Rate:       1000,
+		Duration:   100 * time.Millisecond,
+		SpanCount:  5,
+		MaxDepth:   3,
+		Topology:   gen.TopologyFlat,
+		BaseTime:   time.Now(),
+	}
+	exp := &mockExporter{}
+	g := gen.NewGenerator(cfg)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	err := g.Run(ctx, exp)
+	if err != nil && err != context.DeadlineExceeded {
+		t.Fatalf("expected DeadlineExceeded or nil, got: %v", err)
+	}
+	if err == context.DeadlineExceeded {
+		t.Fatal("generator should have stopped before context deadline")
+	}
+
+	// Should have generated some traces before duration expired
+	exp.mu.Lock()
+	total := 0
+	for _, rs := range exp.spans {
+		for _, ss := range rs.ScopeSpans {
+			total += len(ss.Spans)
+		}
+	}
+	exp.mu.Unlock()
+	if total == 0 {
+		t.Error("expected at least some spans generated before duration expired")
+	}
+	t.Logf("Generated %d spans in under 500ms with Duration=100ms", total)
+}
+
 // Ensure export.Exporter interface is satisfied by mockExporter
 var _ export.Exporter = (*mockExporter)(nil)
