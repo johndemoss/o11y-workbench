@@ -80,7 +80,7 @@
           <label>Trace Count</label>
           <span class="field-input-wrap">
             <input type="number" id="trace-count" value="0" min="0" title="0 = unlimited/infinite" oninput="updateInfiniteIndicator('trace-count'); syncTraceCountDuration()" onblur="updateInfiniteIndicator('trace-count'); syncTraceCountDuration()">
-            <span class="infinite-overlay" id="trace-count-inf" onclick="focusInfiniteInput('trace-count')">∞</span>
+            <span class="infinite-overlay" id="trace-count-inf" onclick="focusInfiniteInput('trace-count', 1)">∞</span>
           </span>
         </div>
         <div class="field">
@@ -94,7 +94,7 @@
           <label>Duration (s; 0 = unlimited)</label>
           <span class="field-input-wrap">
             <input type="number" id="duration" value="10" min="0" title="0 = unlimited" oninput="updateInfiniteIndicator('duration'); syncTraceCountDuration()" onblur="updateInfiniteIndicator('duration'); syncTraceCountDuration()">
-            <span class="infinite-overlay" id="duration-inf" onclick="focusInfiniteInput('duration')">∞</span>
+            <span class="infinite-overlay" id="duration-inf" onclick="focusInfiniteInput('duration', 1)">∞</span>
           </span>
         </div>
         <div class="field">

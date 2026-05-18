@@ -124,11 +124,6 @@ function updateInfiniteIndicator(id) {
   const input = document.getElementById(id);
   const overlay = document.getElementById(id + '-inf');
   if (!input || !overlay) return;
-  if (input.disabled) {
-    overlay.classList.remove('visible');
-    input.style.color = '';
-    return;
-  }
   const val = input.value.trim();
   // Show infinite if: value is empty, "0", or starts with "0"
   const isInfinite = val === '' || val === '0' || val.startsWith('0');
@@ -141,11 +136,16 @@ function updateInfiniteIndicator(id) {
   }
 }
 
-function focusInfiniteInput(id) {
+function focusInfiniteInput(id, activate) {
   const input = document.getElementById(id);
-  if (input && !input.disabled) {
-    input.focus();
-    hideInfiniteOverlay(id);
+  if (!input) return;
+  if (activate !== undefined && (parseInt(input.value) || 0) === 0) {
+    input.value = String(activate);
+  }
+  input.focus();
+  hideInfiniteOverlay(id);
+  if (activate !== undefined) {
+    syncTraceCountDuration(id);
   }
 }
 
@@ -156,9 +156,9 @@ function hideInfiniteOverlay(id) {
   if (input) input.style.color = '';
 }
 
-// --- Mutual exclusion between trace-count and duration ---
+// --- Soft mutual exclusion: setting one > 0 clears the other ---
 
-function syncTraceCountDuration() {
+function syncTraceCountDuration(changedId) {
   const tc = document.getElementById('trace-count');
   const dur = document.getElementById('duration');
   if (!tc || !dur) return;
@@ -166,23 +166,14 @@ function syncTraceCountDuration() {
   const tcVal = parseInt(tc.value) || 0;
   const durVal = parseInt(dur.value) || 0;
 
-  if (tcVal > 0) {
-    // Fixed-count mode: disable duration
+  // Intentional: when both > 0, keep both (generator handles first-to-complete)
+  if (tcVal > 0 && durVal > 0) {
+  } else if (tcVal > 0) {
     dur.value = '';
-    dur.disabled = true;
-    tc.disabled = false;
   } else if (durVal > 0) {
-    // Timed mode: disable trace count
     tc.value = '0';
-    tc.disabled = true;
-    dur.disabled = false;
-  } else {
-    // Unlimited mode: both active
-    tc.disabled = false;
-    dur.disabled = false;
   }
 
-  // Disabled fields should NOT show ∞ overlay — update indicators
   updateInfiniteIndicator('trace-count');
   updateInfiniteIndicator('duration');
 }
