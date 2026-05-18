@@ -1,0 +1,24 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14317
+      http:
+        endpoint: 0.0.0.0:14318
+processors:
+  remotetap:
+    endpoint: 0.0.0.0:12001
+    limit: 10
+exporters:
+  debug:
+    verbosity: detailed
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [remotetap]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [remotetap]
+      exporters: [debug]
