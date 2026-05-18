@@ -14,7 +14,7 @@ traces/
 
 # Svelte pipeline UI build output
 pipeline-ui/dist/
-internal/server/pipeline-ui/
+internal/server/pipeline-ui/dist/
 .playwright-mcp/
 
 # Playwright cache
