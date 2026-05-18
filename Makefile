@@ -24,9 +24,8 @@ serve:
 .PHONY: serve-stop
 serve-stop:
 	@echo "Stopping o11y-workbench-web..."
-	pkill -f o11y-workbench-web 2>/dev/null || true
-	kill $$(cat /tmp/o11y-workbench-web.pid 2>/dev/null) 2>/dev/null || true
-	rm -f /tmp/o11y-workbench-web.pid
+	@kill `cat /tmp/o11y-workbench-web.pid 2>/dev/null` 2>/dev/null || true
+	@rm -f /tmp/o11y-workbench-web.pid
 	@echo "Web server stopped"
 
 # Show available targets
@@ -89,11 +88,15 @@ otel-desktop-viewer-download:
 		exit 1; \
 	fi && \
 	echo "Downloading from run $$RUN_ID..." && \
-	cd $(ODV_BINDIR) && \
+	rm -rf $(ODV_BINDIR)/otel-desktop-viewer-tmp && \
+	mkdir -p $(ODV_BINDIR)/otel-desktop-viewer-tmp && \
+	cd $(ODV_BINDIR)/otel-desktop-viewer-tmp && \
 	gh run download "$$RUN_ID" --pattern "otel-desktop-viewer-*" && \
 	for dir in otel-desktop-viewer-*/; do \
-		cp "$$dir"otel-desktop-viewer-* "./tmp-$$(basename $$dir)" && rm -rf "$$dir"; \
+		cp "$$dir"otel-desktop-viewer-* ../tmp-$$(basename $$dir) && rm -rf "$$dir"; \
 	done && \
+	cd .. && \
+	rm -rf otel-desktop-viewer-tmp && \
 	for f in tmp-otel-desktop-viewer-*; do mv "$$f" "$${f#tmp-}"; done && \
 	ls -lh $(ODV_BINDIR)/otel-desktop-viewer-linux-amd64 $(ODV_BINDIR)/otel-desktop-viewer-darwin-*
 
@@ -105,8 +108,8 @@ ODV_CURRENT_BINARY := $(ODV_BINDIR)/otel-desktop-viewer-$(ODV_PLATFORM)
 .PHONY: otel-desktop-viewer-start
 otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
 	@echo "Using otel-desktop-viewer $(ODV_VERSION) ($(ODV_PLATFORM))"
-	@(nohup $(ODV_CURRENT_BINARY) --host 0.0.0.0 > /tmp/otel-desktop-viewer.log 2>&1 &) && sleep 1
-	@echo "otel-desktop-viewer started"
+	@($(ODV_CURRENT_BINARY) --host 0.0.0.0 > /tmp/otel-desktop-viewer.log 2>&1 &); sleep 1; echo $$! > /tmp/otel-desktop-viewer.pid
+	@echo "otel-desktop-viewer started (pid: $$(cat /tmp/otel-desktop-viewer.pid))"
 	@echo "    UI:          http://localhost:8000"
 	@echo "    OTLP gRPC:   localhost:4317"
 	@echo "    OTLP HTTP:   localhost:4318"
@@ -114,8 +117,7 @@ otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
 # Stop otel-desktop-viewer
 .PHONY: otel-desktop-viewer-stop
 otel-desktop-viewer-stop:
-	pkill -f otel-desktop-viewer 2>/dev/null || true
-	@echo "otel-desktop-viewer stopped"
+	@bash scripts/stop-odv.sh
 
 # Start everything for remotetap testing
 .PHONY: dev-remotetap
