@@ -2,6 +2,7 @@
 # Build artifacts
 /o11y-workbench
 /o11y-workbench-web
+bin/
 
 # Node.js
 node_modules/
