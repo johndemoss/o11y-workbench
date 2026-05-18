@@ -79,22 +79,22 @@
         <div class="field">
           <label>Trace Count</label>
           <span class="field-input-wrap">
-            <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite" oninput="updateInfiniteIndicator('trace-count')">
-            <span class="infinite-overlay" id="trace-count-inf">∞</span>
+            <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite" oninput="updateInfiniteIndicator('trace-count')" onblur="updateInfiniteIndicator('trace-count')">
+            <span class="infinite-overlay" id="trace-count-inf" onclick="focusInfiniteInput('trace-count')">∞</span>
           </span>
         </div>
         <div class="field">
           <label>Rate (0 = unlimited)</label>
           <span class="field-input-wrap">
-            <input type="number" id="rate" value="" min="0" placeholder="0" oninput="updateInfiniteIndicator('rate')">
-            <span class="infinite-overlay" id="rate-inf">∞</span>
+            <input type="number" id="rate" value="" min="0" placeholder="0" oninput="updateInfiniteIndicator('rate')" onblur="updateInfiniteIndicator('rate')">
+            <span class="infinite-overlay" id="rate-inf" onclick="focusInfiniteInput('rate')">∞</span>
           </span>
         </div>
         <div class="field">
           <label>Duration (s; 0 = unlimited)</label>
           <span class="field-input-wrap">
-            <input type="number" id="duration" value="" min="0" placeholder="0" title="0 = unlimited" oninput="updateInfiniteIndicator('duration')">
-            <span class="infinite-overlay" id="duration-inf">∞</span>
+            <input type="number" id="duration" value="" min="0" placeholder="0" title="0 = unlimited" oninput="updateInfiniteIndicator('duration')" onblur="updateInfiniteIndicator('duration')">
+            <span class="infinite-overlay" id="duration-inf" onclick="focusInfiniteInput('duration')">∞</span>
           </span>
         </div>
         <div class="field">

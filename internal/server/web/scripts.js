@@ -136,6 +136,19 @@ function updateInfiniteIndicator(id) {
   }
 }
 
+function focusInfiniteInput(id) {
+  const input = document.getElementById(id);
+  if (input) input.focus();
+  hideInfiniteOverlay(id);
+}
+
+function hideInfiniteOverlay(id) {
+  const overlay = document.getElementById(id + '-inf');
+  if (overlay) overlay.classList.remove('visible');
+  const input = document.getElementById(id);
+  if (input) input.style.color = '';
+}
+
 // --- Signal type UI ---
 
 function getSignalType() {
