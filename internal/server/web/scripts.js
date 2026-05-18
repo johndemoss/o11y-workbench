@@ -124,11 +124,17 @@ function updateInfiniteIndicator(id) {
   const input = document.getElementById(id);
   const overlay = document.getElementById(id + '-inf');
   if (!input || !overlay) return;
+  // Inactive (other mode active) → show "-" instead of ∞
+  if ('inactive' in input.dataset) {
+    overlay.textContent = '\u2014';
+    overlay.classList.add('visible');
+    input.style.color = '#64748b';
+    return;
+  }
   const val = input.value.trim();
-  // Show infinite if: value is empty, "0", or starts with "0"
   const isInfinite = val === '' || val === '0' || val.startsWith('0');
+  overlay.textContent = '\u221E';
   overlay.classList.toggle('visible', isInfinite);
-  // Also make input text color muted when showing infinite
   if (isInfinite) {
     input.style.color = '#64748b';
   } else {
@@ -156,22 +162,41 @@ function hideInfiniteOverlay(id) {
   if (input) input.style.color = '';
 }
 
-// --- Soft mutual exclusion: setting one > 0 clears the other ---
+// --- Soft mutual exclusion: changedId wins ---
 
 function syncTraceCountDuration(changedId) {
   const tc = document.getElementById('trace-count');
   const dur = document.getElementById('duration');
   if (!tc || !dur) return;
 
+  function activate(id) { delete document.getElementById(id).dataset.inactive; }
+  function deactivate(id) { document.getElementById(id).dataset.inactive = ''; }
+
   const tcVal = parseInt(tc.value) || 0;
   const durVal = parseInt(dur.value) || 0;
 
-  // Intentional: when both > 0, keep both (generator handles first-to-complete)
-  if (tcVal > 0 && durVal > 0) {
+  // changedId tells us which field was just modified — that field's mode wins
+  if (changedId === 'trace-count' && tcVal > 0) {
+    dur.value = '';
+    deactivate('duration');
+    activate('trace-count');
+  } else if (changedId === 'duration' && durVal > 0) {
+    tc.value = '0';
+    deactivate('trace-count');
+    activate('duration');
+  } else if (tcVal > 0 && durVal > 0) {
+    // Both > 0 without a clear changedId — keep both (generator handles it)
   } else if (tcVal > 0) {
     dur.value = '';
+    deactivate('duration');
+    activate('trace-count');
   } else if (durVal > 0) {
     tc.value = '0';
+    deactivate('trace-count');
+    activate('duration');
+  } else {
+    delete tc.dataset.inactive;
+    delete dur.dataset.inactive;
   }
 
   updateInfiniteIndicator('trace-count');
