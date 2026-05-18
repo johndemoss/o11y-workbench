@@ -173,3 +173,37 @@ go run ./cmd/o11y-workbench --traces 3 --topology branching
 # Clean up server
 kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null
 ```
+
+---
+
+## Page Naming Reference (for agent communication)
+
+When referencing pages/views in agent prompts, use these canonical names to avoid ambiguity.
+
+### Dashboard (`/`) — HTMX
+
+| Canonical Name | Description |
+|---|---|
+| **Dashboard** | Top-level HTMX app shell (nav, signal-eq) |
+| **Config Panel** | Generation config form |
+| **Jobs List** | Run list with filters, pause/stop |
+| **Run Detail** | Expanded single-run telemetry data |
+| **Pipeline Promo** | Card linking to Pipeline Prototyper |
+| **Import Modal** | OTLP JSON upload dialog |
+| **Scenario Upload Modal** | Custom scenario YAML/JSON upload |
+| **OTTL Validate Panel** | Validates transform/filter statements |
+| **OTTL Transform Panel** | Applies transform, shows diff |
+| **OTTL Filter Panel** | Applies filter, shows diff |
+
+### Pipeline Prototyper (`/pipeline/`) — Svelte SPA
+
+| Canonical Name | Description |
+|---|---|
+| **Quick Tab** | Single-stage transform/filter, immediate exec |
+| **Graph Builder** | Multi-signal swimlane graph editor |
+| **Pipeline Builder** | Single-signal linear pipeline |
+| **Config Import** | Modal — import OTel collector YAML |
+| **Stage Editor** | Modal — edit a stage's processor config |
+| **Execute & Results Panel** | Bottom panel: run selector + diff results |
+
+Full reference with routes at `.sisyphus/pages-reference.md`.
