@@ -135,6 +135,40 @@ export function isZeroId(id: string): boolean {
   }
 }
 
+/** Fields in OTLP JSON that contain base64-encoded trace/span IDs. */
+const ID_FIELDS = new Set([
+  'trace_id', 'span_id', 'parent_span_id',
+  'traceId', 'spanId', 'parentSpanId',
+])
+
+/**
+ * Walk the data tree and convert base64-encoded trace/span ID fields
+ * to hex strings (e.g. "3x2h0QAA" → "df1da1d10000").
+ * Used to make JSON Output, Unified Diff, and Export consistent
+ * with Inline Diff which already shows hex IDs.
+ */
+export function convertTraceSpanIds(data: unknown): unknown {
+  if (data === null || data === undefined) return data
+  if (typeof data === 'string') return data
+  if (Array.isArray(data)) {
+    return data.map(convertTraceSpanIds)
+  }
+  if (typeof data === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      if (ID_FIELDS.has(key) && typeof value === 'string' && value.length > 0) {
+        result[key] = base64ToHex(value as string)
+      } else if (typeof value === 'object' && value !== null) {
+        result[key] = convertTraceSpanIds(value)
+      } else {
+        result[key] = value
+      }
+    }
+    return result
+  }
+  return data
+}
+
 export function computeSpanChanges(before: unknown, after: unknown): SpanChange[] {
   const changes: SpanChange[] = []
   if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return changes

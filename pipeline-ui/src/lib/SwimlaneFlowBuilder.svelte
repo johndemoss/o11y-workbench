@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { setContext, untrack } from 'svelte'
-  import '@xyflow/svelte/dist/style.css'
-  import {
-    SvelteFlow,
-    Controls,
-    Background,
-    BackgroundVariant,
-    MiniMap,
-    MarkerType,
-  } from '@xyflow/svelte'
+import { setContext, untrack } from 'svelte'
+import '@xyflow/svelte/dist/style.css'
+import {
+  SvelteFlow,
+  Controls,
+  Background,
+  BackgroundVariant,
+  MiniMap,
+  MarkerType,
+} from '@xyflow/svelte'
   import type { Node, Edge, Connection } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
   import {
@@ -544,6 +544,7 @@
         </div>
       {/if}
       <div class="svelte-flow-wrapper" class:empty={!hasStages}>
+        {#key pipelineVersion}
         <SvelteFlow
           {nodeTypes}
           bind:nodes
@@ -563,6 +564,7 @@
           {/if}
           <button class="minimap-toggle nodrag nopan" onclick={() => showMiniMap = !showMiniMap} title="Toggle minimap">🗺</button>
         </SvelteFlow>
+        {/key}
       </div>
       {#if deleteConfirmNodeId}
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->

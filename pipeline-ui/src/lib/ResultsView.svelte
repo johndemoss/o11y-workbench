@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { computeAllStageDiffs, computeUnifiedDiff, base64ToHex, isZeroId } from './diff'
+  import { computeAllStageDiffs, computeUnifiedDiff, base64ToHex, isZeroId, convertTraceSpanIds } from './diff'
   import type { UnifiedDiffLine } from './diff'
   import type { PipelineResult, StageDiff } from './types'
 
@@ -63,12 +63,12 @@
     result ? result.stages.map((stage, i) => {
       const before = i === 0 ? originalData ?? null : result.stages[i - 1].intermediate_data
       const after = stage.intermediate_data
-      return computeUnifiedDiff(before, after)
+      return computeUnifiedDiff(convertTraceSpanIds(before), convertTraceSpanIds(after))
     }) : []
   )
 
   function downloadJSON(data: unknown, filename: string) {
-    const json = JSON.stringify(data, null, 2)
+    const json = JSON.stringify(convertTraceSpanIds(data), null, 2)
     const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -86,7 +86,7 @@
   }
 
   function formatJSON(val: unknown): string {
-    return JSON.stringify(val, null, 2)
+    return JSON.stringify(convertTraceSpanIds(val), null, 2)
   }
 
   function highlightJSON(str: string): string {
@@ -564,12 +564,14 @@
   .diff-line-remove .diff-prefix { color: var(--color-error, #ef4444); }
   .diff-text { white-space: pre; }
 
-  /* JSON syntax highlighting */
-  .json-key { color: #93c5fd; }
-  .json-string { color: #86efac; }
-  .json-number { color: #fca5a5; }
-  .json-bool { color: #c084fc; }
-  .json-null { color: #94a3b8; font-style: italic; }
+  /* JSON syntax highlighting
+     Note: :global() needed because highlightJSON() injects spans via {@html},
+     which bypasses Svelte's scoped CSS. */
+  :global(.json-key) { color: #93c5fd; }
+  :global(.json-string) { color: #86efac; }
+  :global(.json-number) { color: #fca5a5; }
+  :global(.json-bool) { color: #c084fc; }
+  :global(.json-null) { color: #94a3b8; font-style: italic; }
 
   /* Final data section header row with export button */
   .final-header-row {
