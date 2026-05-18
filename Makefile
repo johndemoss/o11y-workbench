@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve help otel-start otel-stop otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean-remotetap otel-demo-sender otel-demo-sender-stop
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop
 
 build-pipeline-ui:
 	cd pipeline-ui && npm install && npm run build
@@ -20,21 +20,32 @@ test:
 serve:
 	./scripts/serve.sh
 
+# Stop the web server
+.PHONY: serve-stop
+serve-stop:
+	@echo "Stopping o11y-workbench-web..."
+	pkill -f o11y-workbench-web 2>/dev/null || true
+	kill $$(cat /tmp/o11y-workbench-web.pid 2>/dev/null) 2>/dev/null || true
+	rm -f /tmp/o11y-workbench-web.pid
+	@echo "Web server stopped"
+
 # Show available targets
 help:
 	@echo "Available targets:"
 	@echo "  make build-pipeline-ui   Build the Svelte frontend"
 	@echo "  make build-all           Build everything (frontend + Go binary)"
 	@echo "  make serve               Build + start web server (agent-safe, polls health endpoint)"
+	@echo "  make serve-stop          Stop the web server"
 	@echo "  make test                Run all tests"
 	@echo "  make otel-start          Start OTel collector with remotetap processor"
 	@echo "  make otel-stop           Stop OTel collector"
-	@echo "  make dev-remotetap       Start collector, workbench, and demo sender"
 	@echo "  make dev                 Start CLI + otel-desktop-viewer only (no web server)"
-	@echo "  make otel-demo-sender    Start CLI sending traces to otel-collector"
+	@echo "  make dev-remotetap       Start collector, workbench, and demo sender"
+	@echo "  make otel-demo-sender    Start CLI sending traces to otel-desktop-viewer"
 	@echo "  make otel-demo-sender-stop Stop the demo sender"
-	@echo "  make otel-desktop-viewer Start otel-desktop-viewer (OTLP GUI)"
-	@echo "  make clean-remotetap     Cleanup everything"
+	@echo "  make otel-desktop-viewer-start Start otel-desktop-viewer (OTLP GUI)"
+	@echo "  make clean               Stop all services (dev or dev-remotetap)"
+	@echo "  make clean-remotetap     Stop all remotetap services + collector"
 
 # Detect container runtime (docker or podman)
 CONTAINER_RUNTIME := $(shell command -v podman > /dev/null 2>&1 && echo podman || echo docker)
@@ -115,7 +126,7 @@ dev: otel-desktop-viewer-start otel-demo-sender
 	@echo "    OTLP endpoint:        localhost:4317 (gRPC) / localhost:4318 (HTTP)"
 	@echo ""
 	@echo "==> Demo sender running, sending traces to localhost:4317"
-	@echo "    Use 'make otel-demo-sender-stop' to stop the sender"
+	@echo "    Use 'make clean' to stop everything"
 
 # Stop the demo sender
 .PHONY: otel-demo-sender-stop
@@ -125,11 +136,17 @@ otel-demo-sender-stop:
 	rm -f /tmp/o11y-workbench-demo.pid
 	@echo "Demo sender stopped"
 
-# Cleanup everything
-.PHONY: clean-remotetap
-clean-remotetap:
-	$(MAKE) otel-stop
+# Stop all services (works for both 'make dev' and 'make dev-remotetap')
+.PHONY: clean
+clean:
 	$(MAKE) otel-desktop-viewer-stop
 	$(MAKE) otel-demo-sender-stop
-	pkill -f o11y-workbench-web 2>/dev/null || true
+	$(MAKE) serve-stop
+	$(MAKE) otel-stop
+	rm -f /tmp/o11y-workbench-web.pid /tmp/o11y-workbench-demo.pid
+	@echo "All services stopped"
+
+# Cleanup everything (remotetap-specific, includes collector)
+.PHONY: clean-remotetap
+clean-remotetap: clean
 	@echo "Cleanup complete"
