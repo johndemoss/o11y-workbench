@@ -475,6 +475,7 @@ async function startRun() {
   if (hasTraces) {
     body.trace_count = (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })();
     body.rate = parseInt(document.getElementById('rate').value) || 0;
+    body.duration = parseInt(document.getElementById('duration').value) || 0;
     body.topology = document.getElementById('topology').value;
     body.scenario = document.getElementById('scenario').value;
     body.span_count = parseInt(document.getElementById('span-count').value) || 10;
