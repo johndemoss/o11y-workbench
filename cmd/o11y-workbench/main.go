@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -68,6 +69,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				Seed:              viper.GetInt64("seed"),
 				TraceCount:        viper.GetInt("traces"),
 				Rate:              viper.GetInt("rate"),
+				Duration:          time.Duration(viper.GetInt("duration")) * time.Second,
 				Topology:          topoType,
 				SpanCount:         viper.GetInt("span-count"),
 				MaxDepth:          viper.GetInt("max-depth"),
@@ -124,6 +126,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 	cmd.Flags().Int64("seed", 42, "RNG seed for deterministic trace generation")
 	cmd.Flags().Int("traces", 1, "number of traces to generate")
 	cmd.Flags().Int("rate", 0, "target traces per second (0 = unlimited)")
+	cmd.Flags().Int("duration", 0, "max run duration in seconds (0 = unlimited)")
 	cmd.Flags().String("topology", "flat", "trace topology shape (flat, branching, split)")
 	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven, or a user-defined scenario")
 	cmd.Flags().String("scenario-file", "", "path to YAML/JSON file with user-defined scenario definitions")
@@ -140,7 +143,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 
 	// Precedence: CLI flag > env var > config file > built-in default.
 	for _, name := range []string{
-		"seed", "traces", "rate", "topology", "scenario", "scenario-file", "scenario-span-count", "span-count", "max-depth",
+		"seed", "traces", "rate", "duration", "topology", "scenario", "scenario-file", "scenario-span-count", "span-count", "max-depth",
 		"service-name", "output", "format", "output-dir", "endpoint", "insecure",
 	} {
 		if err := viper.BindPFlag(name, cmd.Flags().Lookup(name)); err != nil {
