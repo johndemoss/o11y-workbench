@@ -167,7 +167,7 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"seed": def.Seed, "trace_count": def.TraceCount,
-		"rate": 0, "topology": def.Topology.String(),
+		"rate": 0, "duration": 0, "topology": def.Topology.String(),
 		"span_count": def.SpanCount, "max_depth": def.MaxDepth,
 		"service_name": def.ServiceName, "scenario_span_count": 0,
 		"output": "file", "format": "json",
@@ -203,6 +203,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Seed              int64              `json:"seed"`
 		TraceCount        int                `json:"trace_count"`
 		Rate              int                `json:"rate"`
+		Duration          int                `json:"duration"`
 		Topology          string             `json:"topology"`
 		Scenario          string             `json:"scenario"`
 		ScenarioSpanCount int                `json:"scenario_span_count"`
@@ -258,7 +259,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := gen.Config{
-		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate,
+		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate, Duration: time.Duration(body.Duration) * time.Second,
 		Topology: topoType, SpanCount: body.SpanCount, MaxDepth: body.MaxDepth,
 		ServiceName: body.ServiceName,
 		BaseTime:    time.Now(),
