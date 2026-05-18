@@ -118,6 +118,24 @@ function formatDuration(ns) {
   return (ns / 1e9).toFixed(2) + 's';
 }
 
+// --- Infinite indicator for unlimited values ---
+
+function updateInfiniteIndicator(id) {
+  const input = document.getElementById(id);
+  const overlay = document.getElementById(id + '-inf');
+  if (!input || !overlay) return;
+  const val = input.value.trim();
+  // Show infinite if: value is empty, "0", or starts with "0"
+  const isInfinite = val === '' || val === '0' || val.startsWith('0');
+  overlay.classList.toggle('visible', isInfinite);
+  // Also make input text color muted when showing infinite
+  if (isInfinite) {
+    input.style.color = '#64748b';
+  } else {
+    input.style.color = '';
+  }
+}
+
 // --- Signal type UI ---
 
 function getSignalType() {
@@ -1174,3 +1192,6 @@ updateToggleAllBtn();
 
 updateAllPillState('signal-type');
 updateAllPillState('run-filter-signals');
+
+// Initialize infinite indicators on page load
+['trace-count', 'rate', 'duration'].forEach(updateInfiniteIndicator);

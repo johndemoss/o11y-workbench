@@ -78,15 +78,24 @@
       <div class="form-grid" style="margin-bottom:0">
         <div class="field">
           <label>Trace Count</label>
-          <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite">
+          <span class="field-input-wrap">
+            <input type="number" id="trace-count" value="1" min="0" title="0 = unlimited/infinite" oninput="updateInfiniteIndicator('trace-count')">
+            <span class="infinite-overlay" id="trace-count-inf">∞</span>
+          </span>
         </div>
         <div class="field">
           <label>Rate (0 = unlimited)</label>
-          <input type="number" id="rate" value="0" min="0">
+          <span class="field-input-wrap">
+            <input type="number" id="rate" value="" min="0" placeholder="0" oninput="updateInfiniteIndicator('rate')">
+            <span class="infinite-overlay" id="rate-inf">∞</span>
+          </span>
         </div>
         <div class="field">
           <label>Duration (s; 0 = unlimited)</label>
-          <input type="number" id="duration" value="0" min="0" title="0 = unlimited">
+          <span class="field-input-wrap">
+            <input type="number" id="duration" value="" min="0" placeholder="0" title="0 = unlimited" oninput="updateInfiniteIndicator('duration')">
+            <span class="infinite-overlay" id="duration-inf">∞</span>
+          </span>
         </div>
         <div class="field">
           <label>Scenario</label>
