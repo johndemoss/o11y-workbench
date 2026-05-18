@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-build otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop
 
 build-pipeline-ui:
 	cd pipeline-ui && npm install && npm run build
@@ -44,6 +44,7 @@ help:
 	@echo "  make otel-demo-sender    Start CLI sending traces to otel-desktop-viewer"
 	@echo "  make otel-demo-sender-stop Stop the demo sender"
 	@echo "  make otel-desktop-viewer-start Start otel-desktop-viewer (OTLP GUI)"
+	@echo "  make otel-desktop-viewer-build Build otel-desktop-viewer for all platforms (linux + darwin, amd64 + arm64)"
 	@echo "  make clean               Stop all services (dev or dev-remotetap)"
 	@echo "  make clean-remotetap     Stop all remotetap services + collector"
 
@@ -73,17 +74,33 @@ otel-stop:
 # Build otel-desktop-viewer from local source (has logs + metrics support, newer than latest release)
 ODV_SOURCE := workspace/github.com/ctrlspice/otel-desktop-viewer
 ODV_VERSION := $(shell git -C $(ODV_SOURCE) describe --tags --always)
-ODV_BINARY := $(shell go env GOPATH)/bin/otel-desktop-viewer
+ODV_BINDIR := $(CURDIR)/bin
+ODV_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 
-$(ODV_BINARY): $(ODV_SOURCE)
-	cd $(ODV_SOURCE) && go build -ldflags="-s -w -X main.version=$(ODV_VERSION)" -o $(ODV_BINARY)
+# Build all 4 platform binaries (linux amd64/arm64, darwin amd64/arm64)
+.PHONY: otel-desktop-viewer-build
+otel-desktop-viewer-build:
+	@mkdir -p $(ODV_BINDIR)
+	@echo "Building otel-desktop-viewer $(ODV_VERSION) for all platforms..."
+	@echo "  linux-amd64..."
+	cd $(ODV_SOURCE) && GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=$(ODV_VERSION)" -o $(ODV_BINDIR)/otel-desktop-viewer-linux-amd64
+	@echo "  linux-arm64..."
+	cd $(ODV_SOURCE) && GOOS=linux GOARCH=arm64 CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=$(ODV_VERSION)" -o $(ODV_BINDIR)/otel-desktop-viewer-linux-arm64
+	@echo "  darwin-amd64 (requires macOS)..."
+	cd $(ODV_SOURCE) && GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=$(ODV_VERSION)" -o $(ODV_BINDIR)/otel-desktop-viewer-darwin-amd64 || echo "    (skipping - requires macOS)"
+	@echo "  darwin-arm64 (requires macOS)..."
+	cd $(ODV_SOURCE) && GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=$(ODV_VERSION)" -o $(ODV_BINDIR)/otel-desktop-viewer-darwin-arm64 || echo "    (skipping - requires macOS)"
+	@echo "Build complete: $(ODV_BINDIR)/otel-desktop-viewer-{linux,darwin}-{amd64,arm64}"
+
+# Current platform binary
+ODV_CURRENT_BINARY := $(ODV_BINDIR)/otel-desktop-viewer-$(ODV_PLATFORM)
 
 # Start otel-desktop-viewer (OTLP GUI viewer)
 # Uses ports 4317/4318 (gRPC/HTTP) for OTLP and 8000 for the web UI
 .PHONY: otel-desktop-viewer-start
-otel-desktop-viewer-start: $(ODV_BINARY)
-	@echo "Using otel-desktop-viewer $(ODV_VERSION) (from $(ODV_SOURCE))"
-	$(ODV_BINARY) --host 0.0.0.0 &
+otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
+	@echo "Using otel-desktop-viewer $(ODV_VERSION) ($(ODV_PLATFORM))"
+	$(ODV_CURRENT_BINARY) --host 0.0.0.0 &
 	@echo "otel-desktop-viewer started"
 	@echo "    UI:          http://localhost:8000"
 	@echo "    OTLP gRPC:   localhost:4317"
