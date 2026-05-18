@@ -363,6 +363,49 @@ func (s *Server) handleImportRunHelper(body []byte) *Run {
 	return run
 }
 
+func TestIntegration_RunDuration(t *testing.T) {
+	store := NewRunStore()
+
+	cfg := gen.Config{
+		Seed:       42,
+		TraceCount: 0, // infinite — duration should stop it
+		Rate:       100,
+		Duration:   500 * time.Millisecond,
+		SpanCount:  5,
+		MaxDepth:   3,
+		Topology:   gen.TopologyFlat,
+		ServiceName: "test-duration",
+		BaseTime:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	run, err := StartRun(context.Background(), store, cfg, nil, true, "file")
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	// Wait enough for duration to expire
+	time.Sleep(1 * time.Second)
+
+	snap := store.Get(run.ID)
+	if snap == nil {
+		t.Fatal("run not found in store")
+	}
+
+	if snap.Status != RunStatusCompleted {
+		t.Errorf("expected status=completed, got %s (error: %q)", snap.Status, snap.Error)
+	}
+
+	if snap.TraceCountCompleted == 0 {
+		t.Error("expected some traces completed before duration expired")
+	}
+
+	if snap.DurationNs > 1_000_000_000 { // > 1 second
+		t.Errorf("expected run under 1s, got %dns", snap.DurationNs)
+	}
+
+	t.Logf("Run completed in %dns with %d traces", snap.DurationNs, snap.TraceCountCompleted)
+}
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)
