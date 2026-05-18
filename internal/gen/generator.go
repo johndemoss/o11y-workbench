@@ -35,7 +35,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Seed:          42,
-		TraceCount:    1,
+		TraceCount:    0,
 		Topology:      TopologyFlat,
 		SpanCount:     10,
 		MaxDepth:      5,

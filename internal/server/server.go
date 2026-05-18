@@ -167,7 +167,7 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"seed": def.Seed, "trace_count": def.TraceCount,
-		"rate": 0, "duration": 0, "topology": def.Topology.String(),
+		"rate": 1, "duration": 10, "topology": def.Topology.String(),
 		"span_count": def.SpanCount, "max_depth": def.MaxDepth,
 		"service_name": def.ServiceName, "scenario_span_count": 0,
 		"output": "file", "format": "json",

@@ -65,11 +65,26 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				}
 			}
 
+			traces := viper.GetInt("traces")
+			duration := viper.GetInt("duration")
+
+			switch {
+			case traces > 0:
+				// Fixed-count mode: timed mode not useful
+				if duration > 0 {
+					log.Printf("Note: --traces=%d takes precedence over --duration=%d (mutually exclusive); using fixed-count mode", traces, duration)
+				}
+				duration = 0
+			case duration > 0:
+				// Timed mode: trace count not useful
+				traces = 0
+			}
+
 			cfg := gen.Config{
 				Seed:              viper.GetInt64("seed"),
-				TraceCount:        viper.GetInt("traces"),
+				TraceCount:        traces,
 				Rate:              viper.GetInt("rate"),
-				Duration:          time.Duration(viper.GetInt("duration")) * time.Second,
+				Duration:          time.Duration(duration) * time.Second,
 				Topology:          topoType,
 				SpanCount:         viper.GetInt("span-count"),
 				MaxDepth:          viper.GetInt("max-depth"),
@@ -124,9 +139,9 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path (YAML, JSON, or TOML)")
 
 	cmd.Flags().Int64("seed", 42, "RNG seed for deterministic trace generation")
-	cmd.Flags().Int("traces", 1, "number of traces to generate")
-	cmd.Flags().Int("rate", 0, "target traces per second (0 = unlimited)")
-	cmd.Flags().Int("duration", 0, "max run duration in seconds (0 = unlimited)")
+	cmd.Flags().Int("traces", 0, "number of traces to generate (0 = unlimited; mutually exclusive with --duration)")
+	cmd.Flags().Int("rate", 1, "target traces per second (0 = unlimited)")
+	cmd.Flags().Int("duration", 10, "max run duration in seconds (0 = unlimited; mutually exclusive with --traces)")
 	cmd.Flags().String("topology", "flat", "trace topology shape (flat, branching, split)")
 	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven, or a user-defined scenario")
 	cmd.Flags().String("scenario-file", "", "path to YAML/JSON file with user-defined scenario definitions")

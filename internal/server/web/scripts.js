@@ -124,6 +124,11 @@ function updateInfiniteIndicator(id) {
   const input = document.getElementById(id);
   const overlay = document.getElementById(id + '-inf');
   if (!input || !overlay) return;
+  if (input.disabled) {
+    overlay.classList.remove('visible');
+    input.style.color = '';
+    return;
+  }
   const val = input.value.trim();
   // Show infinite if: value is empty, "0", or starts with "0"
   const isInfinite = val === '' || val === '0' || val.startsWith('0');
@@ -138,8 +143,10 @@ function updateInfiniteIndicator(id) {
 
 function focusInfiniteInput(id) {
   const input = document.getElementById(id);
-  if (input) input.focus();
-  hideInfiniteOverlay(id);
+  if (input && !input.disabled) {
+    input.focus();
+    hideInfiniteOverlay(id);
+  }
 }
 
 function hideInfiniteOverlay(id) {
@@ -147,6 +154,37 @@ function hideInfiniteOverlay(id) {
   if (overlay) overlay.classList.remove('visible');
   const input = document.getElementById(id);
   if (input) input.style.color = '';
+}
+
+// --- Mutual exclusion between trace-count and duration ---
+
+function syncTraceCountDuration() {
+  const tc = document.getElementById('trace-count');
+  const dur = document.getElementById('duration');
+  if (!tc || !dur) return;
+
+  const tcVal = parseInt(tc.value) || 0;
+  const durVal = parseInt(dur.value) || 0;
+
+  if (tcVal > 0) {
+    // Fixed-count mode: disable duration
+    dur.value = '';
+    dur.disabled = true;
+    tc.disabled = false;
+  } else if (durVal > 0) {
+    // Timed mode: disable trace count
+    tc.value = '0';
+    tc.disabled = true;
+    dur.disabled = false;
+  } else {
+    // Unlimited mode: both active
+    tc.disabled = false;
+    dur.disabled = false;
+  }
+
+  // Disabled fields should NOT show ∞ overlay — update indicators
+  updateInfiniteIndicator('trace-count');
+  updateInfiniteIndicator('duration');
 }
 
 // --- Signal type UI ---
@@ -504,7 +542,7 @@ async function startRun() {
   };
 
   if (hasTraces) {
-    body.trace_count = (function() { var v = parseInt(document.getElementById('trace-count').value); return isNaN(v) || v < 1 ? (v === 0 ? 0 : 1) : v; })();
+    body.trace_count = parseInt(document.getElementById('trace-count').value) || 0;
     body.rate = parseInt(document.getElementById('rate').value) || 0;
     body.duration = parseInt(document.getElementById('duration').value) || 0;
     body.topology = document.getElementById('topology').value;
@@ -1208,3 +1246,4 @@ updateAllPillState('run-filter-signals');
 
 // Initialize infinite indicators on page load
 ['trace-count', 'rate', 'duration'].forEach(updateInfiniteIndicator);
+syncTraceCountDuration();

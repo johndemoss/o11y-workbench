@@ -423,8 +423,8 @@ func TestDefaultConfig(t *testing.T) {
 	if c.TraceDuration == 0 {
 		t.Error("DefaultConfig.TraceDuration should be non-zero")
 	}
-	if c.TraceCount != 1 {
-		t.Errorf("DefaultConfig.TraceCount = %d, want 1", c.TraceCount)
+	if c.TraceCount != 0 {
+		t.Errorf("DefaultConfig.TraceCount = %d, want 0", c.TraceCount)
 	}
 	if c.SpanCount != 10 {
 		t.Errorf("DefaultConfig.SpanCount = %d, want 10", c.SpanCount)
