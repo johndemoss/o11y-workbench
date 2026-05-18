@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-build otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-build otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop
 
 build-pipeline-ui:
 	cd pipeline-ui && npm install && npm run build
@@ -44,7 +44,8 @@ help:
 	@echo "  make otel-demo-sender    Start CLI sending traces to otel-desktop-viewer"
 	@echo "  make otel-demo-sender-stop Stop the demo sender"
 	@echo "  make otel-desktop-viewer-start Start otel-desktop-viewer (OTLP GUI)"
-	@echo "  make otel-desktop-viewer-build Build otel-desktop-viewer for all platforms (linux + darwin, amd64 + arm64)"
+	@echo "  make otel-desktop-viewer-build Build from local source (requires respective OS)"
+	@echo "  make otel-desktop-viewer-download Download pre-built binaries from GitHub Actions"
 	@echo "  make clean               Stop all services (dev or dev-remotetap)"
 	@echo "  make clean-remotetap     Stop all remotetap services + collector"
 
@@ -76,12 +77,28 @@ ODV_SOURCE := workspace/github.com/ctrlspice/otel-desktop-viewer
 ODV_VERSION := $(shell git -C $(ODV_SOURCE) describe --tags --always)
 ODV_BINDIR := $(CURDIR)/bin
 ODV_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
+ODV_ARTIFACT_URL := https://github.com/johndemoss/o11y-workbench/actions/workflows/build-otel-desktop-viewer.yml
 
-# Build all 4 platform binaries (linux amd64/arm64, darwin amd64/arm64)
+# Download otel-desktop-viewer artifacts from latest successful GitHub Actions run
+.PHONY: otel-desktop-viewer-download
+otel-desktop-viewer-download:
+	@mkdir -p $(ODV_BINDIR)
+	@echo "Downloading otel-desktop-viewer artifacts from GitHub Actions..."
+	@RUN_ID=$$(gh run list --workflow=build-otel-desktop-viewer.yml --status=success --json databaseId --jq '.[0].databaseId') && \
+	if [ -z "$$RUN_ID" ]; then \
+		echo "No successful workflow run found. Run 'make otel-desktop-viewer-build' first at $(ODV_ARTIFACT_URL)"; \
+		exit 1; \
+	fi && \
+	echo "Downloading from run $$RUN_ID..." && \
+	cd $(ODV_BINDIR) && \
+	gh run download "$$RUN_ID" --pattern "otel-desktop-viewer-*" && \
+	ls -lh $(ODV_BINDIR)/otel-desktop-viewer-*
+
+# Build all 4 platform binaries locally (requires respective OS)
 .PHONY: otel-desktop-viewer-build
 otel-desktop-viewer-build:
 	@mkdir -p $(ODV_BINDIR)
-	@echo "Building otel-desktop-viewer $(ODV_VERSION) for all platforms..."
+	@echo "Building otel-desktop-viewer $(ODV_VERSION) for all platforms from local source..."
 	@echo "  linux-amd64..."
 	cd $(ODV_SOURCE) && GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=$(ODV_VERSION)" -o $(ODV_BINDIR)/otel-desktop-viewer-linux-amd64
 	@echo "  linux-arm64..."
