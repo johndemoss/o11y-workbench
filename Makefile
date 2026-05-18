@@ -91,7 +91,11 @@ otel-desktop-viewer-download:
 	echo "Downloading from run $$RUN_ID..." && \
 	cd $(ODV_BINDIR) && \
 	gh run download "$$RUN_ID" --pattern "otel-desktop-viewer-*" && \
-	ls -lh $(ODV_BINDIR)/otel-desktop-viewer-*
+	for dir in otel-desktop-viewer-*/; do \
+		cp "$$dir"otel-desktop-viewer-* "./tmp-$$(basename $$dir)" && rm -rf "$$dir"; \
+	done && \
+	for f in tmp-otel-desktop-viewer-*; do mv "$$f" "$${f#tmp-}"; done && \
+	ls -lh $(ODV_BINDIR)/otel-desktop-viewer-linux-amd64 $(ODV_BINDIR)/otel-desktop-viewer-darwin-*
 
 # Current platform binary
 ODV_CURRENT_BINARY := $(ODV_BINDIR)/otel-desktop-viewer-$(ODV_PLATFORM)
