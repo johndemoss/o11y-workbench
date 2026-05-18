@@ -17,12 +17,12 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 700; color: #64748b;
-  cursor: pointer; border-radius: 6px;
+  pointer-events: none; border-radius: 6px;
   background: #0f172a; border: 1px solid #334155;
   z-index: 1; opacity: 0;
   transition: opacity 0.1s;
 }
-.field-input-wrap .infinite-overlay.visible { opacity: 1; }
+.field-input-wrap .infinite-overlay.visible { opacity: 1; pointer-events: auto; cursor: pointer; }
 .field-input-wrap:hover .infinite-overlay.visible { border-color: #475569; }
 .field-input-wrap input[type="number"] { position: relative; z-index: 0; }
 /* Make zero values look distinct even before JS runs */
