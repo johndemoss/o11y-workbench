@@ -166,6 +166,7 @@ otel-desktop-viewer-stop:
 .PHONY: dev-remotetap
 dev-remotetap: otel-desktop-viewer-start
 	@echo "Starting full remotetap stack (hybrid)..."
+	@echo "Demo-sender command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
 	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
 	@echo ""
 	@echo "==> All services running:"
@@ -192,6 +193,7 @@ otel-demo-sender:
 .PHONY: dev
 dev: otel-desktop-viewer-start
 	@echo "Starting demo sender (containerized)..."
+	@echo "Demo-sender command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint host.containers.internal:4317 --insecure --scenario microservice"
 	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
 	@echo ""
 	@echo "==> Services running:"
