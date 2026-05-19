@@ -21,7 +21,7 @@ func marshalOTLPJSON(req *collectortracev1.ExportTraceServiceRequest) ([]byte, e
 	}
 	data, err := opts.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	return fixTraceSpanIDs(data)
 }
@@ -31,7 +31,7 @@ func marshalOTLPJSON(req *collectortracev1.ExportTraceServiceRequest) ([]byte, e
 func fixTraceSpanIDs(data []byte) ([]byte, error) {
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal trace JSON: %w", err)
 	}
 	fixNode(v)
 	return json.MarshalIndent(v, "", "  ")

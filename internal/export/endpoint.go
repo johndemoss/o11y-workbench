@@ -12,10 +12,10 @@ import (
 // EndpointRouter dispatches ResourceSpans to per-endpoint exporters
 // based on each trace's cloud.region resource attribute.
 type EndpointRouter struct {
-	exporters map[region.Name]Exporter
+	exporters map[region.Name]TraceExporter
 }
 
-func NewEndpointRouter(exporters map[region.Name]Exporter) *EndpointRouter {
+func NewEndpointRouter(exporters map[region.Name]TraceExporter) *EndpointRouter {
 	return &EndpointRouter{exporters: exporters}
 }
 

@@ -173,7 +173,7 @@ func TestEndpointRouter_DispatchesByEndpoint(t *testing.T) {
 	localExp := &mockCountingExporter{}
 	usEuExp := &mockCountingExporter{}
 
-	router := export.NewEndpointRouter(map[region.Name]export.Exporter{
+	router := export.NewEndpointRouter(map[region.Name]export.TraceExporter{
 		region.RegionLocal: localExp,
 		region.RegionUSEU:  usEuExp,
 	})
@@ -210,7 +210,7 @@ func TestEndpointRouter_DispatchesByEndpoint(t *testing.T) {
 
 func TestEndpointRouter_UnknownRegionFallsBack(t *testing.T) {
 	localExp := &mockCountingExporter{}
-	router := export.NewEndpointRouter(map[region.Name]export.Exporter{
+	router := export.NewEndpointRouter(map[region.Name]export.TraceExporter{
 		region.RegionLocal: localExp,
 	})
 
@@ -234,7 +234,7 @@ func TestEndpointRouter_UnknownRegionFallsBack(t *testing.T) {
 
 func TestEndpointRouter_SpansWithoutResource(t *testing.T) {
 	localExp := &mockCountingExporter{}
-	router := export.NewEndpointRouter(map[region.Name]export.Exporter{
+	router := export.NewEndpointRouter(map[region.Name]export.TraceExporter{
 		region.RegionLocal: localExp,
 	})
 

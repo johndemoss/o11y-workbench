@@ -48,10 +48,12 @@ func (e *FormatError) Error() string {
 	return "invalid format: " + e.Input
 }
 
-// Exporter sends traces to an output destination.
-type Exporter interface {
-	// Export sends the given resource spans to the configured output.
+type Exporter[T any] interface {
+	Export(ctx context.Context, data []T) error
+	Shutdown(ctx context.Context) error
+}
+
+type TraceExporter interface {
 	Export(ctx context.Context, spans []*tracev1.ResourceSpans) error
-	// Shutdown flushes any remaining data and releases resources.
 	Shutdown(ctx context.Context) error
 }
