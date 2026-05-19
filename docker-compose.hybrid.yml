@@ -51,14 +51,16 @@ services:
       - --traces
       - "0"
       - --duration
-      - "300"
+      - "0"
       - --rate
-      - "5"
+      - "2"
       - --output
       - otlp
       - --endpoint
       - host.containers.internal:4317
       - --insecure
+      - --scenario
+      - microservice
     networks:
       - o11y-workbench-net
     profiles:
