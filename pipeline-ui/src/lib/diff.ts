@@ -300,3 +300,29 @@ function normalizeAttrs(attr: unknown): Record<string, unknown> {
   }
   return result
 }
+
+export function formatValue(val: unknown): string {
+  if (val === null || val === undefined) return 'null'
+  if (typeof val === 'string') return `"${val}"`
+  if (typeof val === 'object') return JSON.stringify(val)
+  return String(val)
+}
+
+export function highlightJSON(str: string): string {
+  const escaped = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return escaped.replace(
+    /("(?:[^"\\]|\\.)*")\s*:|("(?:[^"\\]|\\.)*")|(\btrue\b|\bfalse\b)|(\bnull\b)|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g,
+    (_m, key, str, bool, nullVal, num) => {
+      if (key) return `<span class="json-key">${key}</span>:`
+      if (str) return `<span class="json-string">${str}</span>`
+      if (bool) return `<span class="json-bool">${bool}</span>`
+      if (nullVal) return `<span class="json-null">${nullVal}</span>`
+      if (num) return `<span class="json-number">${num}</span>`
+      return _m
+    }
+  )
+}
+
+export function formatJSON(val: unknown): string {
+  return JSON.stringify(convertTraceSpanIds(val), null, 2)
+}
