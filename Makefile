@@ -64,11 +64,8 @@ CONTAINER_RUNTIME := $(shell command -v podman > /dev/null 2>&1 && echo podman |
 # Detect compose command (prefer docker-compose, then podman-compose, fallback to 'docker compose')
 COMPOSE := $(shell command -v docker-compose > /dev/null 2>&1 && echo "docker-compose" || (command -v podman-compose > /dev/null 2>&1 && echo "podman-compose" || echo "docker compose"))
 
-# If using podman, set DOCKER_HOST to podman socket for docker-compose compatibility
-PODMAN_SOCK := $(shell podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
-ifneq ($(PODMAN_SOCK),)
-export DOCKER_HOST := unix://$(PODMAN_SOCK)
-endif
+# Set DOCKER_HOST for docker-compose compatibility with podman socket
+export DOCKER_HOST := unix:///run/user/$(shell id -u)/podman/podman.sock
 
 # OTel collector config for remotetap
 OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
