@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-stop dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps
 
 build-pipeline-ui:
 	cd pipeline-ui && npm install && npm run build
@@ -37,7 +37,6 @@ help:
 	@echo "==> Containerized Workflow (Recommended):"
 	@echo "  make build-images        Build all Docker images"
 	@echo "  make dev                 Start otel-desktop-viewer + demo-sender (containerized)"
-	@echo "  make dev-stop            Stop dev stack (otel-desktop-viewer + demo-sender)"
 	@echo "  make dev-remotetap       Start full stack: collector + viewer + web + sender (containerized)"
 	@echo "  make serve               Start web server + collector only (containerized)"
 	@echo "  make clean               Stop all containerized services"
@@ -176,16 +175,8 @@ dev: otel-desktop-viewer-start
 	@echo "    OTLP endpoint:          localhost:4317 (gRPC) / localhost:4318 (HTTP)"
 	@echo ""
 	@echo "==> Demo sender running in container, sending traces to host"
-	@echo "    Use 'make clean' or 'make dev-stop' to stop everything"
+	@echo "    Use 'make clean' to stop everything"
 	@echo "    Use 'make logs' to see container logs"
-
-# Stop the dev stack
-.PHONY: dev-stop
-dev-stop:
-	@echo "Stopping dev stack..."
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev down 2>/dev/null || true
-	$(MAKE) otel-desktop-viewer-stop
-	@echo "Dev stack stopped"
 
 # Stop the demo sender
 .PHONY: otel-demo-sender-stop
