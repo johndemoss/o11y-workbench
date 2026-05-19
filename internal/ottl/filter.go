@@ -59,7 +59,7 @@ func ValidateFilterConditionsParse(conditions []string, signalType string) Valid
 					settings,
 				)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("create span parser: %w", err)
 				}
 				parsers = append(parsers, namedParser{
 					name: "span context",
@@ -74,7 +74,7 @@ func ValidateFilterConditionsParse(conditions []string, signalType string) Valid
 					settings,
 				)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("create log parser: %w", err)
 				}
 				parsers = append(parsers, namedParser{
 					name: "log context",
@@ -89,7 +89,7 @@ func ValidateFilterConditionsParse(conditions []string, signalType string) Valid
 					settings,
 				)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("create metric parser: %w", err)
 				}
 				parsers = append(parsers, namedParser{
 					name: "metric context",
@@ -215,7 +215,7 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 
 	filtered, total, kept, err := FilterSpans(traces, conditions, mode, ErrorModePropagate)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, 0, fmt.Errorf("filter spans: %w", err)
 	}
 
 	var marshaler ptrace.ProtoMarshaler

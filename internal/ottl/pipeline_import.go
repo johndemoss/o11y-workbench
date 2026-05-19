@@ -48,7 +48,7 @@ func ImportCollectorConfig(configYAML string) (PipelinesBySignal, error) {
 
 		pipeline, err := buildPipelineFromConfig(pipelinesMap, topProcessorsMap, pipelineKey)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build pipeline %q: %w", pipelineKey, err)
 		}
 
 		// Merge into existing signal if already present (e.g. traces + traces/foo)
