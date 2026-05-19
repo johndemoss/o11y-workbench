@@ -176,6 +176,7 @@ dev-remotetap: otel-desktop-viewer-start
 	@echo "    remotetap WebSocket:       localhost:12001"
 	@echo ""
 	@echo "==> Demo sender running in container, sending traces to collector"
+	@echo "    Command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
 	@echo "    Use 'make clean' to stop everything"
 	@echo "    Use 'make logs' to see container logs"
 
@@ -193,7 +194,6 @@ otel-demo-sender:
 .PHONY: dev
 dev: otel-desktop-viewer-start
 	@echo "Starting demo sender (containerized)..."
-	@echo "Demo-sender command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint host.containers.internal:4317 --insecure --scenario microservice"
 	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
 	@echo ""
 	@echo "==> Services running:"
@@ -201,6 +201,7 @@ dev: otel-desktop-viewer-start
 	@echo "    OTLP endpoint:          localhost:4317 (gRPC) / localhost:4318 (HTTP)"
 	@echo ""
 	@echo "==> Demo sender running in container, sending traces to host"
+	@echo "    Command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint host.containers.internal:4317 --insecure --scenario microservice"
 	@echo "    Use 'make clean' to stop everything"
 	@echo "    Use 'make logs' to see container logs"
 
