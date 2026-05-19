@@ -202,7 +202,8 @@ otel-demo-sender-stop:
 clean:
 	@echo "Stopping all services..."
 	$(COMPOSE) -f docker-compose.yml down 2>/dev/null || true
-	$(COMPOSE) -f docker-compose.hybrid.yml down 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev down 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.hybrid.yml --profile remotetap down 2>/dev/null || true
 	$(MAKE) otel-desktop-viewer-stop
 	@echo "All services stopped"
 
