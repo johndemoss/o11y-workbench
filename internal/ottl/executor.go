@@ -92,7 +92,7 @@ func TransformRunDataSelected(traceData json.RawMessage, statements []string, sp
 	}
 
 	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: true,
+		UseProtoNames: false,
 		Indent:        "  ",
 	}.Marshal(&dstReq)
 	if err != nil {

@@ -56,7 +56,7 @@ func MarshalTracesToJSON(traces ptrace.Traces) (json.RawMessage, error) {
 	}
 
 	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: true,
+		UseProtoNames: false,
 		Indent:        "  ",
 	}.Marshal(&dstReq)
 	if err != nil {
