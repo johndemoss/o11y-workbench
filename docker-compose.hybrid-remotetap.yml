@@ -14,17 +14,11 @@ services:
     profiles:
       - remotetap
     # Override: send to collector (containerized) instead of viewer (on host)
+    restart: on-failure:5
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - --traces
-      - "0"
-      - --duration
-      - "300"
-      - --rate
-      - "5"
-      - --output
-      - otlp
-      - --endpoint
-      - otel-collector:14317
-      - --insecure
+      - |
+        sleep 10
+        /usr/local/bin/o11y-workbench --traces 0 --duration 300 --rate 5 --output otlp --endpoint otel-collector:14317 --insecure
     depends_on:
       - otel-collector
