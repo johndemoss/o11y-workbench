@@ -25,7 +25,8 @@ serve:
 .PHONY: serve-stop
 serve-stop:
 	@echo "Stopping o11y-workbench-web..."
-	@kill `cat /tmp/o11y-workbench-web.pid 2>/dev/null` 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.yml stop o11y-workbench-web otel-collector 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.yml rm -f o11y-workbench-web otel-collector 2>/dev/null || true
 	@rm -f /tmp/o11y-workbench-web.pid
 	@echo "Web server stopped"
 
