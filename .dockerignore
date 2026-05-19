@@ -1,0 +1,44 @@
+# Git
+.git/
+.gitignore
+.github/
+
+# Downloaded binaries (otel-desktop-viewer binaries are needed for Dockerfile.otel-desktop-viewer)
+# bin/  # DON'T exclude - needed for otel-desktop-viewer container build
+
+# Node modules (will be installed fresh in container)
+node_modules/
+pipeline-ui/node_modules/
+
+# Build artifacts that will be regenerated
+internal/server/pipeline-ui/dist/
+pipeline-ui/dist/
+
+# Temporary files
+*.log
+*.pid
+/tmp/
+.DS_Store
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test and coverage files
+coverage/
+*.test
+*.out
+
+# Documentation (not needed for builds)
+*.md
+docs/
+
+# Config files that shouldn't be in container
+.env
+.env.local
+
+# Claude plans
+.claude/

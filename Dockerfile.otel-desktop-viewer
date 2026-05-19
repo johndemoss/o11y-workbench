@@ -1,0 +1,23 @@
+# Dockerfile for otel-desktop-viewer using pre-built binaries
+# Note: Containers always run Linux, so we use the linux-amd64 binary
+FROM debian:12-slim
+
+# Install runtime dependencies for CGO
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
+
+# Copy the pre-built Linux binary
+# Note: This requires 'make otel-desktop-viewer-download' to be run first
+COPY bin/otel-desktop-viewer-linux-amd64 /usr/local/bin/otel-desktop-viewer
+RUN chmod +x /usr/local/bin/otel-desktop-viewer
+
+# Expose ports
+# 4317: OTLP gRPC
+# 4318: OTLP HTTP
+# 8000: Web UI
+EXPOSE 4317 4318 8000
+
+ENTRYPOINT ["/usr/local/bin/otel-desktop-viewer"]
+CMD ["--host", "0.0.0.0"]

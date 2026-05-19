@@ -1,13 +1,25 @@
-FROM golang:1.26-alpine AS builder
+# Stage 1: Build frontend
+FROM node:22-alpine AS frontend-builder
+WORKDIR /src/pipeline-ui
+COPY pipeline-ui/package*.json ./
+RUN npm ci --silent
+COPY pipeline-ui/ ./
+RUN npm run build
+
+# Stage 2: Build Go binary
+FROM golang:1.26-alpine AS go-builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# Copy the built frontend from stage 1
+COPY --from=frontend-builder /src/pipeline-ui/dist ./internal/server/pipeline-ui/dist
 RUN CGO_ENABLED=0 go build -o /o11y-workbench-web ./cmd/o11y-workbench-web/
 
+# Stage 3: Runtime
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /o11y-workbench-web /o11y-workbench-web
+COPY --from=go-builder /o11y-workbench-web /o11y-workbench-web
 EXPOSE 8080
 ENTRYPOINT ["/o11y-workbench-web"]
-CMD ["--addr", ":8080"]
+CMD ["--addr", ":8080", "--pipeline-prototyper"]

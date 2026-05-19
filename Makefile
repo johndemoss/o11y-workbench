@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps
 
 build-pipeline-ui:
 	cd pipeline-ui && npm install && npm run build
@@ -14,11 +14,12 @@ build-all: build-pipeline-ui
 test:
 	go test ./...
 
-# Build and start the web server, waiting for it to be ready.
-# Designed for agent/automation use - exits only when the server is accepting connections.
-# The PID is written to /tmp/o11y-workbench-web.pid for cleanup.
+# Start web server only (containerized)
 serve:
-	./scripts/serve.sh
+	@echo "Starting o11y-workbench-web (containerized)..."
+	$(COMPOSE) up -d o11y-workbench-web otel-collector
+	@echo "Web server started at http://localhost:8080"
+	@echo "Use 'make logs' to see logs"
 
 # Stop the web server
 .PHONY: serve-stop
@@ -31,24 +32,43 @@ serve-stop:
 # Show available targets
 help:
 	@echo "Available targets:"
-	@echo "  make build-pipeline-ui   Build the Svelte frontend"
-	@echo "  make build-all           Build everything (frontend + Go binary)"
-	@echo "  make serve               Build + start web server (agent-safe, polls health endpoint)"
-	@echo "  make serve-stop          Stop the web server"
+	@echo ""
+	@echo "==> Containerized Workflow (Recommended):"
+	@echo "  make build-images        Build all Docker images"
+	@echo "  make dev                 Start otel-desktop-viewer + demo-sender (containerized)"
+	@echo "  make dev-remotetap       Start full stack: collector + viewer + web + sender (containerized)"
+	@echo "  make serve               Start web server + collector only (containerized)"
+	@echo "  make clean               Stop all containerized services"
+	@echo "  make logs                Show logs from running containers"
+	@echo "  make ps                  Show status of all containers"
+	@echo ""
+	@echo "==> Local Development:"
+	@echo "  make build-pipeline-ui   Build the Svelte frontend locally"
+	@echo "  make build-all           Build everything locally (frontend + Go binary)"
 	@echo "  make test                Run all tests"
-	@echo "  make otel-start          Start OTel collector with remotetap processor"
+	@echo ""
+	@echo "==> Legacy/Binary Targets (use if not using containers):"
+	@echo "  make otel-start          Start OTel collector with remotetap processor (podman/docker)"
 	@echo "  make otel-stop           Stop OTel collector"
-	@echo "  make dev                 Start CLI + otel-desktop-viewer only (no web server)"
-	@echo "  make dev-remotetap       Start collector, workbench, and demo sender"
-	@echo "  make otel-demo-sender    Start CLI sending traces to otel-desktop-viewer"
-	@echo "  make otel-demo-sender-stop Stop the demo sender"
-	@echo "  make otel-desktop-viewer-start Start otel-desktop-viewer (OTLP GUI)"
 	@echo "  make otel-desktop-viewer-download Download pre-built binaries from GitHub Actions"
-	@echo "  make clean               Stop all services (dev or dev-remotetap)"
-	@echo "  make clean-remotetap     Stop all remotetap services + collector"
+	@echo "  make otel-desktop-viewer-start Start otel-desktop-viewer binary (requires download first)"
+	@echo "  make otel-desktop-viewer-stop  Stop otel-desktop-viewer binary"
+	@echo "  make otel-demo-sender    Start CLI binary sending traces"
+	@echo "  make otel-demo-sender-stop Stop the demo sender binary"
+	@echo "  make serve-stop          Stop the web server binary"
+	@echo "  make clean-remotetap     Stop all services (both containerized and binary)"
 
 # Detect container runtime (docker or podman)
 CONTAINER_RUNTIME := $(shell command -v podman > /dev/null 2>&1 && echo podman || echo docker)
+
+# Detect compose command (prefer docker-compose, then podman-compose, fallback to 'docker compose')
+COMPOSE := $(shell command -v docker-compose > /dev/null 2>&1 && echo "docker-compose" || (command -v podman-compose > /dev/null 2>&1 && echo "podman-compose" || echo "docker compose"))
+
+# If using podman, set DOCKER_HOST to podman socket for docker-compose compatibility
+PODMAN_SOCK := $(shell podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "")
+ifneq ($(PODMAN_SOCK),)
+export DOCKER_HOST := unix://$(PODMAN_SOCK)
+endif
 
 # OTel collector config for remotetap
 OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
@@ -70,9 +90,9 @@ otel-stop:
 	$(CONTAINER_RUNTIME) rm otel-collector-remotetap 2>/dev/null || true
 	@echo "OTel collector stopped"
 
-# Build otel-desktop-viewer from local source (has logs + metrics support, newer than latest release)
-ODV_SOURCE := workspace/github.com/ctrlspice/otel-desktop-viewer
-ODV_VERSION := $(shell git -C $(ODV_SOURCE) describe --tags --always)
+# otel-desktop-viewer configuration
+# ODV_SOURCE := workspace/github.com/ctrlspice/otel-desktop-viewer  # Not used - builds from downloaded binaries
+ODV_VERSION := latest
 ODV_BINDIR := $(CURDIR)/bin
 ODV_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 ODV_ARTIFACT_URL := https://github.com/johndemoss/o11y-workbench/actions/workflows/build-otel-desktop-viewer.yml
@@ -119,18 +139,22 @@ otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
 otel-desktop-viewer-stop:
 	@bash scripts/stop-odv.sh
 
-# Start everything for remotetap testing
+# Start everything for remotetap testing - HYBRID MODE
+# Web server and collector in containers, viewer as binary
 .PHONY: dev-remotetap
-dev-remotetap: otel-start otel-desktop-viewer-start serve otel-demo-sender
+dev-remotetap: otel-desktop-viewer-start
+	@echo "Starting full remotetap stack (hybrid)..."
+	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml up -d
 	@echo ""
 	@echo "==> All services running:"
-	@echo "    o11y-workbench dashboard:  http://localhost:8080"
-	@echo "    otel-desktop-viewer UI:    http://localhost:8000"
+	@echo "    o11y-workbench dashboard:  http://localhost:8080 (containerized)"
+	@echo "    otel-desktop-viewer UI:    http://localhost:8000 (binary on host)"
 	@echo "    otel-collector:            localhost:14317 (gRPC) / localhost:14318 (HTTP)"
 	@echo "    remotetap WebSocket:       localhost:12001"
 	@echo ""
-	@echo "==> Demo sender running, sending traces to localhost:14317"
-	@echo "    Use 'make clean-remotetap' to stop everything"
+	@echo "==> Demo sender running in container, sending traces to collector"
+	@echo "    Use 'make clean' to stop everything"
+	@echo "    Use 'make logs' to see container logs"
 
 # Start CLI sending traces to otel-desktop-viewer for demo purposes
 .PHONY: otel-demo-sender
@@ -141,16 +165,20 @@ otel-demo-sender:
 	@echo "PID written to /tmp/o11y-workbench-demo.pid"
 	@echo $$! > /tmp/o11y-workbench-demo.pid
 
-# Start CLI + otel-desktop-viewer only (no web server, no collector)
+# Start CLI + otel-desktop-viewer - HYBRID MODE (for macOS ARM64)
+# Runs otel-desktop-viewer as binary on host, demo-sender in container
 .PHONY: dev
-dev: otel-desktop-viewer-start otel-demo-sender
+dev: otel-desktop-viewer-start
+	@echo "Starting demo sender (containerized)..."
+	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
 	@echo ""
 	@echo "==> Services running:"
-	@echo "    otel-desktop-viewer UI: http://localhost:8000"
-	@echo "    OTLP endpoint:        localhost:4317 (gRPC) / localhost:4318 (HTTP)"
+	@echo "    otel-desktop-viewer UI: http://localhost:8000 (binary on host)"
+	@echo "    OTLP endpoint:          localhost:4317 (gRPC) / localhost:4318 (HTTP)"
 	@echo ""
-	@echo "==> Demo sender running, sending traces to localhost:4317"
+	@echo "==> Demo sender running in container, sending traces to host"
 	@echo "    Use 'make clean' to stop everything"
+	@echo "    Use 'make logs' to see container logs"
 
 # Stop the demo sender
 .PHONY: otel-demo-sender-stop
@@ -160,17 +188,33 @@ otel-demo-sender-stop:
 	rm -f /tmp/o11y-workbench-demo.pid
 	@echo "Demo sender stopped"
 
-# Stop all services (works for both 'make dev' and 'make dev-remotetap')
+# Stop all containerized services and binaries
 .PHONY: clean
 clean:
+	@echo "Stopping all services..."
+	$(COMPOSE) -f docker-compose.yml down 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.hybrid.yml down 2>/dev/null || true
 	$(MAKE) otel-desktop-viewer-stop
-	$(MAKE) otel-demo-sender-stop
-	$(MAKE) serve-stop
-	$(MAKE) otel-stop
-	rm -f /tmp/o11y-workbench-web.pid /tmp/o11y-workbench-demo.pid
 	@echo "All services stopped"
 
 # Cleanup everything (remotetap-specific, includes collector)
 .PHONY: clean-remotetap
 clean-remotetap: clean
 	@echo "Cleanup complete"
+
+# Build all Docker images
+.PHONY: build-images
+build-images:
+	@echo "Building all Docker images..."
+	$(COMPOSE) build
+	@echo "All images built successfully"
+
+# Show logs from running containers
+.PHONY: logs
+logs:
+	$(COMPOSE) logs -f
+
+# Show status of all containers
+.PHONY: ps
+ps:
+	$(COMPOSE) ps

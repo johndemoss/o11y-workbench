@@ -1,0 +1,16 @@
+# Dockerfile for o11y-workbench CLI (demo sender)
+FROM golang:1.26-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /o11y-workbench ./cmd/o11y-workbench/
+
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /o11y-workbench /usr/local/bin/o11y-workbench
+
+# No ports exposed - this is a client that sends data to collectors
+ENTRYPOINT ["/usr/local/bin/o11y-workbench"]
+# Default command can be overridden in docker-compose
+CMD ["--help"]

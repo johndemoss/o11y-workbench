@@ -1,0 +1,37 @@
+# Override for 'make dev-remotetap' mode
+# Runs: Full stack (collector + desktop-viewer + web + demo-sender)
+
+services:
+  otel-collector:
+    profiles:
+      - ""  # Remove profile requirement - always run
+
+  otel-desktop-viewer:
+    profiles:
+      - ""  # Remove profile requirement - always run
+
+  o11y-workbench-web:
+    profiles:
+      - ""  # Remove profile requirement - always run
+
+  demo-sender:
+    profiles:
+      - ""  # Remove profile requirement - always run
+    # Override: send traces to collector instead of desktop-viewer
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:14317
+    command:
+      - --traces
+      - "0"
+      - --duration
+      - "300"
+      - --rate
+      - "5"
+      - --output
+      - otlp
+      - --endpoint
+      - otel-collector:14317
+      - --insecure
+    depends_on:
+      - otel-collector
+      - otel-desktop-viewer

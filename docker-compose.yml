@@ -1,0 +1,82 @@
+services:
+  # OTel Collector with remotetap processor
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector-remotetap
+    volumes:
+      - ./config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "14317:14317"  # OTLP gRPC
+      - "14318:14318"  # OTLP HTTP
+      - "12001:12001"  # remotetap WebSocket
+    networks:
+      - o11y-workbench-net
+    profiles:
+      - remotetap  # Only starts with dev-remotetap mode
+
+  # OTel Desktop Viewer (OTLP GUI)
+  otel-desktop-viewer:
+    image: localhost/o11y-workbench-otel-desktop-viewer:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.otel-desktop-viewer
+    container_name: otel-desktop-viewer
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "8000:8000"  # Web UI
+    networks:
+      - o11y-workbench-net
+    profiles:
+      - dev  # Starts with both dev and dev-remotetap modes
+
+  # O11y Workbench Web (Dashboard & Pipeline Prototyper)
+  o11y-workbench-web:
+    image: localhost/o11y-workbench-web:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: o11y-workbench-web
+    ports:
+      - "8080:8080"
+    environment:
+      - O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true
+    networks:
+      - o11y-workbench-net
+    depends_on:
+      - otel-collector
+    profiles:
+      - remotetap  # Only starts with dev-remotetap mode
+
+  # Demo Sender (CLI sending traces)
+  demo-sender:
+    image: localhost/o11y-workbench-cli:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.cli
+    container_name: demo-sender
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-desktop-viewer:4317
+    command:
+      - --traces
+      - "0"
+      - --duration
+      - "300"
+      - --rate
+      - "5"
+      - --output
+      - otlp
+      - --endpoint
+      - otel-desktop-viewer:4317
+      - --insecure
+    networks:
+      - o11y-workbench-net
+    depends_on:
+      - otel-desktop-viewer
+    profiles:
+      - dev  # Starts with both dev and dev-remotetap modes
+
+networks:
+  o11y-workbench-net:
+    name: o11y-workbench-net
+    driver: bridge

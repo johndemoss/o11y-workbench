@@ -1,0 +1,30 @@
+# Hybrid remotetap override
+# Changes demo-sender to target the collector instead of desktop-viewer
+
+services:
+  otel-collector:
+    profiles:
+      - remotetap
+
+  o11y-workbench-web:
+    profiles:
+      - remotetap
+
+  demo-sender:
+    profiles:
+      - remotetap
+    # Override: send to collector (containerized) instead of viewer (on host)
+    command:
+      - --traces
+      - "0"
+      - --duration
+      - "300"
+      - --rate
+      - "5"
+      - --output
+      - otlp
+      - --endpoint
+      - otel-collector:14317
+      - --insecure
+    depends_on:
+      - otel-collector
