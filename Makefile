@@ -141,7 +141,7 @@ otel-desktop-viewer-stop:
 .PHONY: dev-remotetap
 dev-remotetap: otel-desktop-viewer-start
 	@echo "Starting full remotetap stack (hybrid)..."
-	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml up -d
+	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
 	@echo ""
 	@echo "==> All services running:"
 	@echo "    o11y-workbench dashboard:  http://localhost:8080 (containerized)"
