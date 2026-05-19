@@ -66,7 +66,7 @@ func spanKindFromString(s string) (tracev1.Span_SpanKind, error) {
 func ParseUserScenario(data []byte) ([]*ScenarioSpanNode, error) {
 	def, err := parseScenarioDef(data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse scenario def: %w", err)
 	}
 	roots := make([]*ScenarioSpanNode, 0, len(def.Roots))
 	for _, r := range def.Roots {
@@ -153,7 +153,7 @@ func nodeDefToSpanNode(n ScenarioNodeDef) (*ScenarioSpanNode, error) {
 	for _, c := range n.Children {
 		child, err := nodeDefToSpanNode(c)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("convert child node: %w", err)
 		}
 		children = append(children, child)
 	}

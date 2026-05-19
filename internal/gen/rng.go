@@ -115,11 +115,11 @@ func (s *SeededRNG) Bool() bool {
 }
 
 // IntRange returns a random int in [min, max] inclusive.
-// It panics if min > max.
-func (s *SeededRNG) IntRange(min, max int) int {
+// Returns an error if min > max.
+func (s *SeededRNG) IntRange(min, max int) (int, error) {
 	if min > max {
-		panic(fmt.Sprintf("gen: IntRange: min (%d) > max (%d)", min, max))
+		return 0, fmt.Errorf("gen: IntRange: min (%d) > max (%d)", min, max)
 	}
 	n := max - min + 1
-	return min + s.r.IntN(n)
+	return min + s.r.IntN(n), nil
 }

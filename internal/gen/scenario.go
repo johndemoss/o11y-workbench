@@ -95,7 +95,7 @@ func markScenarioErrors(roots []*ScenarioSpanNode, rng *SeededRNG) {
 		errors = 1
 	}
 	for i := 0; i < errors; i++ {
-		j := rng.IntRange(i, n-1)
+		j, _ := rng.IntRange(i, n-1)
 		all[i], all[j] = all[j], all[i]
 		all[i].IsError = true
 	}

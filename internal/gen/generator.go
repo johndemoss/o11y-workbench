@@ -1,3 +1,76 @@
+// Package gen provides deterministic OTLP telemetry generation for traces, logs, and metrics.
+//
+// # Architecture: Signal Generators
+//
+// This package contains three independent generator types, one per signal domain:
+//
+//   - Generator   (generator.go)  — produces tracev1.Span records
+//   - LogGenerator (log_generator.go) — produces logsv1.LogRecord records
+//   - MetricGenerator (metric_generator.go) — produces metricspb.Metric records
+//
+// Each generator is a plain Go struct with a typed Export method.  They share
+// structural patterns (deterministic RNG, batch flush, OTLP resource/scope
+// wrapping, progress callbacks) but do NOT share a common interface.
+//
+// # Signal Branching
+//
+// Signal branching (which generator to run for a given request) happens in
+// internal/server/run.go via the executeRun function, using Config.SignalType
+// as a string discriminant:
+//
+//	if doTraces  { Generator.Run(ctx, exp) }
+//	if doLogs    { LogGenerator.Run(ctx, logExp, traceSpans) }
+//	if doMetrics { MetricGenerator.Run(ctx, metricExp) }
+//
+// SignalType is never inspected inside any generator — each generator is
+// purely self-contained and signal-agnostic beyond its own typed Export call.
+//
+// # Strategy Pattern Evaluation (ADR)
+//
+// Evaluating whether a SignalGenerator interface + strategy pattern would improve
+// the architecture:
+//
+// PROPOSED INTERFACE (hypothetical):
+//
+//	type SignalGenerator[T any] interface {
+//	  Run(ctx context.Context, exp Exporter[T]) error
+//	}
+//
+// ANALYSIS:
+//
+// ✅ PRO: Type-safe dispatch without string branching in run.go
+// ✅ PRO: Adding a new signal type would be self-contained (no run.go changes)
+// ✅ PRO: Shared SignalGenerator base could consolidate flush/batch patterns
+// ✅ PRO: Easier to unit-test generators in isolation with mock exporters
+//
+// CONCERNS:
+// ⚠️  Generators are already independent — no shared base class or parent interface
+// ⚠️  MetricGenerator.Run and LogGenerator.Run have different signatures
+//     (LogGenerator.Run accepts traceSpans for correlation; MetricGenerator.Run does not)
+// ⚠️  Run.go would still need to know which signals are enabled (doTraces/doLogs/doMetrics)
+//     — a strategy interface doesn't eliminate that branching, it just moves it
+// ⚠️  Run.go signal routing is already clean and unlikely to grow — adding a new
+//     signal would only require adding one more if-block
+//
+// VERDICT: DO NOT IMPLEMENT a strategy pattern.
+//
+// The current design achieves separation through composition.  The "branching"
+// lives at exactly one place (run.go) and is unlikely to grow.  A strategy
+// interface would add indirection without meaningful benefit, and the signature
+// mismatch between LogGenerator and MetricGenerator would require either a
+// variant interface or workarounds that reduce the clarity of the current design.
+//
+// Instead, if reduced duplication is desired, consider extracting shared helpers:
+//
+//   - flushBatch() utility for the common batch→export→reset pattern
+//   - Progress callback wiring as a utility function
+//   - region.All() iteration as a utility
+//
+// These can be introduced without changing the generator interfaces.
+//
+// ---
+//
+// See also: internal/server/run.go (executeRun) for the signal dispatch layer.
 package gen
 
 import (
@@ -71,7 +144,7 @@ func NewGenerator(config Config) *Generator {
 // When Config.Rate > 0, trace starts are paced to approximately that many
 // traces per second. The actual rate may be lower if generation + export
 // takes longer than the tick interval.
-func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
+func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 	if g.config.Duration > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, g.config.Duration)
@@ -128,7 +201,10 @@ func (g *Generator) Run(ctx context.Context, exp export.Exporter) error {
 			spansByService = g.buildScenarioSpans(idRng, scenarioRoots, traceID, g.config.BaseTime)
 		} else {
 			topology := g.config.Topology
-			root := GenerateTopology(topology, topoRng, spanCount, g.config.MaxDepth)
+			root, err := GenerateTopology(topology, topoRng, spanCount, g.config.MaxDepth)
+			if err != nil {
+				return err
+			}
 			spans, _, _ := g.buildSpans(idRng, root, traceID, [8]byte{}, g.config.BaseTime)
 			spansByService = map[string][]*tracev1.Span{g.config.ServiceName: spans}
 		}

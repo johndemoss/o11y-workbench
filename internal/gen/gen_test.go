@@ -78,8 +78,8 @@ func TestSeededRNG_Determinism(t *testing.T) {
 		t.Error("Int63n(5) mismatch")
 	}
 
-	ir1 := rng1.IntRange(10, 50)
-	ir2 := rng2.IntRange(10, 50)
+	ir1, _ := rng1.IntRange(10, 50)
+	ir2, _ := rng2.IntRange(10, 50)
  	if ir1 != ir2 {
  		t.Errorf("IntRange(10,50) mismatch: %d vs %d", ir1, ir2)
  	}
@@ -105,8 +105,8 @@ func TestSeededRNG_Determinism(t *testing.T) {
 			t.Errorf("Interleaved Float64 mismatch at iteration %d: %f vs %f", i, fA, fB)
 		}
 
-		irA := rngA.IntRange(0, 100)
-		irB := rngB.IntRange(0, 100)
+		irA, _ := rngA.IntRange(0, 100)
+		irB, _ := rngB.IntRange(0, 100)
 		if irA != irB {
 			t.Errorf("Interleaved IntRange mismatch at iteration %d: %d vs %d", i, irA, irB)
 		}
@@ -160,19 +160,20 @@ func TestSeededRNG_IntRange(t *testing.T) {
 	rng := gen.NewSeededRNG(42)
 	// Verify range bounds
 	for i := 0; i < 100; i++ {
-		v := rng.IntRange(0, 5)
+		v, err := rng.IntRange(0, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if v < 0 || v > 5 {
 			t.Fatalf("IntRange(0,5) returned out-of-range value: %d", v)
 		}
 	}
 
-	// Panic on min > max
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("IntRange(min>max) should panic")
-		}
-	}()
-	rng.IntRange(10, 5)
+	// Error on min > max
+	_, err := rng.IntRange(10, 5)
+	if err == nil {
+		t.Fatal("IntRange(min>max) should return error")
+	}
 }
 
 func TestSeededRNG_Float64_Bounds(t *testing.T) {
@@ -228,7 +229,10 @@ func TestTopology_Flat_Count(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := gen.NewSeededRNG(42)
-			root := gen.GenerateTopology(gen.TopologyFlat, rng, tc.spanCount, 5)
+			root, err := gen.GenerateTopology(gen.TopologyFlat, rng, tc.spanCount, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
 			got := gen.CountSpans(root)
 			if got != tc.spanCount {
 				t.Errorf("flat span count: got %d, want %d", got, tc.spanCount)
@@ -244,7 +248,10 @@ func TestTopology_Branching_Count(t *testing.T) {
 	for _, count := range []int{10, 20} {
 		t.Run(fmt.Sprintf("spanCount=%d", count), func(t *testing.T) {
 			rng := gen.NewSeededRNG(42)
-			root := gen.GenerateTopology(gen.TopologyBranching, rng, count, 5)
+			root, err := gen.GenerateTopology(gen.TopologyBranching, rng, count, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
 			got := gen.CountSpans(root)
 			// Allow 20% tolerance due to RNG-driven subtree sizing
 			lower := int(float64(count) * 0.8)
@@ -272,7 +279,10 @@ func TestTopology_Split_Count(t *testing.T) {
 	for _, count := range []int{10, 20} {
 		t.Run(fmt.Sprintf("spanCount=%d", count), func(t *testing.T) {
 			rng := gen.NewSeededRNG(42)
-			root := gen.GenerateTopology(gen.TopologySplit, rng, count, 5)
+			root, err := gen.GenerateTopology(gen.TopologySplit, rng, count, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
 			got := gen.CountSpans(root)
 			lower := int(float64(count) * 0.8)
 			upper := int(float64(count) * 1.2)
@@ -294,7 +304,10 @@ func TestTopology_CollectSpans(t *testing.T) {
 	for _, topo := range topologies {
 		t.Run(topo.String(), func(t *testing.T) {
 			rng := gen.NewSeededRNG(42)
-			top := gen.GenerateTopology(topo, rng, 15, 5)
+			top, err := gen.GenerateTopology(topo, rng, 15, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
 			counted := gen.CountSpans(top)
 			collected := gen.CollectSpans(top)
 			if len(collected) != counted {
@@ -363,7 +376,10 @@ func TestTopology_EdgeCases(t *testing.T) {
 	// GenerateTopology with spanCount=1
 	for _, topo := range []gen.TopologyType{gen.TopologyFlat, gen.TopologyBranching, gen.TopologySplit} {
 		t.Run(fmt.Sprintf("spanCount=1_%s", topo.String()), func(t *testing.T) {
-			root := gen.GenerateTopology(topo, rng, 1, 5)
+			root, err := gen.GenerateTopology(topo, rng, 1, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if gen.CountSpans(root) != 1 {
 				t.Errorf("spanCount=1 %s: got %d spans", topo.String(), gen.CountSpans(root))
 			}
@@ -371,7 +387,10 @@ func TestTopology_EdgeCases(t *testing.T) {
 	}
 
 	// SpanNode depth tracking on flat
-	root := gen.GenerateTopology(gen.TopologyFlat, rng, 5, 5)
+	root, err := gen.GenerateTopology(gen.TopologyFlat, rng, 5, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, child := range root.Children {
 		if child.Depth != 1 {
 			t.Errorf("flat child depth: got %d, want 1", child.Depth)
@@ -383,7 +402,10 @@ func TestTopology_ErrorMarking(t *testing.T) {
 	rng := gen.NewSeededRNG(42)
 	for _, topo := range []gen.TopologyType{gen.TopologyFlat, gen.TopologyBranching, gen.TopologySplit} {
 		t.Run(topo.String(), func(t *testing.T) {
-			root := gen.GenerateTopology(topo, rng, 20, 5)
+			root, err := gen.GenerateTopology(topo, rng, 20, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
 			nodes := gen.CollectSpans(root)
 			// With 20 spans, ~2 should be errors
 			errorCount := 0
@@ -1247,5 +1269,5 @@ func TestGenerator_RunDuration(t *testing.T) {
 	t.Logf("Generated %d spans in under 500ms with Duration=100ms", total)
 }
 
-// Ensure export.Exporter interface is satisfied by mockExporter
-var _ export.Exporter = (*mockExporter)(nil)
+// Ensure export.TraceExporter interface is satisfied by mockExporter
+var _ export.TraceExporter = (*mockExporter)(nil)

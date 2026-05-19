@@ -65,7 +65,7 @@ var namingPrefixes = []string{
 // GenerateTopology creates a tree of SpanNodes rooted at the given topology type,
 // using rng for all structural decisions. The returned root's subtree contains
 // approximately spanCount spans total.
-func GenerateTopology(t TopologyType, rng *SeededRNG, spanCount int, maxDepth int) *SpanNode {
+func GenerateTopology(t TopologyType, rng *SeededRNG, spanCount int, maxDepth int) (*SpanNode, error) {
 	if spanCount < 1 {
 		spanCount = 1
 	}
@@ -83,14 +83,22 @@ func GenerateTopology(t TopologyType, rng *SeededRNG, spanCount int, maxDepth in
 		root.Children = genFlat(rng, spanCount-1)
 
 	case TopologyBranching:
-		root.Children = genBranch(rng, spanCount-1, maxDepth)
+		children, err := genBranch(rng, spanCount-1, maxDepth)
+		if err != nil {
+			return nil, err
+		}
+		root.Children = children
 
 	case TopologySplit:
-		root.Children = genSplit(rng, spanCount-1, maxDepth)
+		children, err := genSplit(rng, spanCount-1, maxDepth)
+		if err != nil {
+			return nil, err
+		}
+		root.Children = children
 	}
 
 	markRandomErrors(root, rng)
-	return root
+	return root, nil
 }
 
 func genFlat(_ *SeededRNG, count int) []*SpanNode {
@@ -107,9 +115,9 @@ func genFlat(_ *SeededRNG, count int) []*SpanNode {
 	return children
 }
 
-func genBranch(rng *SeededRNG, budget, maxDepth int) []*SpanNode {
+func genBranch(rng *SeededRNG, budget, maxDepth int) ([]*SpanNode, error) {
 	if budget <= 0 {
-		return nil
+		return nil, nil
 	}
 
 	type item struct {
@@ -118,7 +126,10 @@ func genBranch(rng *SeededRNG, budget, maxDepth int) []*SpanNode {
 		depth int
 	}
 
-	nRoots := rng.IntRange(2, 4)
+	nRoots, err := rng.IntRange(2, 4)
+	if err != nil {
+		return nil, err
+	}
 	if nRoots > budget {
 		nRoots = budget
 	}
@@ -149,7 +160,10 @@ func genBranch(rng *SeededRNG, budget, maxDepth int) []*SpanNode {
 		}
 
 		available := cur.alloc - 1
-		nCh := rng.IntRange(2, 4)
+		nCh, err := rng.IntRange(2, 4)
+		if err != nil {
+			return nil, err
+		}
 		if nCh > available {
 			nCh = available
 		}
@@ -175,15 +189,18 @@ func genBranch(rng *SeededRNG, budget, maxDepth int) []*SpanNode {
 		}
 	}
 
-	return roots
+	return roots, nil
 }
 
-func genSplit(rng *SeededRNG, budget, maxDepth int) []*SpanNode {
+func genSplit(rng *SeededRNG, budget, maxDepth int) ([]*SpanNode, error) {
 	if budget <= 0 {
-		return nil
+		return nil, nil
 	}
 
-	nBranches := rng.IntRange(2, 3)
+	nBranches, err := rng.IntRange(2, 3)
+	if err != nil {
+		return nil, err
+	}
 	if nBranches > budget {
 		nBranches = budget
 	}
@@ -195,14 +212,18 @@ func genSplit(rng *SeededRNG, budget, maxDepth int) []*SpanNode {
 	per := budget / nBranches
 	for i := 0; i < nBranches; i++ {
 		a := per + boolToInt(i < budget%per)
-		roots[i] = buildSubtree(rng, a, 1, maxDepth)
+		child, err := buildSubtree(rng, a, 1, maxDepth)
+		if err != nil {
+			return nil, err
+		}
+		roots[i] = child
 	}
-	return roots
+	return roots, nil
 }
 
-func buildSubtree(rng *SeededRNG, alloc, depth, maxDepth int) *SpanNode {
+func buildSubtree(rng *SeededRNG, alloc, depth, maxDepth int) (*SpanNode, error) {
 	if alloc <= 0 {
-		return nil
+		return nil, nil
 	}
 
 	nameIdx := depth % len(namingPrefixes)
@@ -212,16 +233,19 @@ func buildSubtree(rng *SeededRNG, alloc, depth, maxDepth int) *SpanNode {
 	}
 
 	if alloc <= 1 || (maxDepth > 0 && depth >= maxDepth) {
-		return root
+		return root, nil
 	}
 
 	available := alloc - 1
-	nCh := rng.IntRange(1, 4)
+	nCh, err := rng.IntRange(1, 4)
+	if err != nil {
+		return nil, err
+	}
 	if nCh > available {
 		nCh = available
 	}
 	if nCh == 0 {
-		return root
+		return root, nil
 	}
 
 	per := available / nCh
@@ -231,10 +255,14 @@ func buildSubtree(rng *SeededRNG, alloc, depth, maxDepth int) *SpanNode {
 		if a < 1 {
 			a = 1
 		}
-		root.Children[i] = buildSubtree(rng, a, depth+1, maxDepth)
+		child, err := buildSubtree(rng, a, depth+1, maxDepth)
+		if err != nil {
+			return nil, err
+		}
+		root.Children[i] = child
 	}
 
-	return root
+	return root, nil
 }
 
 // markRandomErrors marks roughly 10% of spans as errors via partial Fisher-Yates.
@@ -259,7 +287,7 @@ func markRandomErrors(root *SpanNode, rng *SeededRNG) {
 	}
 
 	for i := 0; i < errors; i++ {
-		j := rng.IntRange(i, n-1)
+		j, _ := rng.IntRange(i, n-1)
 		all[i], all[j] = all[j], all[i]
 		all[i].IsError = true
 	}

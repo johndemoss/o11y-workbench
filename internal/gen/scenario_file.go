@@ -60,7 +60,7 @@ func parseJSON(data []byte) (map[string][]*ScenarioSpanNode, error) {
 		}
 		r, err := validateAndConvert(name, &entry)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scenario %q in JSON: %w", name, err)
 		}
 		result[name] = r
 	}
@@ -92,7 +92,7 @@ func parseYAML(data []byte) (map[string][]*ScenarioSpanNode, error) {
 	for name, entry := range multi {
 		r, err := validateAndConvert(name, &entry)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scenario %q in YAML: %w", name, err)
 		}
 		result[name] = r
 	}
@@ -109,7 +109,7 @@ func singleToMap(def *ScenarioDef) (map[string][]*ScenarioSpanNode, error) {
 	}
 	roots, err := convertRoots(def.Roots)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("convert roots for single scenario: %w", err)
 	}
 	return map[string][]*ScenarioSpanNode{name: roots}, nil
 }
