@@ -93,7 +93,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				ScenarioSpanCount: viper.GetInt("scenario-span-count"),
 			}
 
-			var exporter export.Exporter
+			var exporter export.TraceExporter
 
 			switch viper.GetString("output") {
 			case "file":
@@ -104,7 +104,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				exporter = export.NewTraceFileExporter(viper.GetString("output-dir"), fmtFmt)
 
 			case "otlp":
-				exporters := make(map[region.Name]export.Exporter)
+				exporters := make(map[region.Name]export.TraceExporter)
 				for _, reg := range region.All() {
 					ep := region.GetEndpoint(reg)
 					exp, err := export.NewOTLPExporter(ep, viper.GetBool("insecure"), nil)

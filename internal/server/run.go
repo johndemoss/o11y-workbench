@@ -177,7 +177,7 @@ func (e *bufferMetricExporter) Export(_ context.Context, metrics []*metricspb.Re
 
 func (e *bufferMetricExporter) Shutdown(_ context.Context) error { return nil }
 
-type multiExporter []export.Exporter
+type multiExporter []export.TraceExporter
 
 func (e multiExporter) Export(ctx context.Context, spans []*tracev1.ResourceSpans) error {
 	for _, exp := range e {
@@ -387,9 +387,9 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 
 	// --- TRACE GENERATION ---
 	if doTraces {
-		exp := export.Exporter(buf)
+		exp := export.TraceExporter(buf)
 		if run.Output == "otlp" {
-			otlpExporters := make(map[region.Name]export.Exporter)
+			otlpExporters := make(map[region.Name]export.TraceExporter)
 			for _, reg := range region.All() {
 				ep := region.GetEndpoint(reg)
 				otlpExp, err := export.NewOTLPExporter(ep, run.Insecure, nil)

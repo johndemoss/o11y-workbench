@@ -23,7 +23,10 @@ func main() {
 		pipelineEnabled = true
 	}
 
-	srv := server.New(*addr, pipelineEnabled)
+	srv, err := server.New(*addr, pipelineEnabled)
+	if err != nil {
+		log.Fatalf("creating server: %v", err)
+	}
 
 	if *scenarioFile != "" {
 		log.Printf("Loading user scenarios from %s", *scenarioFile)
