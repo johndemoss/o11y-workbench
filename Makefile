@@ -66,7 +66,31 @@ CONTAINER_RUNTIME := $(shell command -v podman > /dev/null 2>&1 && echo podman |
 COMPOSE := $(shell command -v docker-compose > /dev/null 2>&1 && echo "docker-compose" || (command -v podman-compose > /dev/null 2>&1 && echo "podman-compose" || echo "docker compose"))
 
 # Set DOCKER_HOST for docker-compose compatibility with podman socket
-export DOCKER_HOST := unix:///run/user/$(shell id -u)/podman/podman.sock
+# Auto-detect based on OS: macOS uses podman machine, Linux uses rootless socket
+ifeq ($(shell uname -s),Darwin)
+# macOS: Get socket from podman machine
+PODMAN_SOCK := $(shell podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null)
+ifneq ($(PODMAN_SOCK),)
+export DOCKER_HOST := unix://$(PODMAN_SOCK)
+endif
+else
+# Linux: Use standard rootless podman socket
+PODMAN_SOCK := /run/user/$(shell id -u)/podman/podman.sock
+ifneq ($(wildcard $(PODMAN_SOCK)),)
+export DOCKER_HOST := unix://$(PODMAN_SOCK)
+endif
+endif
+
+# Only disable BuildKit when using podman (for compatibility)
+# Docker users keep BuildKit for faster parallel builds
+ifeq ($(CONTAINER_RUNTIME),podman)
+export DOCKER_BUILDKIT := 0
+export COMPOSE_DOCKER_CLI_BUILD := 0
+# Create empty docker config to prevent credential store prompts
+# docker-compose reads ~/.docker/config.json which triggers osxkeychain auth
+EMPTY_DOCKER_CONFIG := $(shell mkdir -p /tmp/docker-config-empty && echo '{}' > /tmp/docker-config-empty/config.json && echo /tmp/docker-config-empty)
+export DOCKER_CONFIG := $(EMPTY_DOCKER_CONFIG)
+endif
 
 # OTel collector config for remotetap
 OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
@@ -142,7 +166,7 @@ otel-desktop-viewer-stop:
 .PHONY: dev-remotetap
 dev-remotetap: otel-desktop-viewer-start
 	@echo "Starting full remotetap stack (hybrid)..."
-	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d --build
+	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
 	@echo ""
 	@echo "==> All services running:"
 	@echo "    o11y-workbench dashboard:  http://localhost:8080 (containerized)"
@@ -168,7 +192,7 @@ otel-demo-sender:
 .PHONY: dev
 dev: otel-desktop-viewer-start
 	@echo "Starting demo sender (containerized)..."
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d --build
+	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
 	@echo ""
 	@echo "==> Services running:"
 	@echo "    otel-desktop-viewer UI: http://localhost:8000 (binary on host)"
