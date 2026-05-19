@@ -19,6 +19,6 @@ services:
     command:
       - |
         sleep 10
-        /usr/local/bin/o11y-workbench --traces 0 --duration 300 --rate 5 --output otlp --endpoint otel-collector:14317 --insecure
+        /usr/local/bin/o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice
     depends_on:
       - otel-collector
