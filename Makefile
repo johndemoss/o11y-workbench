@@ -142,7 +142,7 @@ otel-desktop-viewer-stop:
 .PHONY: dev-remotetap
 dev-remotetap: otel-desktop-viewer-start
 	@echo "Starting full remotetap stack (hybrid)..."
-	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
+	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d --build
 	@echo ""
 	@echo "==> All services running:"
 	@echo "    o11y-workbench dashboard:  http://localhost:8080 (containerized)"
@@ -168,7 +168,7 @@ otel-demo-sender:
 .PHONY: dev
 dev: otel-desktop-viewer-start
 	@echo "Starting demo sender (containerized)..."
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
+	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d --build
 	@echo ""
 	@echo "==> Services running:"
 	@echo "    otel-desktop-viewer UI: http://localhost:8000 (binary on host)"
@@ -207,7 +207,7 @@ clean-remotetap: clean
 .PHONY: build-images
 build-images:
 	@echo "Building all Docker images..."
-	$(COMPOSE) build
+	$(COMPOSE) -f docker-compose.hybrid.yml build --no-cache
 	@echo "All images built successfully"
 
 # Show logs from running containers
