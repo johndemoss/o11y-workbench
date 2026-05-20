@@ -104,7 +104,7 @@ func TransformLogRunData(logData json.RawMessage, statements []string) (json.Raw
 	}
 
 	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: true,
+		UseProtoNames: false,
 		Indent:        "  ",
 	}.Marshal(&dstReq)
 	if err != nil {
