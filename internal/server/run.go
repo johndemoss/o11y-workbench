@@ -407,7 +407,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 					run.mu.Unlock()
 					return
 				}
-				otlpExporters[reg] = otlpExp
+				// Wrap exporter to use fresh context with timeout for each export
+				otlpExporters[reg] = export.WithExportTimeout(otlpExp, 30*time.Second)
 			}
 			router := export.NewEndpointRouter(otlpExporters)
 			exp = multiExporter{buf, router}
@@ -459,7 +460,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 					run.mu.Unlock()
 					return
 				}
-				otlpLogExporters[reg] = otlpLogExp
+				// Wrap log exporter to use fresh context with timeout for each export
+				otlpLogExporters[reg] = export.WithLogExportTimeout(otlpLogExp, 30*time.Second)
 			}
 			router := export.NewLogEndpointRouter(otlpLogExporters)
 			logExp = multiLogExporter{logBuf, router}
@@ -500,7 +502,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 					run.mu.Unlock()
 					return
 				}
-				otlpMetricExporters[reg] = otlpMetricExp
+				// Wrap metric exporter to use fresh context with timeout for each export
+				otlpMetricExporters[reg] = export.WithMetricExportTimeout(otlpMetricExp, 30*time.Second)
 			}
 			router := export.NewMetricEndpointRouter(otlpMetricExporters)
 			metricExp = multiMetricExporter{metricBuf, router}
