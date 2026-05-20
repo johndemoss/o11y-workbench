@@ -20,7 +20,7 @@ func NewMetricFileExporter(outputDir string, format Format) (*MetricFileExporter
 		},
 		func(req *collectormetricsv1.ExportMetricsServiceRequest) ([]byte, error) {
 			opts := protojson.MarshalOptions{
-				UseProtoNames: true,
+				UseProtoNames: false,
 				Indent:        "  ",
 			}
 			return opts.Marshal(req)
