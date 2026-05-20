@@ -972,10 +972,10 @@ function renderDetail(r) {
   if (r.trace_data) {
     try {
       const td = typeof r.trace_data === 'string' ? JSON.parse(r.trace_data) : r.trace_data;
-      if (td.resource_spans) {
-        traceCount = td.resource_spans.length;
-        td.resource_spans.forEach(rs => {
-          if (rs.scope_spans) rs.scope_spans.forEach(ss => {
+      if (td.resourceSpans) {
+        traceCount = td.resourceSpans.length;
+        td.resourceSpans.forEach(rs => {
+          if (rs.scopeSpans) rs.scopeSpans.forEach(ss => {
             if (ss.spans) spanCountTotal += ss.spans.length;
           });
         });
@@ -988,13 +988,13 @@ function renderDetail(r) {
   if (r.log_data) {
     try {
       const ld = typeof r.log_data === 'string' ? JSON.parse(r.log_data) : r.log_data;
-      if (ld.resource_logs) {
-        ld.resource_logs.forEach(rl => {
-          if (rl.scope_logs) rl.scope_logs.forEach(sl => {
-            if (sl.log_records) {
-              sl.log_records.forEach(lr => {
+      if (ld.resourceLogs) {
+        ld.resourceLogs.forEach(rl => {
+          if (rl.scopeLogs) rl.scopeLogs.forEach(sl => {
+            if (sl.logRecords) {
+              sl.logRecords.forEach(lr => {
                 logRecordCount++;
-                var sev = (lr.severity_text || 'INFO').toLowerCase();
+                var sev = (lr.severityText || 'INFO').toLowerCase();
                 logSeverities[sev] = (logSeverities[sev] || 0) + 1;
               });
             }
@@ -1009,9 +1009,9 @@ function renderDetail(r) {
   if (r.metric_data) {
     try {
       const md = typeof r.metric_data === 'string' ? JSON.parse(r.metric_data) : r.metric_data;
-      if (md.resource_metrics) {
-        md.resource_metrics.forEach(rm => {
-          if (rm.scope_metrics) rm.scope_metrics.forEach(sm => {
+      if (md.resourceMetrics) {
+        md.resourceMetrics.forEach(rm => {
+          if (rm.scopeMetrics) rm.scopeMetrics.forEach(sm => {
             if (sm.metrics) {
               sm.metrics.forEach(m => { metricRecordCount++; });
             }
@@ -1092,20 +1092,20 @@ function renderLogTable(logData) {
 
   var html = '<table class="log-table"><thead><tr><th style="width:52px">Severity</th><th style="width:140px">Timestamp</th><th>Body</th><th style="width:80px">Trace ID</th></tr></thead><tbody>';
 
-  if (logs.resource_logs) {
+  if (logs.resourceLogs) {
     var allRecords = [];
-    logs.resource_logs.forEach(function(rl) {
-      if (rl.scope_logs) rl.scope_logs.forEach(function(sl) {
-        if (sl.log_records) sl.log_records.forEach(function(lr) {
+    logs.resourceLogs.forEach(function(rl) {
+      if (rl.scopeLogs) rl.scopeLogs.forEach(function(sl) {
+        if (sl.logRecords) sl.logRecords.forEach(function(lr) {
           allRecords.push(lr);
         });
       });
     });
 
     allRecords.slice(0, 200).forEach(function(lr, idx) {
-      var sev = (lr.severity_text || 'info').toLowerCase();
+      var sev = (lr.severityText || 'info').toLowerCase();
       var sevClass = sev === 'warn' ? 'warn' : sev === 'error' ? 'error' : sev === 'fatal' ? 'fatal' : 'info';
-      var ts = lr.time_unix_nano ? new Date(lr.time_unix_nano / 1e6).toLocaleTimeString() : '-';
+      var ts = lr.timeUnixNano ? new Date(lr.timeUnixNano / 1e6).toLocaleTimeString() : '-';
 
       var bodyStr = '';
       if (lr.body) {
@@ -1113,12 +1113,12 @@ function renderLogTable(logData) {
       }
 
       var traceIdStr = '';
-      if (lr.trace_id) {
-        traceIdStr = typeof lr.trace_id === 'string' ? lr.trace_id.substring(0, 16) : '';
+      if (lr.traceId) {
+        traceIdStr = typeof lr.traceId === 'string' ? lr.traceId.substring(0, 16) : '';
       }
 
       html += '<tr onclick="toggleLogDetail(this, ' + idx + ')" class="log-row" data-idx="' + idx + '">';
-      html += '<td><span class="severity-tag ' + sevClass + '">' + (lr.severity_text || 'INFO') + '</span></td>';
+      html += '<td><span class="severity-tag ' + sevClass + '">' + (lr.severityText || 'INFO') + '</span></td>';
       html += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
       html += '<td><div class="log-body">' + escapeHtml(bodyStr) + '</div></td>';
       html += '<td style="font-family:monospace;font-size:10px;color:#475569">' + escapeHtml(traceIdStr) + '...</td>';
@@ -1165,10 +1165,10 @@ function renderMetricTable(metricData) {
 
   var html = '<table class="log-table"><thead><tr><th style="width:80px">Type</th><th>Name</th><th>Value(s)</th><th style="width:140px">Timestamp</th></tr></thead><tbody>';
 
-  if (metrics.resource_metrics) {
+  if (metrics.resourceMetrics) {
     var allMetrics = [];
-    metrics.resource_metrics.forEach(function(rm) {
-      if (rm.scope_metrics) rm.scope_metrics.forEach(function(sm) {
+    metrics.resourceMetrics.forEach(function(rm) {
+      if (rm.scopeMetrics) rm.scopeMetrics.forEach(function(sm) {
         if (sm.metrics) sm.metrics.forEach(function(m) {
           allMetrics.push(m);
         });
@@ -1178,9 +1178,9 @@ function renderMetricTable(metricData) {
     allMetrics.slice(0, 200).forEach(function(m) {
       var type = 'gauge';
       var dataPoints = [];
-      if (m.gauge) { type = 'gauge'; dataPoints = m.gauge.data_points || []; }
-      else if (m.sum) { type = 'sum'; dataPoints = m.sum.data_points || []; }
-      else if (m.histogram) { type = 'histogram'; dataPoints = m.histogram.data_points || []; }
+      if (m.gauge) { type = 'gauge'; dataPoints = m.gauge.dataPoints || []; }
+      else if (m.sum) { type = 'sum'; dataPoints = m.sum.dataPoints || []; }
+      else if (m.histogram) { type = 'histogram'; dataPoints = m.histogram.dataPoints || []; }
 
       var typeClass = type === 'sum' ? 'warn' : type === 'histogram' ? 'fatal' : 'info';
 
@@ -1200,13 +1200,13 @@ function renderMetricTable(metricData) {
           hSum += dp.sum || 0;
         });
         html += 'count: ' + hCount + ', sum: ' + hSum;
-        if (dataPoints.length > 0 && dataPoints[0].bucket_counts) {
-          html += '<br>buckets: [' + dataPoints[0].bucket_counts.join(', ') + ']';
+        if (dataPoints.length > 0 && dataPoints[0].bucketCounts) {
+          html += '<br>buckets: [' + dataPoints[0].bucketCounts.join(', ') + ']';
         }
       } else {
         dataPoints.slice(0, 3).forEach(function(dp, idx) {
           if (idx > 0) html += '<br>';
-          var val = dp.as_int !== undefined ? dp.as_int : (dp.as_double !== undefined ? dp.as_double : (dp.asInt !== undefined ? dp.asInt : (dp.asDouble !== undefined ? dp.asDouble : '?')));
+          var val = dp.asInt !== undefined ? dp.asInt : (dp.asDouble !== undefined ? dp.asDouble : '?');
           html += val;
         });
         if (dataPoints.length > 3) {
@@ -1215,8 +1215,8 @@ function renderMetricTable(metricData) {
       }
 
       html += '</td>';
-      var ts = dataPoints.length > 0 && dataPoints[0].time_unix_nano
-        ? new Date(Number(dataPoints[0].time_unix_nano) / 1e6).toLocaleTimeString()
+      var ts = dataPoints.length > 0 && dataPoints[0].timeUnixNano
+        ? new Date(Number(dataPoints[0].timeUnixNano) / 1e6).toLocaleTimeString()
         : '-';
       html += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
       html += '</tr>';
