@@ -2,8 +2,6 @@ package server
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/johndemoss/o11y-workbench/internal/export"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -43,7 +42,7 @@ func (s *Server) handleImportRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
-	data, err := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}.Marshal(req)
+	data, err := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}.Marshal(req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "marshal error: " + err.Error()})
 		return
@@ -92,7 +91,7 @@ func parseOTLPJSON(data []byte) ([]*tracev1.ResourceSpans, error) {
 		}
 		var all []*tracev1.ResourceSpans
 		for i, item := range rawItems {
-			fixed, err := fixTraceSpanIDsForImport(item)
+			fixed, err := export.FixTraceSpanIDsForUnmarshal(item)
 			if err != nil {
 				return nil, fmt.Errorf("array element %d: %w", i, err)
 			}
@@ -120,7 +119,7 @@ func parseOTLPJSON(data []byte) ([]*tracev1.ResourceSpans, error) {
 			}
 			return nil, fmt.Errorf("JSON decode error: %w", err)
 		}
-		fixed, err := fixTraceSpanIDsForImport(raw)
+		fixed, err := export.FixTraceSpanIDsForUnmarshal(raw)
 		if err != nil {
 			return nil, fmt.Errorf("fixing trace IDs: %w", err)
 		}
@@ -137,44 +136,4 @@ func parseOTLPJSON(data []byte) ([]*tracev1.ResourceSpans, error) {
 	return all, nil
 }
 
-// fixTraceSpanIDsForImport converts hex-encoded trace_id, span_id, and
-// parent_span_id fields to base64, since protojson expects base64 for bytes.
-func fixTraceSpanIDsForImport(data []byte) ([]byte, error) {
-	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, err
-	}
-	fixNodeForImport(v)
-	return json.Marshal(v)
-}
 
-func fixNodeForImport(v any) {
-	switch node := v.(type) {
-	case map[string]any:
-		for key, val := range node {
-			if str, ok := val.(string); ok && isTraceIdentityField(key) && len(str) > 0 {
-				if decoded, err := hex.DecodeString(str); err == nil && len(decoded) > 0 {
-					node[key] = base64.StdEncoding.EncodeToString(decoded)
-				}
-			} else {
-				fixNodeForImport(val)
-			}
-		}
-	case []any:
-		for _, item := range node {
-			fixNodeForImport(item)
-		}
-	}
-}
-
-// isTraceIdentityField returns true for protobuf bytes field names that
-// represent trace/span identity.
-func isTraceIdentityField(key string) bool {
-	switch key {
-	case "trace_id", "traceId",
-		"span_id", "spanId",
-		"parent_span_id", "parentSpanId":
-		return true
-	}
-	return false
-}

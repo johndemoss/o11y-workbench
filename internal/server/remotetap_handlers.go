@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/remotetap"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
@@ -310,8 +311,10 @@ func (m *RemotetapManager) onDisconnectLocked() {
 				req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: items}
 				opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
 				if data, err := opts.Marshal(req); err == nil {
-					raw := json.RawMessage(data)
-					m.run.TraceData = &raw
+					if fixed, err := export.FixTraceSpanIDsForMarshal(data); err == nil {
+						raw := json.RawMessage(fixed)
+						m.run.TraceData = &raw
+					}
 				}
 			}
 		}

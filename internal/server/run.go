@@ -242,18 +242,22 @@ func (s *RunStore) List() []*Run {
 func marshalTraceJSON(spans []*tracev1.ResourceSpans) ([]byte, error) {
 	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
 	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
-	return opts.Marshal(req)
+	data, err := opts.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return export.FixTraceSpanIDsForMarshal(data)
 }
 
 func marshalLogJSON(logs []*logsv1.ResourceLogs) ([]byte, error) {
 	req := &collectorlogsv1.ExportLogsServiceRequest{ResourceLogs: logs}
-	opts := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}
+	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
 	return opts.Marshal(req)
 }
 
 func marshalMetricJSON(metrics []*metricspb.ResourceMetrics) ([]byte, error) {
 	req := &collectormetricsv1.ExportMetricsServiceRequest{ResourceMetrics: metrics}
-	opts := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}
+	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
 	return opts.Marshal(req)
 }
 
