@@ -150,7 +150,8 @@ ODV_CURRENT_BINARY := $(ODV_BINDIR)/otel-desktop-viewer-$(ODV_PLATFORM)
 .PHONY: otel-desktop-viewer-start
 otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
 	@echo "Using otel-desktop-viewer $(ODV_VERSION) ($(ODV_PLATFORM))"
-	@($(ODV_CURRENT_BINARY) --host 0.0.0.0 > /tmp/otel-desktop-viewer.log 2>&1 &); sleep 1; echo $$! > /tmp/otel-desktop-viewer.pid
+	@$(ODV_CURRENT_BINARY) --host 0.0.0.0 > /tmp/otel-desktop-viewer.log 2>&1 & echo $$! > /tmp/otel-desktop-viewer.pid
+	@sleep 1
 	@echo "otel-desktop-viewer started (pid: $$(cat /tmp/otel-desktop-viewer.pid))"
 	@echo "    UI:          http://localhost:8000"
 	@echo "    OTLP gRPC:   localhost:4317"

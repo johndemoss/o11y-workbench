@@ -6,6 +6,9 @@ receivers:
       http:
         endpoint: 0.0.0.0:14318
 processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 100
   remotetap:
     endpoint: 0.0.0.0:12001
     limit: 10
@@ -16,9 +19,9 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [remotetap]
+      processors: [batch, remotetap]
       exporters: [debug]
     logs:
       receivers: [otlp]
-      processors: [remotetap]
+      processors: [batch, remotetap]
       exporters: [debug]
