@@ -130,7 +130,7 @@ func TransformMetricRunData(metricData json.RawMessage, statements []string) (js
 	}
 
 	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: true,
+		UseProtoNames: false,
 		Indent:        "  ",
 	}.Marshal(&dstReq)
 	if err != nil {

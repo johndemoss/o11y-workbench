@@ -14,6 +14,8 @@ import (
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"golang.org/x/net/websocket"
+
+	"github.com/johndemoss/o11y-workbench/internal/export"
 )
 
 type signalType int
@@ -158,8 +160,12 @@ func (c *Client) parseLine(line []byte) (*RemotetapData, error) {
 	data := &RemotetapData{}
 	switch sig {
 	case signalTraces:
+		fixed, err := export.FixTraceSpanIDsForUnmarshal(line)
+		if err != nil {
+			return nil, fmt.Errorf("fix trace IDs: %w", err)
+		}
 		var req collectortracev1.ExportTraceServiceRequest
-		if err := protojson.Unmarshal(line, &req); err != nil {
+		if err := protojson.Unmarshal(fixed, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal traces: %w", err)
 		}
 		data.Traces = req.ResourceSpans

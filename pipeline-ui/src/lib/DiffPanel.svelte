@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { base64ToHex, isZeroId, formatValue, highlightJSON } from './diff'
+  import { formatValue, highlightJSON } from './diff'
   import type { UnifiedDiffLine } from './diff'
   import type { StageDiff } from './types'
 
@@ -39,7 +39,7 @@
         {#each stageDiff.modified as span}
           <div class="diff-item diff-modified">
             <span class="diff-badge">MODIFIED</span>
-            <code class="diff-span-id" class:zero-id={isZeroId(span.span_id)}>{base64ToHex(span.span_id)}</code>
+            <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
             {#if span.changes && span.changes.length > 0}
               <div class="diff-changes">
                 {#each span.changes as change}
@@ -66,13 +66,13 @@
         {#each stageDiff.added as span}
           <div class="diff-item diff-added">
             <span class="diff-badge">ADDED</span>
-            <code class="diff-span-id" class:zero-id={isZeroId(span.span_id)}>{base64ToHex(span.span_id)}</code>
+            <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
           </div>
         {/each}
         {#each stageDiff.removed as span}
           <div class="diff-item diff-removed">
             <span class="diff-badge">REMOVED</span>
-            <code class="diff-span-id" class:zero-id={isZeroId(span.span_id)}>{base64ToHex(span.span_id)}</code>
+            <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
           </div>
         {/each}
         {#if stageDiff.added.length === 0 && stageDiff.removed.length === 0 && stageDiff.modified.length === 0}

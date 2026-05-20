@@ -16,6 +16,7 @@ import (
 
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
+	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
@@ -37,9 +38,13 @@ func TransformRunDataSelected(traceData json.RawMessage, statements []string, sp
 		return nil, 0, fmt.Errorf("no statements provided")
 	}
 
-	// Step 1: unmarshal JSON trace data into protobuf types.
+	// Step 1: convert hex trace IDs to base64, then unmarshal JSON trace data into protobuf types.
+	fixedData, err := export.FixTraceSpanIDsForUnmarshal(traceData)
+	if err != nil {
+		return nil, 0, fmt.Errorf("fix trace IDs: %w", err)
+	}
 	var srcReq collectortracev1.ExportTraceServiceRequest
-	if err := protojson.Unmarshal(traceData, &srcReq); err != nil {
+	if err := protojson.Unmarshal(fixedData, &srcReq); err != nil {
 		return nil, 0, fmt.Errorf("unmarshal trace data: %w", err)
 	}
 
@@ -91,7 +96,7 @@ func TransformRunDataSelected(traceData json.RawMessage, statements []string, sp
 		return nil, 0, fmt.Errorf("unmarshal pdata to protobuf: %w", err)
 	}
 
-	outJSON, err := protojson.MarshalOptions{
+	data, err := protojson.MarshalOptions{
 		UseProtoNames: false,
 		Indent:        "  ",
 	}.Marshal(&dstReq)
@@ -99,6 +104,10 @@ func TransformRunDataSelected(traceData json.RawMessage, statements []string, sp
 		return nil, 0, fmt.Errorf("marshal result JSON: %w", err)
 	}
 
+	outJSON, err := export.FixTraceSpanIDsForMarshal(data)
+	if err != nil {
+		return nil, 0, fmt.Errorf("fix trace IDs: %w", err)
+	}
 	return outJSON, selectedCount, nil
 }
 

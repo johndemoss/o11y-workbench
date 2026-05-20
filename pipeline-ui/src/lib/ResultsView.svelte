@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { computeAllStageDiffs, computeUnifiedDiff, convertTraceSpanIds, formatJSON, highlightJSON } from './diff'
+  import { computeAllStageDiffs, computeUnifiedDiff, formatJSON, highlightJSON } from './diff'
   import type { UnifiedDiffLine } from './diff'
   import type { PipelineResult, StageDiff } from './types'
   import StatsBar from './StatsBar.svelte'
@@ -57,12 +57,12 @@
     result ? result.stages.map((stage, i) => {
       const before = i === 0 ? originalData ?? null : result.stages[i - 1].intermediate_data
       const after = stage.intermediate_data
-      return computeUnifiedDiff(convertTraceSpanIds(before), convertTraceSpanIds(after))
+      return computeUnifiedDiff(before, after)
     }) : []
   )
 
   function downloadJSON(data: unknown, filename: string) {
-    const json = JSON.stringify(convertTraceSpanIds(data), null, 2)
+    const json = JSON.stringify(data, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

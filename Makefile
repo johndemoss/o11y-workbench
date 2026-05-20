@@ -234,7 +234,7 @@ clean-remotetap: clean
 .PHONY: build-images
 build-images:
 	@echo "Building all Docker images..."
-	$(COMPOSE) -f docker-compose.hybrid.yml build --no-cache
+	$(COMPOSE) -f docker-compose.hybrid.yml --profile remotetap --profile dev build --no-cache
 	@echo "All images built successfully"
 
 # Show logs from running containers

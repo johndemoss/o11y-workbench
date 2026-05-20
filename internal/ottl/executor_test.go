@@ -52,7 +52,7 @@ func makeSampleTrace() *collectortracev1.ExportTraceServiceRequest {
 // marshalTrace serializes a ExportTraceServiceRequest into OTLP JSON bytes,
 // matching the format stored in run.TraceData.
 func marshalTrace(req *collectortracev1.ExportTraceServiceRequest) (json.RawMessage, error) {
-	data, err := protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}.Marshal(req)
+	data, err := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
