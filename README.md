@@ -21,6 +21,7 @@ Generate structurally valid OTLP traces, logs, and metrics with reproducible out
 - **Web dashboard** — browser UI for interactive generation, run management, scenario management, trace import, and OTTL prototyping.
 - **Run lifecycle management** — start, stop, pause, and resume generation jobs with live progress tracking.
 - **Trace import** — upload existing OTLP JSON traces for inspection and OTTL experimentation.
+- **Remote TAP** — connect to a remote OTel Desktop Viewer instance to stream live telemetry from real collector deployments. Endpoint configuration, connect/disconnect, and live status in the web dashboard.
 - **YAML-first configuration** — CLI flags, env vars, and config files all backed by the same schema.
 
 ## Quick Start
@@ -70,6 +71,16 @@ Open [http://localhost:8080/pipeline/](http://localhost:8080/pipeline/) for the 
 ```bash
 docker build -f Dockerfile.web -t o11y-workbench-web .
 docker run -p 8080:8080 o11y-workbench-web
+```
+
+Docker Compose profiles are also available for local development with OTel Desktop Viewer:
+
+```bash
+# Standard development environment
+docker compose -f docker-compose.dev.yml up
+
+# With Remote TAP support
+docker compose -f docker-compose.dev-remotetap.yml up
 ```
 
 ## CLI Reference
@@ -127,6 +138,7 @@ The web dashboard at `http://localhost:8080` provides:
 - **Trace import** — upload existing OTLP JSON traces for analysis and OTTL experimentation.
 - **Scenario upload** — register user-defined scenarios via YAML/JSON.
 - **OTTL Prototyper** — interactive sandbox for transform and filter statements against generated data.
+- **Remote TAP** — connect to a remote OTel Desktop Viewer endpoint for live telemetry streaming, with connection status and usage monitoring.
 - **Signal selection** — generate traces, logs, and metrics independently or together.
 
 ### API Endpoints
@@ -148,12 +160,13 @@ The web dashboard at `http://localhost:8080` provides:
 | `POST` | `/api/ottl/transform` | Execute OTTL transform against trace data |
 | `POST` | `/api/ottl/filter` | Execute OTTL filter against generated traces |
 | `POST` | `/api/ottl/filter-validate` | Validate OTTL filter conditions |
-| `POST` | `/api/ottl/validate-html` | Validate OTTL statements (HTML response) |
-| `POST` | `/api/ottl/transform-html` | Execute OTTL transform (HTML response) |
-| `POST` | `/api/ottl/filter-html` | Execute OTTL filter (HTML response) |
 | `POST` | `/api/ottl/pipeline/validate` | Validate a full pipeline definition |
 | `POST` | `/api/ottl/pipeline/execute` | Execute a pipeline against trace data |
 | `POST` | `/api/ottl/pipeline/import-config` | Import OTel Collector config YAML |
+| `POST` | `/api/remotetap/connect` | Connect to a remote OTel Desktop Viewer endpoint |
+| `POST` | `/api/remotetap/disconnect` | Disconnect from the remote endpoint |
+| `GET` | `/api/remotetap/status` | Get remote TAP connection status |
+| `GET` | `/api/remotetap/usage/{runID}` | Get remote TAP usage stats for a run |
 | `GET` | `/` | Serves the web dashboard (HTMX) |
 | `GET` | `/pipeline/` | Serves the pipeline prototyper SPA |
 
@@ -189,10 +202,6 @@ filter:
 
 The YAML config can also be provided as a flat list of statements, a simple `statements:` block, or raw OTTL lines.
 
-### HTML Endpoints
-
-The prototyper also exposes `*-html` variants (`/api/ottl/transform-html`, `/api/ottl/filter-html`, `/api/ottl/validate-html`) that return rendered HTML fragments for server-driven UI updates via HTMX.
-
 ## Pipeline Prototyper
 
 The **Pipeline Prototyper** is a visual pipeline builder (Svelte SPA) that mirrors the OTel Collector's pipeline model. It supports:
@@ -210,6 +219,7 @@ The **Pipeline Prototyper** is a visual pipeline builder (Svelte SPA) that mirro
 - **Backend**: Pipeline data model and execution engine in `internal/ottl/`
 - **API**: REST endpoints at `/api/ottl/pipeline/*`
 - **Frontend**: Svelte SPA served at `/pipeline/`
+- **Remote TAP**: `internal/remotetap/` client connects to OTel Desktop Viewer for live telemetry streaming
 - **Enabled via**: `--pipeline-prototyper` flag or `O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true` env var
 
 ### Build Prerequisites
@@ -316,9 +326,10 @@ make build-all
 # Go tests
 go test ./...
 
-# E2E smoke tests (requires running server)
-make test        # headless
-make test:headed # headed browser
+# Frontend e2e smoke tests (requires running server)
+npm test                 # headless
+npm run test:headed      # headed browser
+npm run test:ui          # Playwright UI mode
 ```
 
 ### Project Structure
@@ -329,10 +340,18 @@ cmd/
   o11y-workbench-web/      # Web dashboard server binary
 internal/
   export/                  # Output exporters (file + OTLP gRPC)
-    file.go                #   JSON/protobuf file export
-    otlp.go                #   OTLP gRPC trace export
-    otlp_log.go            #   OTLP gRPC log export
-    otlp_metric.go         #   OTLP gRPC metric export
+    exporter.go            #   Exporter interface definitions
+    file_exporter.go       #   JSON/protobuf file exporter
+    file_trace.go          #   Trace file export (JSON/protobuf)
+    file_metric.go         #   Metric file export (JSON/protobuf)
+    trace_file.go          #   Per-trace file writer
+    otlp.go                #   OTLP gRPC trace exporter
+    otlpjson.go            #   OTLP JSON marshal/unmarshal utilities
+    log_exporter.go        #   OTLP gRPC log exporter
+    metric_exporter.go     #   OTLP gRPC metric exporter
+    endpoint.go            #   Endpoint configuration
+    endpoint_log.go        #   Log-specific endpoint config
+    endpoint_metric.go     #   Metric-specific endpoint config
   gen/                     # Trace/log/metric generation engine
     generator.go           #   Trace generator
     log_generator.go       #   Log generator
@@ -342,17 +361,29 @@ internal/
     scenario_file.go       #   User-defined scenario parser
     rng.go                 #   Deterministic seeded RNG
   ottl/                    # OTTL execution engine
+    config.go              #   OTTL config parsing
     executor.go            #   OTTL transform executor
     filter.go              #   OTTL filter executor
+    serialize.go           #   OTLP JSON serialization helpers
     pipeline_executor.go   #   Multi-stage pipeline executor
+    pipeline_import.go     #   OTel Collector YAML config import
+    pipeline_result.go     #   Pipeline execution results
     pipeline_types.go      #   Pipeline data model
   region/                  # Multi-endpoint routing
+  remotetap/               # Remote TAP client (OTel Desktop Viewer)
+    client.go              #   Remote TAP gRPC client
+    mock.go                #   Mock remote endpoint for testing
   server/                  # Web server + HTMX dashboard
+    server.go              #   Route registration, HTTP server setup
     web/                   #   Static web assets (HTML/CSS/JS)
     pipeline-ui/           #   Embedded Svelte SPA (built)
     run.go                 #   Run lifecycle management
+    run_handlers.go        #   Run API handlers
     import.go              #   Trace import handler
-    pipeline_handlers.go   #   Pipeline prototyper API
+    ottl_handlers.go       #   OTTL transform/filter API handlers
+    pipeline_handlers.go   #   Pipeline prototyper API handlers
+    remotetap_handlers.go  #   Remote TAP API handlers
+    web_handlers.go        #   Web dashboard handlers
 pipeline-ui/               # Svelte SPA for pipeline prototyper
   src/                     #   Svelte components
   e2e/                     #   Playwright e2e tests
@@ -360,4 +391,5 @@ testdata/                  # Sample data for imports
 tests/                     # Playwright smoke tests
 scripts/
   serve.sh                 # Build and serve launcher
+  stop-odv.sh              # OTel Desktop Viewer cleanup
 ```

@@ -104,6 +104,88 @@ The pipeline prototyper (`pipeline-ui/`) is a Svelte 5 SPA with:
 - Scenarios (`microservice`, `monolith`, `3-tier-web-app`, `event-driven`) produce service-graph-based traces.
 - User-defined scenarios are YAML/JSON files parsed by `gen.ParseScenarioFile()`.
 
+### Coding Guidelines
+
+These rules go beyond style (lintable) and codify architectural decisions for agents and contributors. Always follow them when adding or modifying code.
+
+#### Interface Usage
+
+1. **Prefer signal-specific interfaces over generic unification** — If two types have different method signatures (e.g., `LogGenerator.Run` needs a `traceSpans` parameter that `MetricGenerator.Run` doesn't), don't force them into a common interface. Use simple dispatch branching at one call site instead. See the ADR in `internal/gen/generator.go` (`// VERDICT: DO NOT IMPLEMENT a strategy pattern.`).
+
+2. **Define interfaces where they are consumed, not where they are implemented** — The consumer defines the contract (minimal, 2-3 methods). The implementation remains anonymous. Example: `export.TraceExporter` is defined in `internal/export/exporter.go`, implemented by `file_exporter.go`, `otlp.go`, and `run.go`'s `bufferExporter`. There is no "exporter registry" or "exporter factory" abstraction layer.
+
+3. **Use composition over interface hierarchy** — Combine multiple implementations via the `multiExporter` pattern (a named slice type that implements the interface by fanning out to each member):
+   ```go
+   type multiExporter []export.TraceExporter
+   func (e multiExporter) Export(ctx context.Context, spans []*tracev1.ResourceSpans) error {
+       for _, exp := range e {
+           if err := exp.Export(ctx, spans); err != nil { return err }
+       }
+       return nil
+   }
+   ```
+   See `internal/server/run.go` for `multiExporter`, `multiLogExporter`, `multiMetricExporter`. Do not add new interface abstraction layers.
+
+4. **Interface methods should be minimal** — `Export(ctx, data) error` + `Shutdown(ctx) error` is the pattern. No lifecycle hooks, no configuration methods on the interface. Config lives on the concrete implementation or in a config struct.
+
+#### Data Handling — Backend Priority
+
+5. **All telemetry data transformation must happen in Go** — The backend is the single source of truth for data computation. The frontend (JS/TS) must only do visualization-only transformations (mapping data to display formats, computing diff views, managing layout state). Examples of valid frontend transformations: `diff.ts` computing span diffs from `intermediate_data` blobs, `ResultsView.svelte` formatting diff results for display.
+
+6. **Data crosses the boundary as `json.RawMessage`** — Use Go structs with `json:"..."` tags for API request/response types. Store telemetry data as `*json.RawMessage` in the server, typed by field name (`TraceData`, `LogData`, `MetricData` on the `Run` struct in `internal/server/run.go`). The frontend receives OTLP JSON blobs directly.
+
+7. **When converting between OTLP JSON and pdata types, use the protojson→proto→pdata sequence** — This is required because OTTL's `pdata` types only accept binary protobuf input. Trace serialization is centralized in `internal/ottl/serialize.go` (`UnmarshalTracesFromJSON`, `MarshalTracesToJSON`). If adding log or metric serialization, extend `serialize.go` — do not re-implement the `protojson.Unmarshal → proto.Marshal → pdata.ProtoUnmarshaler.UnmarshalLogs` sequence inline.
+
+   **Do NOT duplicate** this pattern:
+   ```
+   filter_log.go — ❌ inline duplicate of the proto→pdata dance
+   filter_metric.go — ❌ inline duplicate
+   executor.go — ❌ inline duplicate
+   serialize.go — ✅ centralized, extend here
+   ```
+
+8. **Don't compute semantic summaries or aggregations on the frontend** — If a computation (count, histogram, aggregation, derived metric) could be useful to a non-browser client, it belongs in Go. The frontend may recompute display-oriented diffs (e.g., "which spans changed between stage N and N+1") because those depend on UI state.
+
+#### Type Boundary
+
+9. **Go structs are the source of truth for all type definitions** — When adding a new API endpoint or response type, define the Go struct first (with `json:"..."` tags), then replicate in `pipeline-ui/src/lib/types.ts` as a pure TypeScript interface. Keep the TS types in sync with the Go originals.
+
+10. **Keep TS types as pure interfaces, not classes** — No methods, no constructors, no runtime validation logic. They exist solely for IDE autocompletion and compile-time checking. Runtime validation is the backend's responsibility.
+
+11. **Watch for type drift at the boundary** — The TS `Pipeline` type (`pipeline-ui/src/lib/types.ts`) currently has `receivers` and `exporters` fields that the Go `Pipeline` type (`internal/ottl/pipeline_types.go`) does not. When you see drift, either add the fields to the Go struct or remove them from TS — the Go struct wins.
+
+#### Config Structs
+
+12. **Use a single flat config struct per component** — Passed as a value to the constructor (e.g., `gen.NewGenerator(cfg)`). Nested configs are embedded fields, not pointers. Every config type provides a `DefaultConfig()` constructor function. Example: `gen.Config` embeds `LogConfig` and `MetricConfig` as value fields.
+
+13. **Config structs must be JSON-serializable** — All fields need `json:"name"` tags (and `omitempty` for optional fields). This is required for sending configs through the API and storing them in run history. See `gen.Config` in `internal/gen/generator.go` for the canonical pattern.
+
+#### Error Handling
+
+14. **Always wrap errors with context** — Use `fmt.Errorf("verb resource: %w", err)` consistently. No sentinel errors (`errors.New` at package level), no custom error types except when the error carries structured data (e.g., `export.FormatError` has an `Input` field). No panics in production code.
+
+15. **API handlers return errors as `{"error": "message"}`** — Use the `writeJSON(w, status, map[string]string{"error": msg})` pattern. See `internal/server/server.go` for `writeJSON`. OTTL validation uses a structured `ValidateResult` type (`Valid bool` + `Errors []string`) for multi-error responses.
+
+#### OTTL Integration
+
+16. **The protojson→proto→pdata serialization dance is a known pattern** — Always use the centralized helpers in `internal/ottl/serialize.go` for traces. For logs and metrics, add helpers to `serialize.go` rather than duplicating the sequence inline. If the duplication makes you hesitate, that's the signal to extend serialize.go.
+
+17. **Pipeline stage configurations use `map[string]interface{}`** — This is deliberate because the shape is determined by the OTel collector config schema, not by Go's type system. The type assertions in `internal/ottl/pipeline_import.go` (`.(map[string]interface{})`) are the approved pattern for dynamic YAML/JSON deserialization. For known-shape data, use typed structs with `yaml:"..."` / `json:"..."` tags instead.
+
+#### Server Handlers
+
+18. **Every handler is a method on `*Server`** — Access `s.store` for data. Decode request bodies with `json.NewDecoder(r.Body).Decode(&req)`. Respond with `writeJSON(w, status, result)`. Error responses are `map[string]string{"error": msg}`. See `internal/server/ottl_handlers.go` and `internal/server/run_handlers.go` for the canonical pattern.
+
+19. **Don't create exporters or generators directly inside handlers** — Generation runs are managed by the `executeRun()` function in `internal/server/run.go`. Handlers should call `store.StartRun()` and return a run ID, not construct exporters or generators themselves. The buffer/run pattern handles the full lifecycle (generation → buffer → serialize → store).
+
+#### Tests
+
+20. **Use table-driven tests** — `tests []struct{name string; ...; want ...}` pattern. Name each test case meaningfully. Use `t.Run(name, func(t *testing.T) { ... })` for subtests. The `want`/`got` naming convention is standard across the project.
+
+21. **Integration tests create real runs** — `internal/server/integration_test.go` uses `store.StartRun()`, waits for completion, then asserts lifecycle transitions (`pending → running → completed`) and verifies telemetry data is populated. This is the pattern for testing run behavior.
+
+22. **Use golden files or inline expected data for deterministic output** — Generators are seeded (`gen.Config.Seed`), so output is deterministic. `internal/gen/gen_test.go` verifies deterministic behavior. When testing pipeline execution, inline the YAML/JSON pipeline definition in the test (see `internal/ottl/pipeline_executor_test.go` for examples).
+
 ---
 
 ## API Overview (Key Endpoints)
