@@ -34,7 +34,7 @@ export interface FullAttributeDiff {
 }
 
 export interface DiffSpan {
-  span_id: string
+  spanId: string
   name?: string
   status: 'added' | 'removed' | 'modified'
   before?: unknown

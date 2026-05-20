@@ -27,18 +27,18 @@ export function computeStageDiff(before: unknown, after: unknown, stageIndex: nu
   for (const [id, afterSpan] of afterMap) {
     const beforeSpan = beforeMap.get(id)
     if (!beforeSpan) {
-      added.push({ span_id: id, status: 'added', name: afterSpan['name'] as string | undefined, after: afterSpan })
+      added.push({ spanId: id, status: 'added', name: afterSpan['name'] as string | undefined, after: afterSpan })
     } else {
       if (JSON.stringify(beforeSpan) !== JSON.stringify(afterSpan)) {
         const changes = computeSpanChanges(beforeSpan, afterSpan)
-        modified.push({ span_id: id, status: 'modified', name: (afterSpan['name'] || beforeSpan['name']) as string | undefined, before: beforeSpan, after: afterSpan, changes })
+        modified.push({ spanId: id, status: 'modified', name: (afterSpan['name'] || beforeSpan['name']) as string | undefined, before: beforeSpan, after: afterSpan, changes })
       }
     }
   }
 
   for (const [id, beforeSpan] of beforeMap) {
     if (!afterMap.has(id)) {
-      removed.push({ span_id: id, status: 'removed', name: beforeSpan['name'] as string | undefined, before: beforeSpan })
+      removed.push({ spanId: id, status: 'removed', name: beforeSpan['name'] as string | undefined, before: beforeSpan })
     }
   }
 
@@ -115,58 +115,6 @@ function extractSpans(data: unknown): Array<{ spanId: string; [key: string]: unk
 
 function countSpans(data: unknown): number {
   return extractSpans(data).length
-}
-
-export function base64ToHex(b64: string): string {
-  try {
-    const bytes = atob(b64)
-    return Array.from(bytes, c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-  } catch {
-    return b64
-  }
-}
-
-export function isZeroId(id: string): boolean {
-  try {
-    const bytes = atob(id)
-    return bytes.length > 0 && Array.from(bytes).every(c => c === '\0')
-  } catch {
-    return false
-  }
-}
-
-/** Fields in OTLP JSON that contain base64-encoded trace/span IDs. */
-const ID_FIELDS = new Set([
-  'trace_id', 'span_id', 'parent_span_id',
-  'traceId', 'spanId', 'parentSpanId',
-])
-
-/**
- * Walk the data tree and convert base64-encoded trace/span ID fields
- * to hex strings (e.g. "3x2h0QAA" → "df1da1d10000").
- * Used to make JSON Output, Unified Diff, and Export consistent
- * with Inline Diff which already shows hex IDs.
- */
-export function convertTraceSpanIds(data: unknown): unknown {
-  if (data === null || data === undefined) return data
-  if (typeof data === 'string') return data
-  if (Array.isArray(data)) {
-    return data.map(convertTraceSpanIds)
-  }
-  if (typeof data === 'object') {
-    const result: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-      if (ID_FIELDS.has(key) && typeof value === 'string' && value.length > 0) {
-        result[key] = base64ToHex(value as string)
-      } else if (typeof value === 'object' && value !== null) {
-        result[key] = convertTraceSpanIds(value)
-      } else {
-        result[key] = value
-      }
-    }
-    return result
-  }
-  return data
 }
 
 export function computeSpanChanges(before: unknown, after: unknown): SpanChange[] {
@@ -324,5 +272,5 @@ export function highlightJSON(str: string): string {
 }
 
 export function formatJSON(val: unknown): string {
-  return JSON.stringify(convertTraceSpanIds(val), null, 2)
+  return JSON.stringify(val, null, 2)
 }
