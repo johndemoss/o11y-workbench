@@ -87,6 +87,27 @@ import (
 	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
+// Signals represents which telemetry signal types to generate.
+// This replaces the magic string SignalType with explicit boolean flags.
+type Signals struct {
+	Traces  bool `json:"traces"`
+	Logs    bool `json:"logs"`
+	Metrics bool `json:"metrics"`
+}
+
+// NewSignalsFromType converts legacy signal type strings to the new Signals struct.
+// Used for backwards compatibility during migration.
+func NewSignalsFromType(signalType string) Signals {
+	if signalType == "" {
+		signalType = "traces"
+	}
+	return Signals{
+		Traces:  signalType == "traces" || signalType == "both" || signalType == "all" || signalType == "traces+metrics",
+		Logs:    signalType == "logs" || signalType == "both" || signalType == "all" || signalType == "logs+metrics",
+		Metrics: signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics",
+	}
+}
+
 type Config struct {
 	Seed              int64
 	TraceCount        int
@@ -100,7 +121,8 @@ type Config struct {
 	Duration          time.Duration // max run duration; 0 = unlimited
 	Scenario          string        // named scenario; "" means use Topology
 	ScenarioSpanCount int           // per-service span budget for scenarios; 0 means use SpanCount
-	SignalType        string        `json:"signal_type,omitempty"` // "traces" (default), "logs", or "both"
+	SignalType        string        `json:"signal_type,omitempty"` // DEPRECATED: use Signals instead
+	Signals           Signals       `json:"signals,omitempty"`
 	LogConfig         LogConfig     `json:"log_config,omitempty"`
 	MetricConfig      MetricConfig  `json:"metric_config,omitempty"`
 }
@@ -116,6 +138,41 @@ func DefaultConfig() Config {
 		BaseTime:      time.Now(),
 		TraceDuration: 5 * time.Second,
 	}
+}
+
+// IncludesTraces returns true if traces should be generated.
+// Prefers the Signals field if set, falls back to SignalType for backwards compat.
+func (c Config) IncludesTraces() bool {
+	// Prefer Signals if set
+	if c.Signals != (Signals{}) {
+		return c.Signals.Traces
+	}
+	// Fall back to SignalType for backwards compat
+	st := c.SignalType
+	if st == "" {
+		st = "traces"
+	}
+	return st == "traces" || st == "both" || st == "all" || st == "traces+metrics"
+}
+
+// IncludesLogs returns true if logs should be generated.
+// Prefers the Signals field if set, falls back to SignalType for backwards compat.
+func (c Config) IncludesLogs() bool {
+	if c.Signals != (Signals{}) {
+		return c.Signals.Logs
+	}
+	st := c.SignalType
+	return st == "logs" || st == "both" || st == "all" || st == "logs+metrics"
+}
+
+// IncludesMetrics returns true if metrics should be generated.
+// Prefers the Signals field if set, falls back to SignalType for backwards compat.
+func (c Config) IncludesMetrics() bool {
+	if c.Signals != (Signals{}) {
+		return c.Signals.Metrics
+	}
+	st := c.SignalType
+	return st == "metrics" || st == "all" || st == "traces+metrics" || st == "logs+metrics"
 }
 
 type Generator struct {

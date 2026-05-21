@@ -312,14 +312,14 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 		Scenario: scenario, StartedAt: time.Now(), TraceCount: cfg.TraceCount,
 		Endpoints: epCopy, Insecure: insecure, Output: output,
 	}
-	if cfg.SignalType == "logs" || cfg.SignalType == "both" || cfg.SignalType == "all" || cfg.SignalType == "logs+metrics" {
+	if cfg.IncludesLogs() {
 		run.LogCount = cfg.LogConfig.LogCount
-		if cfg.LogConfig.LogsPerSpan > 0 && (cfg.SignalType == "both" || cfg.SignalType == "all") {
+		if cfg.LogConfig.LogsPerSpan > 0 && (cfg.IncludesTraces() && cfg.IncludesLogs()) {
 			// LogCount will be computed after trace generation.
 			run.LogCount = 0
 		}
 	}
-	if cfg.SignalType == "metrics" || cfg.SignalType == "all" || cfg.SignalType == "traces+metrics" || cfg.SignalType == "logs+metrics" {
+	if cfg.IncludesMetrics() {
 		run.MetricCount = cfg.MetricConfig.MetricCount
 	}
 	store.Add(run)
@@ -381,13 +381,9 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	var traceErr, logErr, metricErr error
 
 	// Determine which signals to generate.
-	signalType := cfg.SignalType
-	if signalType == "" {
-		signalType = "traces"
-	}
-	doTraces := signalType == "traces" || signalType == "both" || signalType == "all" || signalType == "traces+metrics"
-	doLogs := signalType == "logs" || signalType == "both" || signalType == "all" || signalType == "logs+metrics"
-	doMetrics := signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics"
+	doTraces := cfg.IncludesTraces()
+	doLogs := cfg.IncludesLogs()
+	doMetrics := cfg.IncludesMetrics()
 
 	// --- TRACE GENERATION ---
 	if doTraces {
@@ -478,7 +474,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 
 		var traceSpans []*tracev1.ResourceSpans
-		if signalType == "both" || signalType == "all" {
+		if cfg.IncludesTraces() && cfg.IncludesLogs() {
 			traceSpans = buf.spans
 		}
 		logErr = lg.Run(genCtx, logExp, traceSpans)

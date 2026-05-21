@@ -205,17 +205,23 @@ function syncTraceCountDuration(changedId) {
 
 // --- Signal type UI ---
 
-function getSignalType() {
+function getSignals() {
   const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
-  const checked = [];
-  checks.forEach(c => { if (c.checked) checked.push(c.value); });
-  if (checked.length === 0) return 'traces'; // default — shouldn't happen since traces can't be unchecked alone
-  if (checked.length === 1) return checked[0]; // 'traces', 'logs', or 'metrics'
-  if (checked.includes('traces') && checked.includes('logs') && checked.includes('metrics')) return 'all';
-  if (checked.includes('traces') && checked.includes('logs')) return 'both';
-  if (checked.includes('traces') && checked.includes('metrics')) return 'traces+metrics';
-  if (checked.includes('logs') && checked.includes('metrics')) return 'logs+metrics';
-  return 'traces';
+  const signals = {
+    traces: false,
+    logs: false,
+    metrics: false
+  };
+  checks.forEach(c => {
+    if (c.checked && signals.hasOwnProperty(c.value)) {
+      signals[c.value] = true;
+    }
+  });
+  // Default to traces if nothing selected
+  if (!signals.traces && !signals.logs && !signals.metrics) {
+    signals.traces = true;
+  }
+  return signals;
 }
 
 function updateAllPillState(containerId) {
@@ -543,10 +549,7 @@ async function startRun() {
   const statusEl = document.getElementById('run-status');
   statusEl.textContent = 'Starting...';
 
-  const signalType = getSignalType();
-  const hasTraces = document.querySelector('#signal-type input[value="traces"]').checked;
-  const hasLogs = document.querySelector('#signal-type input[value="logs"]').checked;
-  const hasMetrics = document.querySelector('#signal-type input[value="metrics"]').checked;
+  const signals = getSignals();
 
   var body = {
     seed: parseInt(document.getElementById('seed').value) || 42,
@@ -554,10 +557,10 @@ async function startRun() {
     format: document.getElementById('format').value,
     insecure: document.getElementById('insecure').checked,
     endpoints: document.getElementById('endpoints').value.split(',').map(s => s.trim()).filter(s => s),
-    signal_type: signalType
+    signals: signals
   };
 
-  if (hasTraces) {
+  if (signals.traces) {
     body.trace_count = parseInt(document.getElementById('trace-count').value) || 0;
     body.rate = parseInt(document.getElementById('rate').value) || 0;
     body.duration = parseInt(document.getElementById('duration').value) || 0;
@@ -569,7 +572,7 @@ async function startRun() {
     body.service_name = document.getElementById('service-name').value || 'mock-service';
   }
 
-  if (hasMetrics) {
+  if (signals.metrics) {
     body.metric_config = {
       enabled: true,
       metric_count: parseInt(document.getElementById('metric-count').value) || 20,
@@ -581,7 +584,7 @@ async function startRun() {
     };
   }
 
-  if (hasLogs) {
+  if (signals.logs) {
     body.log_config = {
       enabled: true,
       logs_per_span: parseInt(document.getElementById('logs-per-span').value) || 3,
@@ -792,18 +795,29 @@ function startPolling() {
 
 let lastDetailKey = '';
 
-function getRunSignalType(r) {
-  if (r.output === 'import') return 'traces';
-  return r.config?.signal_type || 'traces';
+function getRunSignals(r) {
+  if (r.output === 'import') {
+    return { traces: true, logs: false, metrics: false };
+  }
+  // Prefer signals object if available, fall back to signal_type for backwards compat
+  if (r.config?.signals) {
+    return r.config.signals;
+  }
+  // Default to traces
+  return { traces: true, logs: false, metrics: false };
 }
 
-function getSignalBadge(signalType) {
-  if (signalType === 'both') return '<span class="signal-badge both">TL</span>';
-  if (signalType === 'logs') return '<span class="signal-badge logs">L</span>';
-  if (signalType === 'metrics') return '<span class="signal-badge metrics">M</span>';
-  if (signalType === 'all') return '<span class="signal-badge all">A</span>';
-  if (signalType === 'traces+metrics') return '<span class="signal-badge both" style="background:rgba(34,197,94,0.2);color:#4ade80">TM</span>';
-  if (signalType === 'logs+metrics') return '<span class="signal-badge both" style="background:rgba(139,92,246,0.2);color:#c084fc">LM</span>';
+function getSignalBadge(signals) {
+  const t = signals.traces || false;
+  const l = signals.logs || false;
+  const m = signals.metrics || false;
+
+  if (t && l && m) return '<span class="signal-badge all">A</span>';
+  if (t && l) return '<span class="signal-badge both">TL</span>';
+  if (t && m) return '<span class="signal-badge both" style="background:rgba(34,197,94,0.2);color:#4ade80">TM</span>';
+  if (l && m) return '<span class="signal-badge both" style="background:rgba(139,92,246,0.2);color:#c084fc">LM</span>';
+  if (l) return '<span class="signal-badge logs">L</span>';
+  if (m) return '<span class="signal-badge metrics">M</span>';
   return '<span class="signal-badge traces">T</span>';
 }
 
@@ -840,8 +854,8 @@ function renderRunList() {
     return;
   }
   list.innerHTML = entries.map(r => {
-    const signalType = getRunSignalType(r);
-    const signalBadge = getSignalBadge(signalType);
+    const signals = getRunSignals(r);
+    const signalBadge = getSignalBadge(signals);
     const scenario = r.scenario || r.config?.Scenario || '';
     const scenarioTag = scenario ? ' &middot; ' + scenario : '';
     const isImported = r.output === 'import';
@@ -910,7 +924,7 @@ function renderDetail(r) {
   lastDetailKey = key;
 
   const el = document.getElementById('detail-content');
-  const signalType = getRunSignalType(r);
+  const signals = getRunSignals(r);
   const hasLogs = r.log_data || (r.log_count && r.log_count > 0);
 
   // Running state

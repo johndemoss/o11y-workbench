@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/ottl"
 )
 
@@ -39,10 +40,11 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RunID      string   `json:"run_id"`
-		Config     string   `json:"config"`
-		Statements []string `json:"statements"` // backward compat
-		SignalType string   `json:"signal_type"`
+		RunID      string        `json:"run_id"`
+		Config     string        `json:"config"`
+		Statements []string      `json:"statements"` // backward compat
+		SignalType string        `json:"signal_type"` // DEPRECATED: use Signals
+		Signals    *gen.Signals  `json:"signals"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -59,12 +61,18 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	signalType := req.SignalType
-	if signalType == "" {
-		signalType = "traces"
+	// Normalize signal selection: prefer new Signals format, fall back to SignalType
+	signals := req.Signals
+	if signals == nil {
+		signalType := req.SignalType
+		if signalType == "" {
+			signalType = "traces"
+		}
+		s := gen.NewSignalsFromType(signalType)
+		signals = &s
 	}
 
-	if signalType == "both" {
+	if signals.Traces && signals.Logs && !signals.Metrics {
 		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(req.Config)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
@@ -101,7 +109,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signalType == "all" {
+	if signals.Traces && signals.Logs && signals.Metrics {
 		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(req.Config)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
@@ -150,7 +158,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signalType == "logs" {
+	if signals.Logs && !signals.Traces && !signals.Metrics {
 		if run.LogData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be transformed"})
 			return
@@ -182,7 +190,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signalType == "metrics" {
+	if signals.Metrics && !signals.Traces && !signals.Logs {
 		if run.MetricData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no metric data; only completed runs with metric data can be transformed"})
 			return
@@ -253,7 +261,8 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		Config     string         `json:"config"`
 		Mode       ottl.FilterMode `json:"mode"`
 		Conditions []string       `json:"conditions"` // backward compat
-		SignalType string         `json:"signal_type"`
+		SignalType string         `json:"signal_type"` // DEPRECATED: use Signals
+		Signals    *gen.Signals   `json:"signals"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -273,12 +282,18 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	signalType := req.SignalType
-	if signalType == "" {
-		signalType = "traces"
+	// Normalize signal selection: prefer new Signals format, fall back to SignalType
+	signals := req.Signals
+	if signals == nil {
+		signalType := req.SignalType
+		if signalType == "" {
+			signalType = "traces"
+		}
+		s := gen.NewSignalsFromType(signalType)
+		signals = &s
 	}
 
-	if signalType == "both" {
+	if signals.Traces && signals.Logs && !signals.Metrics {
 		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(req.Config)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
@@ -311,7 +326,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signalType == "all" {
+	if signals.Traces && signals.Logs && signals.Metrics {
 		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(req.Config)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
@@ -355,7 +370,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signalType == "logs" {
+	if signals.Logs && !signals.Traces && !signals.Metrics {
 		if run.LogData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be filtered"})
 			return
@@ -389,7 +404,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if signalType == "metrics" {
+	if signals.Metrics && !signals.Traces && !signals.Logs {
 		if run.MetricData == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no metric data; only completed runs with metric data can be filtered"})
 			return
@@ -458,9 +473,10 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config     string `json:"config"`
-		Conditions []string `json:"conditions"` // backward compat
-		SignalType string `json:"signal_type"`  // OTTL context (traces/logs/metrics)
+		Config     string       `json:"config"`
+		Conditions []string     `json:"conditions"` // backward compat
+		SignalType string       `json:"signal_type"` // DEPRECATED: use Signals
+		Signals    *gen.Signals `json:"signals"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -479,12 +495,18 @@ func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request
 		conditions = req.Conditions
 	}
 
-	signalType := req.SignalType
-	if signalType == "" {
-		signalType = "traces"
+	// Normalize signal selection: prefer new Signals format, fall back to SignalType
+	signals := req.Signals
+	if signals == nil {
+		signalType := req.SignalType
+		if signalType == "" {
+			signalType = "traces"
+		}
+		s := gen.NewSignalsFromType(signalType)
+		signals = &s
 	}
 
-	result := ottl.ValidateFilterConditionsParse(conditions, signalType)
+	result := ottl.ValidateFilterConditionsParse(conditions, *signals)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest

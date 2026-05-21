@@ -20,6 +20,7 @@ import (
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
@@ -32,7 +33,7 @@ import (
 // "traces" → span, "logs" → log, "metrics" → datapoint.
 // Combined types like "both", "all", "traces+metrics", "logs+metrics" are also
 // supported — a condition is valid if it parses correctly in ANY selected context.
-func ValidateFilterConditionsParse(conditions []string, signalType string) ValidateResult {
+func ValidateFilterConditionsParse(conditions []string, signals gen.Signals) ValidateResult {
 	if len(conditions) == 0 {
 		return ValidateResult{
 			Valid:  false,
@@ -104,23 +105,19 @@ func ValidateFilterConditionsParse(conditions []string, signalType string) Valid
 		return parsers, nil
 	}
 
-	// Map combined signal type to the set of parser contexts to check.
+	// Collect signal contexts to check based on enabled flags.
 	var sigs []string
-	switch signalType {
-	case "logs":
-		sigs = []string{"logs"}
-	case "metrics":
-		sigs = []string{"metrics"}
-	case "both":
-		sigs = []string{"traces", "logs"}
-	case "all":
-		sigs = []string{"traces", "logs", "metrics"}
-	case "traces+metrics":
-		sigs = []string{"traces", "metrics"}
-	case "logs+metrics":
-		sigs = []string{"logs", "metrics"}
-	default:
-		// "traces" (or unknown) — use span context
+	if signals.Traces {
+		sigs = append(sigs, "traces")
+	}
+	if signals.Logs {
+		sigs = append(sigs, "logs")
+	}
+	if signals.Metrics {
+		sigs = append(sigs, "metrics")
+	}
+	if len(sigs) == 0 {
+		// Default to traces if nothing selected
 		sigs = []string{"traces"}
 	}
 
@@ -135,7 +132,7 @@ func ValidateFilterConditionsParse(conditions []string, signalType string) Valid
 	if len(parsers) == 0 {
 		return ValidateResult{
 			Valid:  false,
-			Errors: []string{fmt.Sprintf("no parsers available for signal type: %s", signalType)},
+			Errors: []string{fmt.Sprintf("no parsers available for signals: %v", sigs)},
 		}
 	}
 

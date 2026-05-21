@@ -25,7 +25,8 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Format            string           `json:"format"`
 		Endpoints         []string         `json:"endpoints"`
 		Insecure          *bool            `json:"insecure"`
-		SignalType        string           `json:"signal_type"`
+		SignalType        string           `json:"signal_type"` // DEPRECATED: use Signals
+		Signals           *gen.Signals     `json:"signals"`
 		LogConfig         gen.LogConfig    `json:"log_config"`
 		MetricConfig      gen.MetricConfig `json:"metric_config"`
 	}
@@ -51,10 +52,21 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Normalize signal selection: prefer new Signals format, fall back to SignalType
+	signals := body.Signals
+	if signals == nil {
+		// Backwards compat: derive from SignalType string
+		signalType := body.SignalType
+		if signalType == "" {
+			signalType = "traces"
+		}
+		s := gen.NewSignalsFromType(signalType)
+		signals = &s
+	}
+
 	var topoType gen.TopologyType
 	if body.Scenario == "" {
-		signalIncludesTraces := body.SignalType == "" || body.SignalType == "traces" || body.SignalType == "both" || body.SignalType == "all" || body.SignalType == "traces+metrics"
-		if signalIncludesTraces {
+		if signals.Traces {
 			var err error
 			topoType, err = gen.ParseTopology(body.Topology)
 			if err != nil {
@@ -62,11 +74,6 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}
-
-	signalType := body.SignalType
-	if signalType == "" {
-		signalType = "traces"
 	}
 
 	cfg := gen.Config{
@@ -77,13 +84,14 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		BaseTime:    time.Now(),
 		TraceDuration: 5 * time.Second,
 		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
-		SignalType:   signalType,
+		Signals:      *signals,
+		SignalType:   gen.DeriveSignalType(*signals), // for backwards compat in responses
 		LogConfig:    body.LogConfig,
 		MetricConfig: body.MetricConfig,
 	}
 
 	// Validate log config.
-	if signalType == "logs" || signalType == "both" || signalType == "all" || signalType == "logs+metrics" {
+	if cfg.IncludesLogs() {
 		cfg.LogConfig.Enabled = true
 		if cfg.LogConfig.LogCount == 0 {
 			cfg.LogConfig.LogCount = gen.DefaultLogConfig().LogCount
@@ -101,7 +109,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate metric config.
-	if signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics" {
+	if cfg.IncludesMetrics() {
 		cfg.MetricConfig.Enabled = true
 		if cfg.MetricConfig.MetricCount == 0 {
 			cfg.MetricConfig.MetricCount = gen.DefaultMetricConfig().MetricCount
