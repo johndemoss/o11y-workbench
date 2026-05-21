@@ -83,12 +83,10 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate log config.
-	if signalType == "logs" || signalType == "both" {
-		if signalType == "logs" || signalType == "both" {
-			cfg.LogConfig.Enabled = true
-			if cfg.LogConfig.LogCount == 0 {
-				cfg.LogConfig.LogCount = gen.DefaultLogConfig().LogCount
-			}
+	if signalType == "logs" || signalType == "both" || signalType == "all" || signalType == "logs+metrics" {
+		cfg.LogConfig.Enabled = true
+		if cfg.LogConfig.LogCount == 0 {
+			cfg.LogConfig.LogCount = gen.DefaultLogConfig().LogCount
 		}
 		if cfg.LogConfig.SeverityDist == (gen.SeverityDistribution{}) {
 			def := gen.DefaultLogConfig()
