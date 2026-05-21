@@ -18,6 +18,7 @@ import (
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/logging"
 	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
@@ -440,6 +441,10 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 
 	// --- LOG GENERATION ---
 	if doLogs && traceErr == nil {
+		logging.Debugf("Starting log generation. doLogs=%v, traceErr=%v", doLogs, traceErr)
+		logging.Debugf("cfg.LogConfig = %+v", cfg.LogConfig)
+		logging.Debugf("len(buf.spans) = %d", len(buf.spans))
+
 		logExp := export.LogExporter(logBuf)
 		if run.Output == "otlp" {
 			otlpLogExporters := make(map[region.Name]export.LogExporter)
@@ -476,12 +481,19 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		var traceSpans []*tracev1.ResourceSpans
 		if cfg.IncludesTraces() && cfg.IncludesLogs() {
 			traceSpans = buf.spans
+			logging.Debugf("Passing %d ResourceSpans to log generator for correlation", len(traceSpans))
+		} else {
+			logging.Debugf("No trace correlation - generating standalone logs")
 		}
 		logErr = lg.Run(genCtx, logExp, traceSpans)
+		logging.Debugf("Log generation completed. logErr=%v", logErr)
 	}
 
 	// --- METRIC GENERATION ---
 	if doMetrics && traceErr == nil && logErr == nil {
+		logging.Debugf("Starting metric generation. doMetrics=%v, traceErr=%v, logErr=%v", doMetrics, traceErr, logErr)
+		logging.Debugf("cfg.MetricConfig = %+v", cfg.MetricConfig)
+
 		metricExp := export.MetricExporter(metricBuf)
 		if run.Output == "otlp" {
 			otlpMetricExporters := make(map[region.Name]export.MetricExporter)

@@ -15,6 +15,7 @@ import (
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/logging"
 	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
@@ -115,6 +116,9 @@ type tsPair struct {
 // per span, with trace/span IDs correlated.  When traceSpans is nil the generator
 // produces LogCount independent log records.
 func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter, traceSpans []*tracev1.ResourceSpans) error {
+	logging.Debugf("LogGen: Starting. len(traceSpans)=%d, LogsPerSpan=%d, LogCount=%d",
+		len(traceSpans), g.Config.LogsPerSpan, g.Config.LogCount)
+
 	tmpl, err := template.New("body").Parse(g.Config.BodyTemplate)
 	if err != nil {
 		return fmt.Errorf("parse body template: %w", err)
@@ -147,13 +151,20 @@ func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter, traceSpa
 			}
 		}
 		totalLogs = len(pairs) * g.Config.LogsPerSpan
+		logging.Debugf("LogGen: Extracted %d trace/span pairs, totalLogs=%d", len(pairs), totalLogs)
 	} else {
 		totalLogs = g.Config.LogCount
+		logging.Debugf("LogGen: No trace correlation, totalLogs=%d (from LogCount)", totalLogs)
 	}
 
 	if totalLogs == 0 {
+		logging.Debugf("LogGen: EARLY RETURN - totalLogs is 0")
+		logging.Warnf("LogGen: totalLogs is 0 (%d traceSpans, %d pairs, LogsPerSpan=%d, LogCount=%d)",
+			len(traceSpans), len(pairs), g.Config.LogsPerSpan, g.Config.LogCount)
 		return nil
 	}
+
+	logging.Debugf("LogGen: Proceeding to generate %d logs", totalLogs)
 
 	// Use a deterministic seed for reproducible severity distributions but
 	// fresh randomness for timestamps and IDs.
