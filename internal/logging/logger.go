@@ -2,76 +2,64 @@ package logging
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 )
 
-type Level int
+var logger *slog.Logger
 
-const (
-	DEBUG Level = iota
-	INFO
-	WARN
-	ERROR
-)
+func init() {
+	level := slog.LevelInfo // default to INFO
 
-var (
-	currentLevel = INFO // default to INFO
-	levelNames   = map[Level]string{
-		DEBUG: "DEBUG",
-		INFO:  "INFO",
-		WARN:  "WARN",
-		ERROR: "ERROR",
+	if logLevel := os.Getenv("O11Y_WORKBENCH_LOG_LEVEL"); logLevel != "" {
+		level = parseLevelString(logLevel)
 	}
-)
 
-func SetLevel(level Level) {
-	currentLevel = level
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	})
+	logger = slog.New(handler)
 }
 
-func SetLevelFromString(s string) {
+func parseLevelString(s string) slog.Level {
 	switch strings.ToUpper(s) {
 	case "DEBUG":
-		currentLevel = DEBUG
+		return slog.LevelDebug
 	case "INFO":
-		currentLevel = INFO
+		return slog.LevelInfo
 	case "WARN":
-		currentLevel = WARN
+		return slog.LevelWarn
 	case "ERROR":
-		currentLevel = ERROR
+		return slog.LevelError
 	default:
-		// Invalid level, keep current
-		log.Printf("Invalid log level '%s', keeping current level %s", s, levelNames[currentLevel])
+		slog.Warn("Invalid log level, defaulting to INFO", "requested", s)
+		return slog.LevelInfo
 	}
 }
 
-func logf(level Level, format string, args ...interface{}) {
-	if level >= currentLevel {
-		msg := fmt.Sprintf(format, args...)
-		log.Printf("[%s] %s", levelNames[level], msg)
-	}
+// SetLogger allows replacing the default logger (useful for OTel bridge integration)
+func SetLogger(l *slog.Logger) {
+	logger = l
 }
 
-func Debugf(format string, args ...interface{}) {
-	logf(DEBUG, format, args...)
+// GetLogger returns the current logger instance
+func GetLogger() *slog.Logger {
+	return logger
 }
 
-func Infof(format string, args ...interface{}) {
-	logf(INFO, format, args...)
+func Debugf(format string, args ...any) {
+	logger.Debug(fmt.Sprintf(format, args...))
 }
 
-func Warnf(format string, args ...interface{}) {
-	logf(WARN, format, args...)
+func Infof(format string, args ...any) {
+	logger.Info(fmt.Sprintf(format, args...))
 }
 
-func Errorf(format string, args ...interface{}) {
-	logf(ERROR, format, args...)
+func Warnf(format string, args ...any) {
+	logger.Warn(fmt.Sprintf(format, args...))
 }
 
-// init reads O11Y_WORKBENCH_LOG_LEVEL from environment on package import
-func init() {
-	if logLevel := os.Getenv("O11Y_WORKBENCH_LOG_LEVEL"); logLevel != "" {
-		SetLevelFromString(logLevel)
-	}
+func Errorf(format string, args ...any) {
+	logger.Error(fmt.Sprintf(format, args...))
 }
