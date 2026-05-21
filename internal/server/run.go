@@ -327,7 +327,15 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 
 	var genCtx context.Context
 	var cancel context.CancelFunc
-	if cfg.Duration > 0 {
+
+	// When multiple signals are enabled, don't use a deadline context
+	// because signals generate sequentially and would time out.
+	// The Duration in cfg controls the trace generator's rate limiting internally.
+	multiSignal := (cfg.IncludesTraces() && cfg.IncludesLogs()) ||
+		(cfg.IncludesTraces() && cfg.IncludesMetrics()) ||
+		(cfg.IncludesLogs() && cfg.IncludesMetrics())
+
+	if cfg.Duration > 0 && !multiSignal {
 		genCtx, cancel = context.WithTimeout(context.Background(), cfg.Duration)
 	} else {
 		genCtx, cancel = context.WithCancel(context.Background())
