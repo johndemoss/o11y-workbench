@@ -14,6 +14,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	insecurecreds "google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/johndemoss/o11y-workbench/internal/logging"
 )
 
 type TracesExporter struct {
@@ -133,6 +135,15 @@ func (e *TracesExporter) Shutdown(ctx context.Context) error {
 }
 
 func (e *LogsExporter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) error {
+	// Count total log records
+	totalLogs := 0
+	for _, rl := range logs {
+		for _, sl := range rl.ScopeLogs {
+			totalLogs += len(sl.LogRecords)
+		}
+	}
+	logging.Debugf("OTLP LogsExporter: Exporting %d ResourceLogs (%d total log records) to %s", len(logs), totalLogs, e.endpoint)
+
 	req := &collectorlogsv1.ExportLogsServiceRequest{
 		ResourceLogs: logs,
 	}
@@ -147,9 +158,11 @@ func (e *LogsExporter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) 
 
 	_, err := e.client.Export(ctx, req)
 	if err != nil {
+		logging.Warnf("OTLP LogsExporter: Export FAILED to %s: %v", e.endpoint, err)
 		return fmt.Errorf("export logs to %s: %w", e.endpoint, err)
 	}
 
+	logging.Debugf("OTLP LogsExporter: Export SUCCESS to %s", e.endpoint)
 	return nil
 }
 

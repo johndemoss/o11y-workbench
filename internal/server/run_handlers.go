@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/logging"
 	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
@@ -35,6 +36,8 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
 		return
 	}
+
+	logging.Debugf("StartRun: Received request body: signals=%+v, log_config=%+v", body.Signals, body.LogConfig)
 
 	insecure := true
 	if body.Insecure != nil {
