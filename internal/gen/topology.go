@@ -237,7 +237,7 @@ func buildSubtree(rng *SeededRNG, alloc, depth, maxDepth int) (*SpanNode, error)
 	}
 
 	available := alloc - 1
-	nCh, err := rng.IntRange(1, 4)
+	nCh, err := rng.IntRange(2, 4)
 	if err != nil {
 		return nil, err
 	}

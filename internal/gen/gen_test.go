@@ -912,6 +912,48 @@ func TestGenerator_SpanCountBranching(t *testing.T) {
 	}
 }
 
+func TestSpanCount_Exact100(t *testing.T) {
+	cases := []struct {
+		name       string
+		topology   gen.TopologyType
+		spanCount  int
+		traceCount int
+	}{
+		{"flat 100", gen.TopologyFlat, 100, 1},
+		{"flat 99", gen.TopologyFlat, 99, 1},
+		{"flat 101", gen.TopologyFlat, 101, 1},
+		{"branching 100", gen.TopologyBranching, 100, 1},
+		{"split 100", gen.TopologySplit, 100, 1},
+		{"flat 100 multi-trace", gen.TopologyFlat, 100, 3},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := gen.Config{
+				Seed:          42,
+				TraceCount:    c.traceCount,
+				Topology:      c.topology,
+				SpanCount:     c.spanCount,
+				MaxDepth:      5,
+				ServiceName:   "test-svc",
+				BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				TraceDuration: 5 * time.Second,
+			}
+			g := gen.NewGenerator(cfg)
+			exp := &mockExporter{}
+			if err := g.Run(context.Background(), exp); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			allSpans := collectAllSpans(exp.spans)
+			want := c.spanCount * c.traceCount
+			if len(allSpans) != want {
+				t.Errorf("expected %d spans, got %d (diff=%d)",
+					want, len(allSpans), len(allSpans)-want)
+			}
+		})
+	}
+}
+
 func TestGenerator_ContextCancellation(t *testing.T) {
 	c := gen.Config{
 		Seed:          42,
