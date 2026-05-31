@@ -2,6 +2,7 @@ package ottl
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -298,5 +299,68 @@ service:
 				}
 			}
 		})
+	}
+}
+
+func TestImportCollectorConfig_ReceiversExporters(t *testing.T) {
+	config := `
+receivers:
+  otlp:
+  prometheus:
+processors:
+  transform/foo:
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["x"], "y")
+exporters:
+  debug:
+  otlphttp:
+service:
+  pipelines:
+    traces:
+      receivers: [otlp, prometheus]
+      processors: [transform/foo]
+      exporters: [debug, otlphttp]
+`
+	got, err := ImportCollectorConfig(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tp, ok := got["traces"]
+	if !ok {
+		t.Fatal("missing traces pipeline")
+	}
+	if want := []string{"otlp", "prometheus"}; !reflect.DeepEqual(tp.Receivers, want) {
+		t.Errorf("receivers: got %v, want %v", tp.Receivers, want)
+	}
+	if want := []string{"debug", "otlphttp"}; !reflect.DeepEqual(tp.Exporters, want) {
+		t.Errorf("exporters: got %v, want %v", tp.Exporters, want)
+	}
+}
+
+func TestImportCollectorConfig_MissingReceiversExporters(t *testing.T) {
+	config := `
+processors:
+  transform/foo:
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["x"], "y")
+service:
+  pipelines:
+    traces:
+      processors: [transform/foo]
+`
+	got, err := ImportCollectorConfig(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tp := got["traces"]
+	if tp.Receivers == nil || len(tp.Receivers) != 0 {
+		t.Errorf("receivers: got %v, want empty non-nil slice", tp.Receivers)
+	}
+	if tp.Exporters == nil || len(tp.Exporters) != 0 {
+		t.Errorf("exporters: got %v, want empty non-nil slice", tp.Exporters)
 	}
 }

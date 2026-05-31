@@ -57,6 +57,8 @@ func ImportCollectorConfig(configYAML string) (PipelinesBySignal, error) {
 			for k, v := range pipeline.Processors {
 				existing.Processors[k] = v
 			}
+			existing.Receivers = unionRefs(existing.Receivers, pipeline.Receivers)
+			existing.Exporters = unionRefs(existing.Exporters, pipeline.Exporters)
 		} else {
 			result[signalName] = pipeline
 		}
@@ -72,6 +74,39 @@ func signalNameFromPipelineKey(key string) string {
 		return key[:idx]
 	}
 	return key
+}
+
+// parseRefList converts a YAML sequence (e.g. a pipeline's receivers/exporters
+// list) into a []string, preserving order and skipping non-string entries.
+// It always returns a non-nil slice so JSON encodes it as [] rather than null.
+func parseRefList(v interface{}) []string {
+	out := []string{}
+	list, ok := v.([]interface{})
+	if !ok {
+		return out
+	}
+	for _, item := range list {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// unionRefs concatenates two reference lists, preserving order and dropping
+// duplicates. Used when several pipeline keys merge into one signal.
+func unionRefs(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := []string{}
+	for _, group := range [][]string{a, b} {
+		for _, s := range group {
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 // buildPipelineFromConfig builds a Pipeline for a single pipeline key from the collector config.
@@ -96,6 +131,8 @@ func buildPipelineFromConfig(pipelinesMap, topProcessorsMap map[string]interface
 	p := &Pipeline{
 		Stages:     make([]Stage, 0, len(procList)),
 		Processors: make(map[string]ProcessorConfig, len(procList)),
+		Receivers:  parseRefList(pipelineMap["receivers"]),
+		Exporters:  parseRefList(pipelineMap["exporters"]),
 	}
 
 	for i, procRef := range procList {

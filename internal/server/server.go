@@ -65,6 +65,11 @@ func (s *Server) registerRoutes() error {
 		s.mux.HandleFunc("POST /api/ottl/pipeline/validate", s.handlePipelineValidate)
 		s.mux.HandleFunc("POST /api/ottl/pipeline/execute", s.handlePipelineExecute)
 		s.mux.HandleFunc("POST /api/ottl/pipeline/import-config", s.handlePipelineImport)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/export", s.handlePipelineExport)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/diff", s.handlePipelineDiff)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/topological-sort", s.handleTopologicalSort)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/would-cycle", s.handleWouldCycle)
+		s.mux.HandleFunc("POST /api/ottl/pipeline/from-yaml", s.handleFromYaml)
 
 		pipelineSub, err := fs.Sub(pipelineFS, "pipeline-ui/dist")
 		if err != nil {

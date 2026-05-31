@@ -37,6 +37,8 @@ type Stage struct {
 type Pipeline struct {
 	Stages     []Stage                    `yaml:"stages" json:"stages"`
 	Processors map[string]ProcessorConfig `yaml:"processors" json:"processors"`
+	Receivers  []string                   `yaml:"receivers" json:"receivers"`
+	Exporters  []string                   `yaml:"exporters" json:"exporters"`
 }
 
 // PipelinesBySignal maps signal names (e.g. "traces", "logs", "metrics") to their Pipeline definitions.
