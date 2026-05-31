@@ -1,0 +1,43 @@
+# graphify ignore rules (gitignore syntax).
+# graphify reads this INSTEAD of the root .gitignore, so the .gitignore
+# entries below are mirrored here to preserve exclusion behavior.
+
+# Build artifacts
+/o11y-workbench
+/o11y-workbench-web
+bin/
+
+# Session/planning artifacts
+.sisyphus/
+
+# Node.js
+node_modules/
+package.json
+package-lock.json
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+traces/
+
+# Svelte pipeline UI build output
+pipeline-ui/dist/
+internal/server/pipeline-ui/dist/
+.playwright-mcp/
+
+# Playwright cache
+pipeline-ui/playwright/.cache/
+screenshots/
+
+# FAC-04: exclude test files from the knowledge graph.
+# Test scaffolding (Go testing.T, TestXxx funcs, vitest/playwright specs)
+# appears mechanically across every package, creating cross-community bridge
+# nodes that inflate betweenness and generate noise-only suggested questions.
+*_test.go
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+**/__tests__/
+pipeline-ui/e2e/
+tests/

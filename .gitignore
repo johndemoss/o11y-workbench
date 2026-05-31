@@ -3,6 +3,10 @@
 /o11y-workbench
 /o11y-workbench-web
 bin/
+*.test
+
+# Graphify knowledge-graph output
+graphify-out/
 
 # Node.js
 node_modules/
