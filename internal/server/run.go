@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,30 +38,38 @@ const (
 
 type Run struct {
 	mu                   sync.Mutex
-	ID                   string             `json:"id"`
-	Status               RunStatus          `json:"status"`
-	Config               gen.Config         `json:"config"`
-	StartedAt            time.Time          `json:"started_at"`
-	CompletedAt          *time.Time         `json:"completed_at,omitempty"`
-	DurationNs           int64              `json:"duration_ns"`
-	SpanCount            int                `json:"span_count"`
-	TraceCount           int                `json:"trace_count"`
-	TraceCountCompleted  int                `json:"trace_count_completed"`
-	LogCount             int                `json:"log_count,omitempty"`
-	LogCountCompleted    int                `json:"log_count_completed,omitempty"`
-	MetricCount          int                `json:"metric_count,omitempty"`
-	MetricCountCompleted int                `json:"metric_count_completed,omitempty"`
-	MetricData           *json.RawMessage   `json:"metric_data,omitempty"`
-	Scenario             string             `json:"scenario,omitempty"`
-	Source               string             `json:"source,omitempty"`
-	Error                string             `json:"error,omitempty"`
-	TraceData            *json.RawMessage   `json:"trace_data,omitempty"`
-	LogData              *json.RawMessage   `json:"log_data,omitempty"`
-	Endpoints            []string           `json:"endpoints"`
-	Insecure             bool               `json:"insecure"`
-	Output               string             `json:"output"`
-	cancel               context.CancelFunc // not exported, not json
-	pauseCh              chan struct{}      // nil when running; non-nil live channel when paused; not exported
+	ID                   string     `json:"id"`
+	Status               RunStatus  `json:"status"`
+	Config               gen.Config `json:"config"`
+	StartedAt            time.Time  `json:"started_at"`
+	CompletedAt          *time.Time `json:"completed_at,omitempty"`
+	DurationNs           int64      `json:"duration_ns"`
+	SpanCount            int        `json:"span_count"`
+	TraceCount           int        `json:"trace_count"`
+	TraceCountCompleted  int        `json:"trace_count_completed"`
+	LogCount             int        `json:"log_count,omitempty"`
+	LogCountCompleted    int        `json:"log_count_completed,omitempty"`
+	MetricCount          int        `json:"metric_count,omitempty"`
+	MetricCountCompleted int        `json:"metric_count_completed,omitempty"`
+	// Computed breakdowns — populated during finalization so the backend is the single source of truth.
+	// These replace client-side aggregation previously done in scripts.js.
+	ResourceSpanCount int                `json:"resource_span_count,omitempty"`
+	LogRecordCount    int                `json:"log_record_count,omitempty"`
+	LogSeverityCounts map[string]int     `json:"log_severity_counts,omitempty"`
+	MetricRecordCount int                `json:"metric_record_count,omitempty"`
+	MetricSeriesCount int                `json:"metric_series_count,omitempty"`
+	MetricTypes       []string           `json:"metric_types,omitempty"`
+	MetricData        *json.RawMessage   `json:"metric_data,omitempty"`
+	Scenario          string             `json:"scenario,omitempty"`
+	Source            string             `json:"source,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	TraceData         *json.RawMessage   `json:"trace_data,omitempty"`
+	LogData           *json.RawMessage   `json:"log_data,omitempty"`
+	Endpoints         []string           `json:"endpoints"`
+	Insecure          bool               `json:"insecure"`
+	Output            string             `json:"output"`
+	cancel            context.CancelFunc // not exported, not json
+	pauseCh           chan struct{}      // nil when running; non-nil live channel when paused; not exported
 }
 
 func (r *Run) Pause() {
@@ -108,7 +118,22 @@ func (r *Run) snapshot() *Run {
 		TraceCount: r.TraceCount, TraceCountCompleted: r.TraceCountCompleted,
 		LogCount: r.LogCount, LogCountCompleted: r.LogCountCompleted,
 		MetricCount: r.MetricCount, MetricCountCompleted: r.MetricCountCompleted,
-		Scenario: r.Scenario, Error: r.Error,
+		ResourceSpanCount: r.ResourceSpanCount,
+		MetricSeriesCount: r.MetricSeriesCount,
+		LogRecordCount:    r.LogRecordCount,
+		LogSeverityCounts: func() map[string]int {
+			if r.LogSeverityCounts == nil {
+				return nil
+			}
+			out := make(map[string]int, len(r.LogSeverityCounts))
+			for k, v := range r.LogSeverityCounts {
+				out[k] = v
+			}
+			return out
+		}(),
+		MetricRecordCount: r.MetricRecordCount,
+		MetricTypes:       append([]string(nil), r.MetricTypes...),
+		Scenario:          r.Scenario, Error: r.Error,
 		Endpoints: append([]string(nil), r.Endpoints...),
 		Insecure:  r.Insecure, Output: r.Output,
 	}
@@ -554,13 +579,32 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			run.LogCount = logTotal
 		}
 	}
+	run.LogRecordCount = logTotal
+	if logTotal > 0 {
+		sevCounts := make(map[string]int)
+		for _, rl := range logBuf.logs {
+			for _, sl := range rl.ScopeLogs {
+				for _, lr := range sl.LogRecords {
+					sev := lr.SeverityText
+					if sev == "" {
+						sev = "INFO"
+					}
+					sev = strings.ToLower(sev)
+					sevCounts[sev]++
+				}
+			}
+		}
+		run.LogSeverityCounts = sevCounts
+	}
 
-	// Count metric data points.
+	// Count metric data points (metricTotal) and metric definitions (metricSeries).
 	metricTotal := 0
+	metricSeries := 0
 	if metricBuf != nil {
 		for _, rm := range metricBuf.metrics {
 			for _, sm := range rm.ScopeMetrics {
 				for _, m := range sm.Metrics {
+					metricSeries++
 					switch m.Data.(type) {
 					case *metricspb.Metric_Gauge:
 						metricTotal += len(m.GetGauge().DataPoints)
@@ -573,11 +617,40 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			}
 		}
 	}
+	run.MetricSeriesCount = metricSeries
 	if metricTotal > 0 {
 		run.MetricCountCompleted = metricTotal
 		if run.MetricCount == 0 {
 			run.MetricCount = metricTotal
 		}
+	}
+	run.MetricRecordCount = metricTotal
+	if metricTotal > 0 {
+		typeSet := make(map[string]struct{})
+		for _, rm := range metricBuf.metrics {
+			for _, sm := range rm.ScopeMetrics {
+				for _, m := range sm.Metrics {
+					switch m.Data.(type) {
+					case *metricspb.Metric_Gauge:
+						typeSet["gauge"] = struct{}{}
+					case *metricspb.Metric_Sum:
+						typeSet["sum"] = struct{}{}
+					case *metricspb.Metric_Histogram:
+						typeSet["histogram"] = struct{}{}
+					case *metricspb.Metric_ExponentialHistogram:
+						typeSet["exponential_histogram"] = struct{}{}
+					case *metricspb.Metric_Summary:
+						typeSet["summary"] = struct{}{}
+					}
+				}
+			}
+		}
+		types := make([]string, 0, len(typeSet))
+		for t := range typeSet {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+		run.MetricTypes = types
 	}
 
 	// Check for cancellation / stop first.
@@ -590,6 +663,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				}
 			}
 			run.SpanCount = total
+			run.ResourceSpanCount = len(buf.spans)
 			if len(buf.spans) > 0 {
 				data, err := marshalTraceJSON(buf.spans)
 				if err == nil {
@@ -653,6 +727,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 	}
 	run.SpanCount = totalSpans
+	run.ResourceSpanCount = len(buf.spans)
 
 	if len(buf.spans) > 0 {
 		data, err := marshalTraceJSON(buf.spans)

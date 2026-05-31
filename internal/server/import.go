@@ -51,15 +51,16 @@ func (s *Server) handleImportRun(w http.ResponseWriter, r *http.Request) {
 	raw := json.RawMessage(data)
 	now := time.Now()
 	run := &Run{
-		ID:          fmt.Sprintf("run-%d", runIDCounter.Add(1)),
-		Status:      RunStatusCompleted,
-		StartedAt:   now,
-		CompletedAt: &now,
-		SpanCount:   totalSpans,
-		TraceCount:  len(traceIDs),
-		Scenario:    "imported",
-		Output:      "import",
-		TraceData:   &raw,
+		ID:                fmt.Sprintf("run-%d", runIDCounter.Add(1)),
+		Status:            RunStatusCompleted,
+		StartedAt:         now,
+		CompletedAt:       &now,
+		SpanCount:         totalSpans,
+		ResourceSpanCount: len(spans),
+		TraceCount:        len(traceIDs),
+		Scenario:          "imported",
+		Output:            "import",
+		TraceData:         &raw,
 	}
 	s.store.Add(run)
 
@@ -135,5 +136,3 @@ func parseOTLPJSON(data []byte) ([]*tracev1.ResourceSpans, error) {
 	}
 	return all, nil
 }
-
-

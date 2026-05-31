@@ -982,58 +982,12 @@ function renderDetail(r) {
   }
 
   // ===== Completed status =====
-  let spanCountTotal = 0, traceCount = 0;
-  if (r.trace_data) {
-    try {
-      const td = typeof r.trace_data === 'string' ? JSON.parse(r.trace_data) : r.trace_data;
-      if (td.resourceSpans) {
-        traceCount = td.resourceSpans.length;
-        td.resourceSpans.forEach(rs => {
-          if (rs.scopeSpans) rs.scopeSpans.forEach(ss => {
-            if (ss.spans) spanCountTotal += ss.spans.length;
-          });
-        });
-      }
-    } catch(e) { /* use r.span_count */ }
-  }
-
-  // Count log records
-  let logRecordCount = 0, logSeverities = {};
-  if (r.log_data) {
-    try {
-      const ld = typeof r.log_data === 'string' ? JSON.parse(r.log_data) : r.log_data;
-      if (ld.resourceLogs) {
-        ld.resourceLogs.forEach(rl => {
-          if (rl.scopeLogs) rl.scopeLogs.forEach(sl => {
-            if (sl.logRecords) {
-              sl.logRecords.forEach(lr => {
-                logRecordCount++;
-                var sev = (lr.severityText || 'INFO').toLowerCase();
-                logSeverities[sev] = (logSeverities[sev] || 0) + 1;
-              });
-            }
-          });
-        });
-      }
-    } catch(e) {}
-  }
-
-  // Count metric data points
-  let metricRecordCount = 0, metricTypes = {};
-  if (r.metric_data) {
-    try {
-      const md = typeof r.metric_data === 'string' ? JSON.parse(r.metric_data) : r.metric_data;
-      if (md.resourceMetrics) {
-        md.resourceMetrics.forEach(rm => {
-          if (rm.scopeMetrics) rm.scopeMetrics.forEach(sm => {
-            if (sm.metrics) {
-              sm.metrics.forEach(m => { metricRecordCount++; });
-            }
-          });
-        });
-      }
-    } catch(e) {}
-  }
+  // Counts come pre-computed from the Go backend; do not re-derive client-side.
+  var spanCountTotal = r.span_count || 0;
+  var traceCount = r.resource_span_count || r.trace_count || 0;
+  var logRecordCount = r.log_record_count || 0;
+  var logSeverities = r.log_severity_counts || {};
+  var metricRecordCount = r.metric_series_count || 0;
 
   const isImported = r.output === 'import';
   var summaryHtml = '<div class="stat-row">';
@@ -1067,7 +1021,7 @@ function renderDetail(r) {
   var hasMetricData = metricRecordCount > 0;
   var tabHtml = '<div class="detail-tabs">';
   if (hasTraceData) {
-    tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Traces<span class="tab-badge">' + (traceCount || r.trace_count || 0) + '</span></button>';
+    tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Spans<span class="tab-badge">' + (spanCountTotal || r.span_count || 0) + '</span></button>';
   }
   if (hasLogData) {
     tabHtml += '<button class="detail-tab' + (detailTab === 'logs' ? ' active' : '') + '" onclick="switchDetailTab(\'logs\')">Logs<span class="tab-badge">' + logRecordCount + '</span></button>';
