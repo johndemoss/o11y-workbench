@@ -283,7 +283,7 @@
   </div>
   {#if deleteConfirmNodeId}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="confirm-overlay" onclick={handleCancelDelete} role="dialog" aria-modal="true">
+    <div class="confirm-overlay" onclick={handleCancelDelete} role="dialog" aria-modal="true" tabindex="-1">
       <div class="confirm-dialog" onclick={(e) => e.stopPropagation()}>
         <p>Delete {deleteConfirmNodeId}?</p>
         <div class="confirm-actions">
@@ -295,8 +295,15 @@
   {/if}
 
   {#if snippetModal && snippetConfig}
-    <div class="modal-overlay" onclick={() => { snippetModal = false; snippetConfig = null }} role="dialog">
-      <div class="snippet-modal" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      onclick={(e) => { if (e.target === e.currentTarget) { snippetModal = false; snippetConfig = null } }}
+      onkeydown={(e) => { if (e.key === 'Escape') { snippetModal = false; snippetConfig = null } }}
+    >
+      <div class="snippet-modal">
         <h3>{snippetConfig.name}</h3>
         <p class="modal-hint">Type: <strong>{snippetConfig.type}</strong></p>
         <p class="modal-hint">{snippetConfig.description}</p>

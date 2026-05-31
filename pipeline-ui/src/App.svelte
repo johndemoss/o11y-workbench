@@ -205,17 +205,27 @@
     <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>
   {/if}
   {#if showImport}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="modal-overlay" onclick={() => showImport = false} onkeydown={(e) => e.key === 'Escape' && (showImport = false)}>
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="modal" onclick={(e) => e.stopPropagation()}><ConfigImport onimport={handleImport} /><button class="btn-close" onclick={() => showImport = false}>Close</button></div>
+    <div
+      class="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      onclick={(e) => { if (e.target === e.currentTarget) showImport = false }}
+      onkeydown={(e) => e.key === 'Escape' && (showImport = false)}
+    >
+      <div class="modal"><ConfigImport onimport={handleImport} /><button class="btn-close" onclick={() => showImport = false}>Close</button></div>
     </div>
   {/if}
   {#if editingStage !== null}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="modal-overlay" onclick={() => editingStage = null} onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}>
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="modal" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      onclick={(e) => { if (e.target === e.currentTarget) editingStage = null }}
+      onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}
+    >
+      <div class="modal">
         <StageEditor stage={editingStage.stage} processor={editingStage.processor} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
         <button class="btn-close" onclick={() => editingStage = null}>Close</button>
       </div>

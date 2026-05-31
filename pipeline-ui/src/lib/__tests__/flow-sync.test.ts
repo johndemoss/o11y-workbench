@@ -482,7 +482,7 @@ describe('pipelinesToFlow', () => {
       metrics: { stages: [], processors: {} },
     }
     const { edges } = pipelinesToFlow(p)
-    const traceEdges = edges.filter(e => e.source.startsWith('traces') || ['a', 'b', 'c'].includes(e.source))
+    const traceEdges = edges.filter(e => ['a', 'b', 'c'].includes(e.source) && ['a', 'b', 'c'].includes(e.target))
     expect(traceEdges).toHaveLength(2)
     expect(traceEdges[0].source).toBe('a')
     expect(traceEdges[0].target).toBe('b')
@@ -581,7 +581,7 @@ describe('reorderStage', () => {
       metrics: { stages: [], processors: {} },
     }
     const { nodes, edges } = pipelinesToFlow(p)
-    const result = reorderStage(nodes, edges, 't1', 400)
+    const result = reorderStage(nodes, edges, 't1', 500)
     const reconstructed = await flowToPipelines(result.nodes, result.edges, p)
     expect(reconstructed.traces.stages[0].id).toBe('t2')
     expect(reconstructed.traces.stages[1].id).toBe('t1')

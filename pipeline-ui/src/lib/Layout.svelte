@@ -1,7 +1,10 @@
 <script lang="ts">
-  let { activeTab = 'graph', onTabChange }: {
+  import type { Snippet } from 'svelte'
+
+  let { activeTab = 'graph', onTabChange, children }: {
     activeTab: 'quick' | 'pipeline' | 'graph'
     onTabChange?: (tab: 'quick' | 'pipeline' | 'graph') => void
+    children?: Snippet
   } = $props()
 </script>
 
@@ -36,7 +39,7 @@
       Pipeline
     </button>
   </div>
-  <slot />
+  {@render children?.()}
 </main>
 
 <style>

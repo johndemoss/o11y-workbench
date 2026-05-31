@@ -97,6 +97,7 @@
       </div>
     {:else}
       {#each pipeline.stages as stage, idx (stage.id)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="stage-card-wrapper"
           draggable="true"
@@ -142,7 +143,6 @@
   .empty-state { text-align: center; padding: 3rem var(--space-md, 1rem); color: var(--color-text-secondary, #94a3b8); border: 2px dashed var(--color-border, #334155); border-radius: var(--radius-lg, 8px); }
   .btn { padding: 0.4rem 0.9rem; border: none; border-radius: var(--radius-md, 6px); cursor: pointer; font-size: 0.875rem; font-weight: 500; }
   .btn-primary { background: var(--color-primary, #3b82f6); color: var(--color-text, #f1f5f9); }
-  .btn-accent { background: var(--color-success, #22c55e); color: var(--color-text, #f1f5f9); }
   .btn-secondary { background: var(--color-surface-hover, #334155); color: var(--color-text, #f1f5f9); }
   .btn-add-stage { width: 100%; padding: 0.6rem; background: var(--color-surface, #1e293b); border: 2px dashed var(--color-border, #334155); border-radius: var(--radius-lg, 8px); cursor: pointer; font-size: 0.9rem; color: var(--color-text, #f1f5f9); }
   .btn-add-stage:hover { background: var(--color-surface-hover, #334155); }

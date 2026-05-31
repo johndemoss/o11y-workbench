@@ -304,10 +304,7 @@
     border-radius: var(--radius-sm, 4px);
     margin-bottom: var(--space-xs, 0.25rem);
   }
-  .stage-data {
-    border-top: 1px solid var(--color-border, #334155);
-    padding: 0.75rem 0.875rem;
-  }
+
   .final-data-section {
     border: 1px solid var(--color-border, #334155);
     border-radius: var(--radius-lg, 8px);

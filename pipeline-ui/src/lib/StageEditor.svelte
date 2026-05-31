@@ -98,8 +98,8 @@ function handleYamlEdit(e: Event) {
     </div>
 
     <div class="field">
-      <label>Type</label>
-      <button class="toggle-type" onclick={handleTypeToggle}>
+      <label for="stage-type-toggle">Type</label>
+      <button id="stage-type-toggle" class="toggle-type" onclick={handleTypeToggle}>
         {stage.type === 'transform' ? 'filter' : 'transform'}
       </button>
       <span class="current-type">{stage.type}</span>
@@ -135,7 +135,7 @@ function handleYamlEdit(e: Event) {
     </div>
 
     <div class="field">
-      <label>Pipeline YAML Preview</label>
+      <span class="field-label">Pipeline YAML Preview</span>
       <pre class="yaml-preview">{pipelineYamlPreview}</pre>
     </div>
   </div>
@@ -198,7 +198,8 @@ function handleYamlEdit(e: Event) {
     gap: var(--space-xs, 0.25rem);
   }
 
-  .field label {
+  .field label,
+  .field .field-label {
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--color-text-secondary, #94a3b8);

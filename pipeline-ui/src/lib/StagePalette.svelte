@@ -90,6 +90,7 @@
         {#if searchActive || sectionOpen[st.type]}
           {#each filteredSnippetsByType[st.type] as snippet}
           <div class="snippet-row">
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="snippet-card" style="border-left-color: {STAGE_COLORS[snippet.type]?.border ?? '#334155'}" draggable={true}
               ondragstart={(e) => onDragStartSnippet(e, snippet)}
               onkeydown={(e) => e.key === 'Enter' && onDragStartSnippet(e as unknown as DragEvent, snippet)}>
