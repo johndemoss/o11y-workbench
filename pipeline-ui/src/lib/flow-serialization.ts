@@ -56,12 +56,12 @@ export function pipelineToFlow(pipeline: Pipeline): {
  * @returns The reconstructed pipeline model
  * @throws {Error} If the graph contains a cycle
  */
-export function flowToPipeline(
+export async function flowToPipeline(
 	nodes: Node<StageNodeData>[],
 	edges: Edge[],
 	currentPipeline: Pipeline,
-): Pipeline {
-	const sortedIds = topologicalSort(nodes, edges);
+): Promise<Pipeline> {
+	const sortedIds = await topologicalSort(nodes, edges);
 
 	const stages: Stage[] = [];
 	for (const id of sortedIds) {
@@ -245,11 +245,11 @@ export function pipelinesToFlow(
  * each swimlane, and reconstructs the PipelinesBySignal structure while
  * preserving processor configurations from the current pipelines.
  */
-export function flowToPipelines(
+export async function flowToPipelines(
 	flowNodes: Node<StageNodeData>[],
 	flowEdges: Edge[],
 	currentPipelines: PipelinesBySignal,
-): PipelinesBySignal {
+): Promise<PipelinesBySignal> {
 	const result: PipelinesBySignal = {
 		traces: { stages: [], processors: { ...currentPipelines.traces?.processors }, receivers: [...(currentPipelines.traces?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.traces?.exporters ?? ['debug'])] },
 		logs: { stages: [], processors: { ...currentPipelines.logs?.processors }, receivers: [...(currentPipelines.logs?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.logs?.exporters ?? ['debug'])] },
@@ -274,7 +274,7 @@ export function flowToPipelines(
 			(e) => swimlaneIds.has(e.source) && swimlaneIds.has(e.target),
 		);
 
-		const orderedIds = topologicalSort(swimlaneStageNodes as any, swimlaneEdges);
+		const orderedIds = await topologicalSort(swimlaneStageNodes as any, swimlaneEdges);
 
 		const signalStages: Stage[] = [];
 		const signalProcessors: Record<string, ProcessorConfig> = {

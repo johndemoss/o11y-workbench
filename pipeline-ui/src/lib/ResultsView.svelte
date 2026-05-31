@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { computeAllStageDiffs, computeUnifiedDiff, formatJSON, highlightJSON } from './diff'
+  import { computeUnifiedDiff, formatJSON, highlightJSON } from './diff'
   import type { UnifiedDiffLine } from './diff'
   import type { PipelineResult, StageDiff } from './types'
   import StatsBar from './StatsBar.svelte'
@@ -28,15 +28,54 @@
     return `${(ns / 1_000_000_000).toFixed(3)}s`
   }
 
-  function inferStageType(id: string): string {
-    if (id.includes('transform')) return 'transform'
-    if (id.includes('filter')) return 'filter'
-    return 'unknown'
-  }
+  let stageDiffs: StageDiff[] = $state([])
+  let loadingDiff = $state(false)
+  let diffError = $state<string | null>(null)
 
-  let stageDiffs: StageDiff[] = $derived(
-    result ? computeAllStageDiffs(result.stages, originalData) : []
-  )
+  $effect(() => {
+    if (!result) {
+      stageDiffs = []
+      diffError = null
+      return
+    }
+
+    let cancelled = false
+
+    async function fetchDiffs() {
+      loadingDiff = true
+      diffError = null
+
+      try {
+        const res = await fetch('/api/ottl/pipeline/diff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stages: result.stages,
+            original_data: originalData ?? null
+          })
+        })
+
+        if (cancelled) return
+
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+          throw new Error(errBody.error || `Request failed with status ${res.status}`)
+        }
+
+        stageDiffs = await res.json()
+      } catch (e) {
+        if (cancelled) return
+        diffError = e instanceof Error ? e.message : 'Failed to compute stage diffs'
+        stageDiffs = []
+      } finally {
+        if (!cancelled) loadingDiff = false
+      }
+    }
+
+    fetchDiffs()
+
+    return () => { cancelled = true }
+  })
 
   let expandedRaw: Set<number> = $state(new Set())
 
@@ -81,11 +120,21 @@
   {:else}
     <StatsBar finalSpanCount={result.final_span_count} stageCount={result.stages.length} />
 
+    {#if loadingDiff}
+      <div class="diff-loading">Computing stage diffs…</div>
+    {/if}
+
+    {#if diffError}
+      <div class="diff-error-box">
+        <strong>Diff computation failed:</strong> {diffError}
+      </div>
+    {/if}
+
     <div class="stages">
       {#each result.stages as stage}
         <div class="stage-card">
           <button class="stage-header" onclick={() => toggleStage(stage.stage_index)}>
-            <span class="stage-title">Stage {stage.stage_index}: {stage.stage_id} ({inferStageType(stage.stage_id)})</span>
+            <span class="stage-title">Stage {stage.stage_index}: {stage.stage_id}</span>
             <span class="stage-duration">{formatDuration(stage.duration_ns)}</span>
             <span class="expand-icon">{expandedStages.has(stage.stage_index) ? '▾' : '▸'}</span>
           </button>
@@ -164,6 +213,24 @@
     text-align: center;
     padding: var(--space-xl, 2rem);
     font-style: italic;
+  }
+  .diff-loading {
+    text-align: center;
+    padding: var(--space-md, 1rem);
+    color: var(--color-text-secondary, #94a3b8);
+    font-style: italic;
+  }
+  .diff-error-box {
+    background: var(--color-error-bg, #7f1d1d);
+    color: var(--color-error, #ef4444);
+    border: 1px solid var(--color-error, #ef4444);
+    padding: 0.75rem var(--space-md, 1rem);
+    border-radius: var(--radius-md, 6px);
+    font-size: 0.875rem;
+    margin-bottom: var(--space-md, 1rem);
+  }
+  .diff-error-box strong {
+    font-weight: 600;
   }
   .stages {
     display: flex;

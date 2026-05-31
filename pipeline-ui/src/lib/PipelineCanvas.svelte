@@ -141,7 +141,7 @@
   }
 
   // ─── Connect (user drags between handles) ────────────────────────────────
-  function handleConnect(connection: Connection) {
+  async function handleConnect(connection: Connection) {
     onResultClear?.()
     // Reject incomplete connections
     if (!connection.source || !connection.target) return
@@ -164,7 +164,7 @@
     }
 
     // Prevent cycle-causing connections
-    if (wouldCreateCycle(edges, connection)) {
+    if (await wouldCreateCycle(edges, connection)) {
       connectError = 'Cannot create a cycle in the pipeline'
       setTimeout(() => { connectError = null }, 2500)
       return

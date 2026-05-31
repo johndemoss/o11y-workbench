@@ -3,10 +3,30 @@ import type { PipelinesBySignal } from './types'
 
 /**
  * Generates a full OTel Collector config YAML string from PipelinesBySignal.
+ * Uses the Go backend API with fallback to client-side generation for export.
  * Each signal type becomes a pipeline under service.pipelines.
  * Processor configs are merged into the top-level processors section.
  */
-export function exportPipelinesToYaml(pipelines: PipelinesBySignal): string {
+export async function exportPipelinesToYaml(pipelines: PipelinesBySignal): Promise<string> {
+  try {
+    const res = await fetch('/api/ottl/pipeline/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pipelines),
+    })
+    if (!res.ok) throw new Error(`API error: ${res.status}`)
+    return await res.text()
+  } catch {
+    // Fallback to client-side YAML generation
+    return exportPipelinesToYamlLocal(pipelines)
+  }
+}
+
+/**
+ * Client-side YAML generation (fallback for when API is unavailable).
+ * Used directly by tests and when the backend is offline.
+ */
+export function exportPipelinesToYamlLocal(pipelines: PipelinesBySignal): string {
   const lines: string[] = []
 
   // Receivers section

@@ -9,7 +9,7 @@
   import ResultsView from './lib/ResultsView.svelte'
   import ConfigImport from './lib/ConfigImport.svelte'
   import QuickTab from './lib/QuickTab.svelte'
-  import { exportPipelinesToYaml, downloadYaml } from './lib/export-yaml'
+  import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
   import yaml from 'js-yaml'
 
   let pipeline: Pipeline = $state({ stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
@@ -64,7 +64,7 @@
 
   function handlePipelinesChange(p: PipelinesBySignal) { pipelinesBySignal = p }
   function handleNodeSelected(nodeId: string | null) { selectedNodeId = nodeId }
-  function handleExport() { downloadYaml('pipeline-config.yaml', exportPipelinesToYaml(pipelinesBySignal)) }
+  async function handleExport() { downloadYaml('pipeline-config.yaml', await exportPipelinesToYaml(pipelinesBySignal)) }
   function handleValidate(p: Pipeline) {
     pipelineYaml = yamlStringify(p)
     fetch('/api/ottl/pipeline/validate', { method: 'POST', headers: { 'Content-Type': 'application/x-yaml' }, body: pipelineYaml })
@@ -80,6 +80,28 @@
     showImport = false; if (activeTab !== 'graph') activeTab = 'pipeline'
   }
   function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig }) { editingStage = data }
+  function getSignalForStage(stageId: string): keyof PipelinesBySignal | null {
+    for (const [sig, p] of Object.entries(pipelinesBySignal)) {
+      if (p.stages.some(s => s.id === stageId)) return sig as keyof PipelinesBySignal
+    }
+    return null
+  }
+  function handleStageUpdate(s: Stage) {
+    const sig = getSignalForStage(editingStage!.stage.id)
+    if (!sig) return
+    pipelinesBySignal = {
+      ...pipelinesBySignal,
+      [sig]: { ...pipelinesBySignal[sig], stages: pipelinesBySignal[sig].stages.map(st => st.id === editingStage!.stage.id ? s : st) }
+    }
+  }
+  function handleStageProcessorUpdate(c: ProcessorConfig) {
+    const sig = getSignalForStage(editingStage!.stage.id)
+    if (!sig) return
+    pipelinesBySignal = {
+      ...pipelinesBySignal,
+      [sig]: { ...pipelinesBySignal[sig], processors: { ...pipelinesBySignal[sig].processors, [editingStage!.stage.processor_ref]: c } }
+    }
+  }
   function yamlStringify(p: Pipeline): string {
     let out = 'stages:\n'
     for (const s of p.stages) out += `  - id: ${s.id}\n    type: ${s.type}\n    processor_ref: ${s.processor_ref}\n${s.error_mode ? `    error_mode: ${s.error_mode}\n` : ''}`
@@ -92,6 +114,60 @@
       } else out += `  ${k}: {}\n`
     }
     return out
+  }
+
+  // ─── Pipeline YAML export (API with client-side fallback) ─────────────
+  let yamlVersion = 0
+
+  $effect(() => {
+    // Track reactive dependencies
+    const tab = activeTab
+    const pipelines = pipelinesBySignal
+    const singlePipeline = pipeline
+
+    const ver = ++yamlVersion
+
+    // Synchronous client-side fallback (always available)
+    if (tab === 'graph') {
+      pipelineYaml = exportPipelinesToYamlLocal(pipelines)
+    } else {
+      pipelineYaml = yamlStringify(singlePipeline)
+    }
+
+    // Async API upgrade — POST /api/ottl/pipeline/export
+    fetchExportYaml(ver, tab, pipelines, singlePipeline)
+  })
+
+  async function fetchExportYaml(
+    ver: number,
+    tab: string,
+    pipelines: PipelinesBySignal,
+    singlePipeline: Pipeline
+  ) {
+    const payload = tab === 'graph'
+      ? pipelines
+      : {
+          traces: singlePipeline,
+          logs: { stages: [], processors: {} as Record<string, ProcessorConfig>, receivers: ['otlp'], exporters: ['debug'] },
+          metrics: { stages: [], processors: {} as Record<string, ProcessorConfig>, receivers: ['otlp'], exporters: ['debug'] }
+        }
+
+    try {
+      const res = await fetch('/api/ottl/pipeline/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (res.ok) {
+        const text = await res.text()
+        // Only apply if no newer request has superseded this one
+        if (ver === yamlVersion) {
+          pipelineYaml = text
+        }
+      }
+    } catch {
+      // Keep the client-side fallback value already set by the effect
+    }
   }
 </script>
 
@@ -114,7 +190,7 @@
           </div>
           {#if !isCollapsed}
             <div class="panel-content">
-              <section class="execution-section"><h2>Execute</h2><RunSelector pipelineYaml={yamlStringify(pipelinesBySignal.traces || { stages: [], processors: {} })} onresult={handleExecuteResult} /></section>
+              <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} /></section>
               <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>
             </div>
           {/if}
@@ -123,7 +199,7 @@
     </div>
   {:else}
     <PipelineBuilder {pipeline} onValidate={handleValidate} onImport={() => showImport = true} />
-    <section class="execution-section"><h2>Execute</h2><RunSelector pipelineYaml={yamlStringify(pipeline)} onresult={handleExecuteResult} /></section>
+    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} /></section>
   {/if}
   {#if activeTab !== 'graph'}
     <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>
@@ -140,7 +216,7 @@
     <div class="modal-overlay" onclick={() => editingStage = null} onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}>
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <div class="modal" onclick={(e) => e.stopPropagation()}>
-        <StageEditor stage={editingStage.stage} processor={editingStage.processor} onupdate={(s: Stage) => pipeline.stages = pipeline.stages.map(st => st.id === editingStage!.stage.id ? s : st)} onupdateProcessor={(c: ProcessorConfig) => pipeline.processors = { ...pipeline.processors, [editingStage!.stage.processor_ref]: c }} />
+        <StageEditor stage={editingStage.stage} processor={editingStage.processor} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
         <button class="btn-close" onclick={() => editingStage = null}>Close</button>
       </div>
     </div>

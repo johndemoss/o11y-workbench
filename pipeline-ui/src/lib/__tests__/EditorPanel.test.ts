@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { exportPipelinesToYaml } from '../export-yaml'
+import { exportPipelinesToYamlLocal } from '../export-yaml'
 import type { PipelinesBySignal } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -33,13 +33,13 @@ function resyncFromGraph(pipelines: PipelinesBySignal): EditorPanelState {
   return {
     userIsEditing: false,
     awaitingOwnSync: false,
-    yamlContent: exportPipelinesToYaml(pipelines),
+    yamlContent: exportPipelinesToYamlLocal(pipelines),
   }
 }
 
 /**
  * Mirrors the $effect's sync-to-yaml guard:
- *   if (!userIsEditing && !awaitingOwnSync) { yamlContent = exportPipelinesToYaml(pipelines) }
+ *   if (!userIsEditing && !awaitingOwnSync) { yamlContent = exportPipelinesToYamlLocal(pipelines) }
  */
 function shouldSyncYaml(
   userIsEditing: boolean,
@@ -123,7 +123,7 @@ describe('resyncFromGraph', () => {
     const next = resyncFromGraph(emptyPipelines)
     expect(next.userIsEditing).toBe(false)
     expect(next.awaitingOwnSync).toBe(false)
-    expect(next.yamlContent).toBe(exportPipelinesToYaml(emptyPipelines))
+    expect(next.yamlContent).toBe(exportPipelinesToYamlLocal(emptyPipelines))
   })
 
   it('produces valid YAML from populated pipelines', () => {
@@ -135,7 +135,7 @@ describe('resyncFromGraph', () => {
   })
 
   it('is idempotent', () => {
-    const content = exportPipelinesToYaml(emptyPipelines)
+    const content = exportPipelinesToYamlLocal(emptyPipelines)
     const next = resyncFromGraph(emptyPipelines)
     expect(next.yamlContent).toBe(content)
     expect(next.userIsEditing).toBe(false)
@@ -158,7 +158,7 @@ describe('handleEditorChange cycle (without timers)', () => {
     let state: EditorPanelState = {
       userIsEditing: false,
       awaitingOwnSync: false,
-      yamlContent: exportPipelinesToYaml(emptyPipelines),
+      yamlContent: exportPipelinesToYamlLocal(emptyPipelines),
     }
 
     // Simulate step 1: user starts editing
@@ -178,7 +178,7 @@ describe('handleEditorChange cycle (without timers)', () => {
     state = resyncFromGraph(emptyPipelines)
     expect(computeSyncStatus(state.awaitingOwnSync, state.userIsEditing)).toBe('synced')
     expect(shouldSyncYaml(state.userIsEditing, state.awaitingOwnSync)).toBe(true)
-    expect(state.yamlContent).toBe(exportPipelinesToYaml(emptyPipelines))
+    expect(state.yamlContent).toBe(exportPipelinesToYamlLocal(emptyPipelines))
   })
 
   it('shows that parse errors gate further state transitions', () => {

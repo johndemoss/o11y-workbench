@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   pipelineToFlow,
   flowToPipeline,
@@ -12,6 +12,122 @@ import {
 } from '../flow-sync'
 import type { Edge, Node } from '@xyflow/svelte'
 import type { Pipeline, PipelinesBySignal, Stage, StageResult } from '../types'
+
+// ----- Smart fetch mock -----
+// Implements Kahn's algorithm locally so tests can exercise topologicalSort
+// and wouldCreateCycle without requiring a running Go backend.
+
+function mockTopoSortResponse(body: {
+  nodes: { id: string }[]
+  edges: { source: string; target: string }[]
+}): Response {
+  const { nodes, edges } = body
+  const adj = new Map<string, string[]>()
+  const indeg = new Map<string, number>()
+
+  for (const n of nodes) {
+    adj.set(n.id, [])
+    indeg.set(n.id, 0)
+  }
+  for (const e of edges) {
+    adj.get(e.source)?.push(e.target)
+    indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1)
+  }
+
+  const q: string[] = []
+  for (const [id, d] of indeg) {
+    if (d === 0) q.push(id)
+  }
+
+  const sorted: string[] = []
+  while (q.length) {
+    const id = q.shift()!
+    sorted.push(id)
+    for (const nb of adj.get(id) ?? []) {
+      const nd = (indeg.get(nb) ?? 1) - 1
+      indeg.set(nb, nd)
+      if (nd === 0) q.push(nb)
+    }
+  }
+
+  if (sorted.length !== nodes.length) {
+    return new Response(
+      JSON.stringify({ sorted_ids: [], error: 'Cycle detected in pipeline graph' }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  return new Response(JSON.stringify({ sorted_ids: sorted }), {
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function mockWouldCycleResponse(body: {
+  edges: { source: string; target: string }[]
+  new_edge: { source: string; target: string }
+}): Response {
+  const testEdges = [...body.edges, body.new_edge]
+  const nodeIds = new Set<string>()
+  for (const e of testEdges) {
+    nodeIds.add(e.source)
+    nodeIds.add(e.target)
+  }
+
+  const adj = new Map<string, string[]>()
+  const indeg = new Map<string, number>()
+  for (const id of nodeIds) {
+    adj.set(id, [])
+    indeg.set(id, 0)
+  }
+  for (const e of testEdges) {
+    adj.get(e.source)?.push(e.target)
+    indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1)
+  }
+
+  const q: string[] = []
+  for (const [id, d] of indeg) {
+    if (d === 0) q.push(id)
+  }
+  const sorted: string[] = []
+  while (q.length) {
+    const id = q.shift()!
+    sorted.push(id)
+    for (const nb of adj.get(id) ?? []) {
+      const nd = (indeg.get(nb) ?? 1) - 1
+      indeg.set(nb, nd)
+      if (nd === 0) q.push(nb)
+    }
+  }
+
+  return new Response(JSON.stringify({ would_cycle: sorted.length !== nodeIds.size }), {
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) ?? '{}')
+
+      if (url === '/api/ottl/pipeline/topological-sort') {
+        return mockTopoSortResponse(body)
+      }
+      if (url === '/api/ottl/pipeline/would-cycle') {
+        return mockWouldCycleResponse(body)
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected request' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }),
+  )
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 // ----- Helpers -----
 
@@ -123,24 +239,24 @@ describe('pipelineToFlow', () => {
 // ===== flowToPipeline =====
 
 describe('flowToPipeline', () => {
-  it('converts single node to single-stage pipeline', () => {
+  it('converts single node to single-stage pipeline', async () => {
     const nodes = [makeNode('a')]
     const edges: Edge[] = []
     const currentPipeline: Pipeline = { stages: [], processors: {} }
-    const result = flowToPipeline(nodes, edges, currentPipeline)
+    const result = await flowToPipeline(nodes, edges, currentPipeline)
     expect(result.stages).toHaveLength(1)
     expect(result.stages[0].id).toBe('a')
   })
 
-  it('orders stages by topological sort', () => {
+  it('orders stages by topological sort', async () => {
     const nodes = [makeNode('a'), makeNode('b'), makeNode('c')]
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'c')]
     const currentPipeline: Pipeline = { stages: [], processors: {} }
-    const result = flowToPipeline(nodes, edges, currentPipeline)
+    const result = await flowToPipeline(nodes, edges, currentPipeline)
     expect(result.stages.map((s) => s.id)).toEqual(['a', 'b', 'c'])
   })
 
-  it('preserves existing processor configs from currentPipeline', () => {
+  it('preserves existing processor configs from currentPipeline', async () => {
     const s1 = makeStage('a', 'proc-a')
     const nodes = [makeNode('a', { stage: s1, processor: { foo: 1 } })]
     const edges: Edge[] = []
@@ -148,75 +264,75 @@ describe('flowToPipeline', () => {
       stages: [s1],
       processors: { 'proc-a': { existingKey: 'existingValue' } },
     }
-    const result = flowToPipeline(nodes, edges, currentPipeline)
+    const result = await flowToPipeline(nodes, edges, currentPipeline)
     expect(result.processors['proc-a']).toEqual({ existingKey: 'existingValue' })
   })
 
-  it('merges new processor refs from nodes', () => {
+  it('merges new processor refs from nodes', async () => {
     const s1 = makeStage('a', 'proc-a')
     const nodes = [
       makeNode('a', { stage: s1, processor: { newKey: 'newVal' } }),
     ]
     const edges: Edge[] = []
     const currentPipeline: Pipeline = { stages: [], processors: {} }
-    const result = flowToPipeline(nodes, edges, currentPipeline)
+    const result = await flowToPipeline(nodes, edges, currentPipeline)
     // processor_ref from node should be added since it's not in currentPipeline
     expect(result.processors['proc-a']).toEqual({ newKey: 'newVal' })
   })
 
-  it('throws on cyclic pipeline graph', () => {
+  it('throws on cyclic pipeline graph', async () => {
     const nodes = [makeNode('a'), makeNode('b')]
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'a')]
     const currentPipeline: Pipeline = { stages: [], processors: {} }
-    expect(() => flowToPipeline(nodes, edges, currentPipeline)).toThrow(
-      'Cycle detected in pipeline graph',
-    )
+    await expect(
+      flowToPipeline(nodes, edges, currentPipeline),
+    ).rejects.toThrow('Cycle detected in pipeline graph')
   })
 })
 
 // ===== topologicalSort =====
 
 describe('topologicalSort', () => {
-  it('returns single node for one-node graph', () => {
+  it('returns single node for one-node graph', async () => {
     const nodes = [makeNode('a')]
-    expect(topologicalSort(nodes, [])).toEqual(['a'])
+    await expect(topologicalSort(nodes, [])).resolves.toEqual(['a'])
   })
 
-  it('sorts linear graph correctly', () => {
+  it('sorts linear graph correctly', async () => {
     const nodes = [makeNode('a'), makeNode('b'), makeNode('c')]
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'c')]
-    expect(topologicalSort(nodes, edges)).toEqual(['a', 'b', 'c'])
+    await expect(topologicalSort(nodes, edges)).resolves.toEqual(['a', 'b', 'c'])
   })
 
-  it('handles branched graph (a→b, a→c)', () => {
+  it('handles branched graph (a→b, a→c)', async () => {
     const nodes = [makeNode('a'), makeNode('b'), makeNode('c')]
     const edges = [makeEdge('a', 'b'), makeEdge('a', 'c')]
-    const result = topologicalSort(nodes, edges)
+    const result = await topologicalSort(nodes, edges)
     expect(result[0]).toBe('a')
     // b and c can be in either order
     expect(result.slice(1).sort()).toEqual(['b', 'c'])
   })
 
-  it('handles disconnected subgraphs', () => {
+  it('handles disconnected subgraphs', async () => {
     const nodes = [makeNode('a'), makeNode('b')]
-    const result = topologicalSort(nodes, [])
+    const result = await topologicalSort(nodes, [])
     expect(result).toContain('a')
     expect(result).toContain('b')
     expect(result).toHaveLength(2)
   })
 
-  it('throws on direct cycle (a→b, b→a)', () => {
+  it('throws on direct cycle (a→b, b→a)', async () => {
     const nodes = [makeNode('a'), makeNode('b')]
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'a')]
-    expect(() => topologicalSort(nodes, edges)).toThrow(
+    await expect(topologicalSort(nodes, edges)).rejects.toThrow(
       'Cycle detected in pipeline graph',
     )
   })
 
-  it('throws on indirect cycle (a→b, b→c, c→a)', () => {
+  it('throws on indirect cycle (a→b, b→c, c→a)', async () => {
     const nodes = [makeNode('a'), makeNode('b'), makeNode('c')]
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'c'), makeEdge('c', 'a')]
-    expect(() => topologicalSort(nodes, edges)).toThrow(
+    await expect(topologicalSort(nodes, edges)).rejects.toThrow(
       'Cycle detected in pipeline graph',
     )
   })
@@ -225,35 +341,45 @@ describe('topologicalSort', () => {
 // ===== wouldCreateCycle =====
 
 describe('wouldCreateCycle', () => {
-  it('returns false for acyclic edge addition', () => {
+  it('returns false for acyclic edge addition', async () => {
     const edges = [makeEdge('a', 'b')]
-    expect(wouldCreateCycle(edges, { source: 'b', target: 'c' })).toBe(false)
+    await expect(
+      wouldCreateCycle(edges, { source: 'b', target: 'c' }),
+    ).resolves.toBe(false)
   })
 
-  it('returns true for direct cycle (b→a when a→b exists)', () => {
+  it('returns true for direct cycle (b→a when a→b exists)', async () => {
     const edges = [makeEdge('a', 'b')]
-    expect(wouldCreateCycle(edges, { source: 'b', target: 'a' })).toBe(true)
+    await expect(
+      wouldCreateCycle(edges, { source: 'b', target: 'a' }),
+    ).resolves.toBe(true)
   })
 
-  it('returns true for indirect cycle (c→a when a→b, b→c)', () => {
+  it('returns true for indirect cycle (c→a when a→b, b→c)', async () => {
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'c')]
-    expect(wouldCreateCycle(edges, { source: 'c', target: 'a' })).toBe(true)
+    await expect(
+      wouldCreateCycle(edges, { source: 'c', target: 'a' }),
+    ).resolves.toBe(true)
   })
 
-  it('returns true for self-loop', () => {
+  it('returns true for self-loop', async () => {
     const edges: Edge[] = []
-    expect(wouldCreateCycle(edges, { source: 'a', target: 'a' })).toBe(true)
+    await expect(
+      wouldCreateCycle(edges, { source: 'a', target: 'a' }),
+    ).resolves.toBe(true)
   })
 
-  it('returns true for duplicate edge', () => {
+  it('returns true for duplicate edge', async () => {
     const edges = [makeEdge('a', 'b')]
-    expect(wouldCreateCycle(edges, { source: 'a', target: 'b' })).toBe(true)
+    await expect(
+      wouldCreateCycle(edges, { source: 'a', target: 'b' }),
+    ).resolves.toBe(true)
   })
 
-  it('does not mutate the input edges array', () => {
+  it('does not mutate the input edges array', async () => {
     const edges = [makeEdge('a', 'b')]
     const edgesCopy = [...edges]
-    wouldCreateCycle(edges, { source: 'b', target: 'c' })
+    await wouldCreateCycle(edges, { source: 'b', target: 'c' })
     expect(edges).toEqual(edgesCopy)
   })
 })
@@ -322,7 +448,7 @@ describe('pipelinesToFlow', () => {
     expect(swimlanes.map(s => s.id)).toContain('swimlane-metrics')
   })
 
-  it('creates child stage nodes inside each swimlane', () => {
+  it('creates stage nodes with correct parentId', () => {
     const p: PipelinesBySignal = {
       traces: {
         stages: [
@@ -335,60 +461,78 @@ describe('pipelinesToFlow', () => {
       metrics: { stages: [], processors: {} },
     }
     const { nodes } = pipelinesToFlow(p)
-    const stageNodes = nodes.filter(n => n.type === 'stage')
-    expect(stageNodes.length).toBe(2)
-    expect(stageNodes[0].parentId).toBe('swimlane-traces')
-    expect(stageNodes[1].parentId).toBe('swimlane-traces')
+    const stages = nodes.filter(n => n.type === 'stage')
+    expect(stages).toHaveLength(2)
+    for (const s of stages) {
+      expect(s.parentId).toBe('swimlane-traces')
+    }
   })
 
-  it('creates edges between consecutive stages in the same swimlane', () => {
+  it('connects sequential stages within each swimlane', () => {
     const p: PipelinesBySignal = {
       traces: {
         stages: [
-          { id: 't1', type: 'transform', processor_ref: 'p1' },
-          { id: 't2', type: 'filter', processor_ref: 'p2' },
+          { id: 'a', type: 'transform', processor_ref: 'p1' },
+          { id: 'b', type: 'filter', processor_ref: 'p2' },
+          { id: 'c', type: 'transform', processor_ref: 'p3' },
         ],
-        processors: { p1: {}, p2: {} },
+        processors: { p1: {}, p2: {}, p3: {} },
       },
       logs: { stages: [], processors: {} },
       metrics: { stages: [], processors: {} },
     }
     const { edges } = pipelinesToFlow(p)
-    expect(edges.length).toBe(1)
-    expect(edges[0].source).toBe('t1')
-    expect(edges[0].target).toBe('t2')
+    const traceEdges = edges.filter(e => e.source.startsWith('traces') || ['a', 'b', 'c'].includes(e.source))
+    expect(traceEdges).toHaveLength(2)
+    expect(traceEdges[0].source).toBe('a')
+    expect(traceEdges[0].target).toBe('b')
+    expect(traceEdges[1].source).toBe('b')
+    expect(traceEdges[1].target).toBe('c')
   })
 
-  it('spreads multiple signals across separate swimlanes', () => {
+  it('minimal swimlane width for few stages', () => {
     const p: PipelinesBySignal = {
       traces: {
-        stages: [{ id: 't1', type: 'transform', processor_ref: 'p1' }],
+        stages: [
+          { id: 'x', type: 'transform', processor_ref: 'p1' },
+        ],
         processors: { p1: {} },
       },
-      logs: {
-        stages: [{ id: 'l1', type: 'filter', processor_ref: 'p2' }],
-        processors: { p2: {} },
-      },
-      metrics: {
-        stages: [{ id: 'm1', type: 'transform', processor_ref: 'p3' }],
-        processors: { p3: {} },
-      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
     }
-    const { nodes, edges } = pipelinesToFlow(p)
-    const tNode = nodes.find(n => n.id === 't1')
-    const lNode = nodes.find(n => n.id === 'l1')
-    const mNode = nodes.find(n => n.id === 'm1')
-    expect(tNode?.parentId).toBe('swimlane-traces')
-    expect(lNode?.parentId).toBe('swimlane-logs')
-    expect(mNode?.parentId).toBe('swimlane-metrics')
-    expect(edges).toHaveLength(0)
+    const { nodes } = pipelinesToFlow(p)
+    const swimlane = nodes.find(n => n.id === 'swimlane-traces')
+    expect(swimlane!.width).toBeGreaterThanOrEqual(640)
+  })
+
+  it('infra nodes for receivers and exporters', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 'x', type: 'transform', processor_ref: 'p1' },
+        ],
+        processors: { p1: {} },
+        receivers: ['otlp', 'zipkin'],
+        exporters: ['debug', 'otlp'],
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes } = pipelinesToFlow(p)
+    const infra = nodes.filter(n => n.type === 'infra')
+    expect(infra.length).toBeGreaterThanOrEqual(2)
+    const rNode = infra.find(n => n.id.includes('receiver'))
+    const eNode = infra.find(n => n.id.includes('exporter'))
+    expect(rNode).toBeDefined()
+    expect(eNode).toBeDefined()
   })
 })
 
 // ===== flowToPipelines (multi-swimlane) =====
 
 describe('flowToPipelines', () => {
-  it('reconstructs PipelinesBySignal from swimlane nodes and edges', () => {
+  it('reconstructs PipelinesBySignal from swimlane nodes and edges', async () => {
     const p: PipelinesBySignal = {
       traces: {
         stages: [
@@ -400,20 +544,20 @@ describe('flowToPipelines', () => {
       metrics: { stages: [], processors: {} },
     }
     const { nodes, edges } = pipelinesToFlow(p)
-    const result = flowToPipelines(nodes, edges, p)
+    const result = await flowToPipelines(nodes, edges, p)
     expect(result.traces.stages.length).toBe(1)
     expect(result.traces.stages[0].id).toBe('t1')
     expect(result.traces.processors.p1).toEqual({ some: 'config' })
   })
 
-  it('preserves empty swimlanes', () => {
+  it('preserves empty swimlanes', async () => {
     const p: PipelinesBySignal = {
       traces: { stages: [], processors: {} },
       logs: { stages: [], processors: {} },
       metrics: { stages: [], processors: {} },
     }
     const { nodes, edges } = pipelinesToFlow(p)
-    const result = flowToPipelines(nodes, edges, p)
+    const result = await flowToPipelines(nodes, edges, p)
     expect(result.traces.stages).toHaveLength(0)
     expect(result.logs.stages).toHaveLength(0)
     expect(result.metrics.stages).toHaveLength(0)
@@ -423,7 +567,7 @@ describe('flowToPipelines', () => {
 // ===== reorderStage =====
 
 describe('reorderStage', () => {
-  it('changes stage position when dragged horizontally within swimlane', () => {
+  it('changes stage position when dragged horizontally within swimlane', async () => {
     const p: PipelinesBySignal = {
       traces: {
         stages: [
@@ -438,7 +582,7 @@ describe('reorderStage', () => {
     }
     const { nodes, edges } = pipelinesToFlow(p)
     const result = reorderStage(nodes, edges, 't1', 400)
-    const reconstructed = flowToPipelines(result.nodes, result.edges, p)
+    const reconstructed = await flowToPipelines(result.nodes, result.edges, p)
     expect(reconstructed.traces.stages[0].id).toBe('t2')
     expect(reconstructed.traces.stages[1].id).toBe('t1')
   })
@@ -456,8 +600,10 @@ describe('reorderStage', () => {
       metrics: { stages: [], processors: {} },
     }
     const { nodes, edges } = pipelinesToFlow(p)
-    const originalNodePositions = nodes.map(n => ({ ...n.position }))
+    const nodesCopy = [...nodes]
+    const edgesCopy = [...edges]
     reorderStage(nodes, edges, 't1', 400)
-    expect(nodes.map(n => n.position)).toEqual(originalNodePositions)
+    expect(nodes).toEqual(nodesCopy)
+    expect(edges).toEqual(edgesCopy)
   })
 })

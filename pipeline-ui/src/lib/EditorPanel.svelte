@@ -17,7 +17,7 @@
 
   let open = $state(true)
   let editorRef: CodeMirrorEditor | undefined = $state()
-  let yamlContent = $state(exportPipelinesToYaml(pipelines))
+  let yamlContent = $state('')
   let userIsEditing = $state(false)
   let awaitingOwnSync = $state(false)
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
@@ -35,9 +35,14 @@
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(async () => {
       try {
-        yaml.load(_newValue)  // pre-validate
-        const { importYamlToPipelines } = await import('./export-yaml')
-        const parsed = importYamlToPipelines(_newValue)
+        yaml.load(_newValue)  // pre-validate syntax before hitting the API
+        const res = await fetch('/api/ottl/pipeline/from-yaml', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-yaml' },
+          body: _newValue,
+        })
+        if (!res.ok) throw new Error(`from-yaml failed: ${res.status}`)
+        const parsed = (await res.json()) as PipelinesBySignal
         const isSame = JSON.stringify(parsed) === JSON.stringify(pipelines)
         if (!isSame) {
           awaitingOwnSync = true
@@ -53,10 +58,10 @@
     }, 500)
   }
 
-  function resyncFromGraph() {
+  async function resyncFromGraph() {
     userIsEditing = false
     awaitingOwnSync = false
-    yamlContent = exportPipelinesToYaml(pipelines)
+    yamlContent = await exportPipelinesToYaml(pipelines)
   }
 
   function startResize(e: MouseEvent) {
@@ -82,7 +87,7 @@
     // Track pipelines prop changes
     const _ = JSON.stringify(pipelines)
     if (!userIsEditing && !awaitingOwnSync) {
-      yamlContent = exportPipelinesToYaml(pipelines)
+      exportPipelinesToYaml(pipelines).then(y => yamlContent = y)
     }
   })
 
