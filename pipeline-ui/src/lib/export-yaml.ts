@@ -1,4 +1,3 @@
-import yaml from 'js-yaml'
 import type { PipelinesBySignal } from './types'
 
 /**
@@ -134,83 +133,4 @@ export function downloadYaml(filename: string, content: string): void {
   URL.revokeObjectURL(url)
 }
 
-function inferStageType(processorRef: string): 'transform' | 'filter' {
-  const prefix = processorRef.split('/')[0]
-  if (prefix === 'filter') return 'filter'
-  return 'transform'
-}
 
-/**
- * Parses a YAML string into PipelinesBySignal.
- * This reverses exportPipelinesToYaml (YAML → data).
- */
-export function importYamlToPipelines(yamlText: string): PipelinesBySignal {
-  const result: PipelinesBySignal = {
-    traces: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-    logs: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-    metrics: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-  }
-
-  try {
-    const config = yaml.load(yamlText) as Record<string, unknown> | null
-    if (!config) return result
-
-    // Extract processors
-    const processorsSection = config['processors'] as Record<string, unknown> | undefined
-    const processorConfigs: Record<string, Record<string, unknown>> = {}
-    if (processorsSection) {
-      for (const [key, val] of Object.entries(processorsSection)) {
-        if (val && typeof val === 'object') {
-          processorConfigs[key] = val as Record<string, unknown>
-        }
-      }
-    }
-
-    // Extract receivers
-    const receiversSection = config['receivers'] as Record<string, unknown> | undefined
-    if (receiversSection) {
-      const recvNames = Object.keys(receiversSection)
-      for (const signal of ['traces', 'logs', 'metrics'] as const) {
-        result[signal].receivers = [...recvNames]
-      }
-    }
-
-    // Extract exporters
-    const exportersSection = config['exporters'] as Record<string, unknown> | undefined
-    if (exportersSection) {
-      const expNames = Object.keys(exportersSection)
-      for (const signal of ['traces', 'logs', 'metrics'] as const) {
-        result[signal].exporters = [...expNames]
-      }
-    }
-
-    // Extract service.pipelines
-    const service = config['service'] as Record<string, unknown> | undefined
-    const pipelines = service?.['pipelines'] as Record<string, unknown> | undefined
-    if (pipelines) {
-      for (const [signal, pipelineDef] of Object.entries(pipelines)) {
-        if (signal === 'traces' || signal === 'logs' || signal === 'metrics') {
-          const p = pipelineDef as Record<string, unknown>
-          const procRefs = (p['processors'] as string[] | undefined) || []
-
-          const stages = procRefs.map((ref) => ({
-            id: ref,
-            type: inferStageType(ref),
-            processor_ref: ref,
-          }))
-
-          result[signal as keyof PipelinesBySignal] = {
-            stages,
-            processors: { ...processorConfigs },
-            receivers: result[signal as keyof PipelinesBySignal].receivers,
-            exporters: result[signal as keyof PipelinesBySignal].exporters,
-          }
-        }
-      }
-    }
-  } catch {
-    // Fall back to defaults on parse error
-  }
-
-  return result
-}
