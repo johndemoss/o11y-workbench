@@ -357,10 +357,10 @@ service:
 		t.Fatalf("unexpected error: %v", err)
 	}
 	tp := got["traces"]
-	if tp.Receivers == nil || len(tp.Receivers) != 0 {
-		t.Errorf("receivers: got %v, want empty non-nil slice", tp.Receivers)
+	if want := []string{"otlp"}; !reflect.DeepEqual(tp.Receivers, want) {
+		t.Errorf("receivers: got %v, want %v", tp.Receivers, want)
 	}
-	if tp.Exporters == nil || len(tp.Exporters) != 0 {
-		t.Errorf("exporters: got %v, want empty non-nil slice", tp.Exporters)
+	if want := []string{"debug"}; !reflect.DeepEqual(tp.Exporters, want) {
+		t.Errorf("exporters: got %v, want %v", tp.Exporters, want)
 	}
 }

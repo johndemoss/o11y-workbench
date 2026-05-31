@@ -41,12 +41,28 @@ func ImportCollectorConfig(configYAML string) (PipelinesBySignal, error) {
 		}
 	}
 
+	// Extract top-level receiver and exporter names for default fallbacks
+	topReceivers := []string{}
+	if recvRaw, ok := raw["receivers"].(map[string]interface{}); ok {
+		for k := range recvRaw {
+			topReceivers = append(topReceivers, k)
+			break // use first receiver name as default
+		}
+	}
+	topExporters := []string{}
+	if expRaw, ok := raw["exporters"].(map[string]interface{}); ok {
+		for k := range expRaw {
+			topExporters = append(topExporters, k)
+			break // use first exporter name as default
+		}
+	}
+
 	result := make(PipelinesBySignal)
 
 	for pipelineKey := range pipelinesMap {
 		signalName := signalNameFromPipelineKey(pipelineKey)
 
-		pipeline, err := buildPipelineFromConfig(pipelinesMap, topProcessorsMap, pipelineKey)
+		pipeline, err := buildPipelineFromConfig(pipelinesMap, topProcessorsMap, pipelineKey, topReceivers, topExporters)
 		if err != nil {
 			return nil, fmt.Errorf("build pipeline %q: %w", pipelineKey, err)
 		}
@@ -74,6 +90,24 @@ func signalNameFromPipelineKey(key string) string {
 		return key[:idx]
 	}
 	return key
+}
+
+func defaultReceivers(signal string) []string {
+	switch signal {
+	case "traces", "logs":
+		return []string{"otlp"}
+	default:
+		return []string{}
+	}
+}
+
+func defaultExporters(signal string) []string {
+	switch signal {
+	case "traces", "logs":
+		return []string{"debug"}
+	default:
+		return []string{}
+	}
 }
 
 // parseRefList converts a YAML sequence (e.g. a pipeline's receivers/exporters
@@ -110,7 +144,7 @@ func unionRefs(a, b []string) []string {
 }
 
 // buildPipelineFromConfig builds a Pipeline for a single pipeline key from the collector config.
-func buildPipelineFromConfig(pipelinesMap, topProcessorsMap map[string]interface{}, pipelineKey string) (*Pipeline, error) {
+func buildPipelineFromConfig(pipelinesMap, topProcessorsMap map[string]interface{}, pipelineKey string, topReceivers, topExporters []string) (*Pipeline, error) {
 	pipelineRaw, ok := pipelinesMap[pipelineKey]
 	if !ok {
 		return nil, fmt.Errorf("pipeline %q not found", pipelineKey)
@@ -128,11 +162,25 @@ func buildPipelineFromConfig(pipelinesMap, topProcessorsMap map[string]interface
 		}
 	}
 
+	receivers := parseRefList(pipelineMap["receivers"])
+	if len(receivers) == 0 {
+		receivers = topReceivers
+		if len(receivers) == 0 {
+			receivers = defaultReceivers(signalNameFromPipelineKey(pipelineKey))
+		}
+	}
+	exporters := parseRefList(pipelineMap["exporters"])
+	if len(exporters) == 0 {
+		exporters = topExporters
+		if len(exporters) == 0 {
+			exporters = defaultExporters(signalNameFromPipelineKey(pipelineKey))
+		}
+	}
 	p := &Pipeline{
 		Stages:     make([]Stage, 0, len(procList)),
 		Processors: make(map[string]ProcessorConfig, len(procList)),
-		Receivers:  parseRefList(pipelineMap["receivers"]),
-		Exporters:  parseRefList(pipelineMap["exporters"]),
+		Receivers:  receivers,
+		Exporters:  exporters,
 	}
 
 	for i, procRef := range procList {
