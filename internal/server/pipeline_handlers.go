@@ -15,6 +15,14 @@ import (
 func parsePipelineFromYAML(pipelineYAML string) (*ottl.Pipeline, error) {
 	var pipeline ottl.Pipeline
 	if err := yaml.Unmarshal([]byte(pipelineYAML), &pipeline); err != nil {
+		// Fallback: if YAML looks like a collector config, try ImportCollectorConfig
+		if strings.Contains(pipelineYAML, "receivers:") || strings.Contains(pipelineYAML, "processors:") {
+			if pipelines, err := ottl.ImportCollectorConfig(pipelineYAML); err == nil {
+				if p, ok := pipelines["traces"]; ok && len(p.Stages) > 0 {
+					return p, nil
+				}
+			}
+		}
 		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
 	}
 	// If Stages is empty but YAML has top-level "receivers:", this is a full

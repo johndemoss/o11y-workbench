@@ -10,6 +10,78 @@ import (
 	"github.com/johndemoss/o11y-workbench/internal/ottl"
 )
 
+func TestParsePipelineFromYAML_CollectorConfigFallback(t *testing.T) {
+	collectorConfigYAML := `receivers:
+  otlp:
+    protocols:
+      grpc:
+processors:
+  transform/add_env:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["env"], "prod")
+exporters:
+  debug:
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [transform/add_env]
+      exporters: [debug]`
+
+	p, err := parsePipelineFromYAML(collectorConfigYAML)
+	if err != nil {
+		t.Fatalf("expected no error for collector config YAML, got %v", err)
+	}
+	if len(p.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %d", len(p.Stages))
+	}
+	if p.Stages[0].ID != "add_env" {
+		t.Errorf("expected stage id 'add_env', got %q", p.Stages[0].ID)
+	}
+	if p.Stages[0].Type != ottl.StageTypeTransform {
+		t.Errorf("expected stage type transform, got %v", p.Stages[0].Type)
+	}
+	if p.Stages[0].ProcessorRef != "transform/add_env" {
+		t.Errorf("expected processor ref 'transform/add_env', got %q", p.Stages[0].ProcessorRef)
+	}
+}
+
+func TestParsePipelineFromYAML_PipelineFormatStillWorks(t *testing.T) {
+	pipelineYAML := `stages:
+  - id: stage-1
+    type: transform
+    processor_ref: proc-1
+processors:
+  proc-1:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements: []`
+
+	p, err := parsePipelineFromYAML(pipelineYAML)
+	if err != nil {
+		t.Fatalf("expected no error for pipeline format YAML, got %v", err)
+	}
+	if len(p.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %d", len(p.Stages))
+	}
+	if p.Stages[0].ID != "stage-1" {
+		t.Errorf("expected stage id 'stage-1', got %q", p.Stages[0].ID)
+	}
+}
+
+func TestParsePipelineFromYAML_InvalidYAMLReturnsError(t *testing.T) {
+	invalidYAML := `not: valid: yaml: []['`
+
+	_, err := parsePipelineFromYAML(invalidYAML)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML, got nil")
+	}
+}
+
 func TestHandleTopologicalSort(t *testing.T) {
 	tests := []struct {
 		name       string
