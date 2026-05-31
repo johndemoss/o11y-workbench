@@ -92,7 +92,6 @@
       stagePositions: nodes
         .filter((n) => n.type === 'stage')
         .map((n) => `${Math.round(n.position.x)},${Math.round(n.position.y)}`),
-      edgeIds: edges.map((e) => `${e.source}->${e.target}`),
     })
     if (flowHash === lastFlowHash) return
     lastFlowHash = flowHash
@@ -264,6 +263,7 @@
       }
     }
 
+    skipNextFlowToPipelines = true
     nodes = newNodes
     edges = newEdges
   }

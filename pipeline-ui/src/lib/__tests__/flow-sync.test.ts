@@ -11,7 +11,7 @@ import {
   type StageNodeData,
 } from '../flow-sync'
 import type { Edge, Node } from '@xyflow/svelte'
-import type { Pipeline, PipelinesBySignal, Stage, StageResult } from '../types'
+import type { Pipeline, PipelinesBySignal, Stage, StageResult, StageType } from '../types'
 
 // ----- Smart fetch mock -----
 // Implements Kahn's algorithm locally so tests can exercise topologicalSort
@@ -561,6 +561,46 @@ describe('flowToPipelines', () => {
     expect(result.traces.stages).toHaveLength(0)
     expect(result.logs.stages).toHaveLength(0)
     expect(result.metrics.stages).toHaveLength(0)
+  })
+})
+
+// ===== Round-trip: pipelinesToFlow → flowToPipelines → pipelinesToFlow preserves infra edges =====
+
+describe('pipelinesToFlow → flowToPipelines → pipelinesToFlow round-trip', () => {
+  it('preserves infra edges through round-trip', async () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 's1', type: 'transform' as StageType, processor_ref: 'proc1' },
+          { id: 's2', type: 'filter' as StageType, processor_ref: 'proc2' },
+        ],
+        processors: { proc1: {}, proc2: {} },
+        receivers: ['otlp'],
+        exporters: ['debug'],
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+
+    const { nodes, edges } = pipelinesToFlow(p)
+
+    // Should have: 2 stage nodes and 6 infra nodes (1 receiver + 1 exporter per 3 signals)
+    expect(nodes.filter(n => n.type === 'stage')).toHaveLength(2)
+    expect(nodes.filter(n => n.type === 'infra')).toHaveLength(6)
+
+    // Traces infra edges: receiver→stage + stage→stage + stage→exporter
+    expect(edges.find(e => e.source === 'infra-traces-receiver-otlp' && e.target === 's1')).toBeTruthy()
+    expect(edges.find(e => e.source === 's2' && e.target === 'infra-traces-exporter-debug')).toBeTruthy()
+    expect(edges.find(e => e.source === 's1' && e.target === 's2')).toBeTruthy()
+
+    // Now flowToPipelines → pipelinesToFlow round-trip
+    const p2 = await flowToPipelines(nodes, edges, p)
+    const { nodes: nodes2, edges: edges2 } = pipelinesToFlow(p2)
+
+    // Edges should be preserved through round-trip
+    expect(edges2).toHaveLength(edges.length)
+    expect(edges2.find(e => e.source === 'infra-traces-receiver-otlp' && e.target === 's1')).toBeTruthy()
+    expect(edges2.find(e => e.source === 's2' && e.target === 'infra-traces-exporter-debug')).toBeTruthy()
   })
 })
 
