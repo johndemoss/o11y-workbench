@@ -38,6 +38,7 @@
       diffError = null
       return
     }
+    const currentResult = result
 
     let cancelled = false
 
@@ -50,7 +51,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            stages: result.stages,
+            stages: currentResult.stages,
             original_data: originalData ?? null
           })
         })

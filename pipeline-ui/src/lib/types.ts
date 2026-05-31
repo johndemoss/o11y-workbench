@@ -15,8 +15,8 @@ export interface Stage {
 export interface Pipeline {
   stages: Stage[]
   processors: Record<string, ProcessorConfig>
-  receivers: string[]
-  exporters: string[]
+  receivers?: string[]
+  exporters?: string[]
 }
 
 export interface SpanChange {

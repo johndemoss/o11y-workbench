@@ -7,6 +7,7 @@
     label: string
     type: 'receiver' | 'exporter' | 'connector'
     disabled?: boolean
+    [key: string]: unknown
   }
 
   let { data }: NodeProps<Node<InfraData>> = $props()

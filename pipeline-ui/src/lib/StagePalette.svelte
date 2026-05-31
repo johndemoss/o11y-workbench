@@ -2,7 +2,7 @@
   import { SNIPPETS } from './snippets'
   import { STAGE_COLORS } from './types'
 
-  const stageTypes = [{ type: 'transform', label: 'Transform' }, { type: 'filter', label: 'Filter' }]
+  const stageTypes = [{ type: 'transform', label: 'Transform' }, { type: 'filter', label: 'Filter' }] as const
 
   let { onImport, onExport, onSnippetView }: {
     onImport?: () => void

@@ -27,6 +27,8 @@
   let {
     pipelines = {
       traces: { stages: [], processors: {} },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
     } as PipelinesBySignal,
   onImport,
   onExport,
@@ -43,6 +45,7 @@
     onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig }) => void
     onPipelinesChange?: (p: PipelinesBySignal) => void
     onNodeSelected?: (nodeId: string | null) => void
+    selectedNodeId?: string
     result?: PipelineResult | null
     onResultClear?: () => void
   } = $props()
@@ -95,16 +98,15 @@
     lastFlowHash = flowHash
 
     untrack(() => {
-      try {
-        if (skipNextFlowToPipelines) {
-          skipNextFlowToPipelines = false
-          return
-        }
-        const updated = flowToPipelines(nodes as any, edges, pipelines)
-        onPipelinesChange?.(updated)
-      } catch {
-        // Cycle errors during editing are swallowed; handled during connect
+      if (skipNextFlowToPipelines) {
+        skipNextFlowToPipelines = false
+        return
       }
+      void flowToPipelines(nodes as any, edges, pipelines)
+        .then((updated) => onPipelinesChange?.(updated))
+        .catch(() => {
+          // Cycle errors during editing are swallowed; handled during connect
+        })
     })
   })
 
@@ -250,7 +252,7 @@
       const siblingsAfter = newNodes.filter(n => n.parentId === swimlaneNode.id && n.type === 'stage')
       const newWidth = Math.max(SWIMLANE_MIN_WIDTH, siblingsAfter.length * (STAGE_WIDTH + MIN_GAP) + SWIMLANE_EXTRA)
       swimlaneNode.width = newWidth
-      swimlaneNode.style = { ...(swimlaneNode.style || {}), width: `${newWidth}px` }
+      swimlaneNode.style = `width: ${newWidth}px`
 
       const stageCount = siblingsAfter.length
       if (stageCount > 1) {
@@ -267,8 +269,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="flow-container" onkeydown={(e) => e.key === 'Escape' && handleCancelDelete()}>
+<div class="flow-container">
   <header class="builder-header">
     <h1>Pipeline Graph</h1>
   </header>

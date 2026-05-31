@@ -275,7 +275,7 @@
       <Controls />
       <Background variant={BackgroundVariant.Dots} />
       {#if showMiniMap}
-        <MiniMap pannable zoomable nodeStrokeColor="#334155" nodeColor="#1e293b" maskColor="rgba(0,0,0,0.7)" style={{ width: 120, height: 80 }} />
+        <MiniMap pannable zoomable nodeStrokeColor="#334155" nodeColor="#1e293b" maskColor="rgba(0,0,0,0.7)" style="width: 120px; height: 80px;" />
       {/if}
       <button class="minimap-toggle nodrag nopan" onclick={() => showMiniMap = !showMiniMap} title="Toggle minimap">🗺</button>
     </SvelteFlow>

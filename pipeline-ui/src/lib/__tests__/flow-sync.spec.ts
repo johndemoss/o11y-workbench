@@ -157,7 +157,7 @@ function makeResult(
   }
 }
 
-function makeNode(id: string, data?: Partial<StageNodeData>): Node {
+function makeNode(id: string, data?: Partial<StageNodeData>): Node<StageNodeData> {
   return {
     id,
     type: 'stage',
