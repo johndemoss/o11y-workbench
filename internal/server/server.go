@@ -60,6 +60,7 @@ func (s *Server) registerRoutes() error {
 	s.mux.HandleFunc("POST /api/remotetap/disconnect", s.handleRemotetapDisconnect)
 	s.mux.HandleFunc("GET /api/remotetap/status", s.handleRemotetapStatus)
 	s.mux.HandleFunc("GET /api/remotetap/usage/{runID}", s.handleRemotetapUsage)
+	s.mux.HandleFunc("POST /api/remotetap/stop/{runID}", s.handleRemotetapStop)
 
 	if s.pipelineEnabled {
 		s.mux.HandleFunc("POST /api/ottl/pipeline/validate", s.handlePipelineValidate)

@@ -327,6 +327,23 @@ func (m *RemotetapManager) onDisconnectLocked() {
 	m.endpoint = ""
 }
 
+// StopByRunID stops the remotetap connection for the given runID.
+// Returns nil if the run was found and stopped, error otherwise.
+func (m *RemotetapManager) StopByRunID(runID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.run == nil || m.run.ID != runID {
+		return fmt.Errorf("run not found: %s", runID)
+	}
+
+	if m.client != nil {
+		m.client.Disconnect()
+	}
+	m.onDisconnectLocked()
+	return nil
+}
+
 func (m *RemotetapManager) Status() (connected bool, runID string, spanCount, logCount, metricCount int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -543,6 +560,20 @@ func (s *Server) handleRemotetapStatus(w http.ResponseWriter, r *http.Request) {
 		"log_count":    logCount,
 		"metric_count": metricCount,
 	})
+}
+
+func (s *Server) handleRemotetapStop(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runID")
+	if runID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runID is required"})
+		return
+	}
+
+	if err := s.remotetap.StopByRunID(runID); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
 func (s *Server) handleRemotetapUsage(w http.ResponseWriter, r *http.Request) {
