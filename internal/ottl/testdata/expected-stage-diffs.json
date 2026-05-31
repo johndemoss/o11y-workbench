@@ -1,0 +1,44 @@
+[
+  {
+    "stage_index": 0,
+    "input_span_count": 3,
+    "output_span_count": 4,
+    "added": [
+      {
+        "spanId": "1010101010101010",
+        "status": "added",
+        "name": "span-to-add"
+      }
+    ],
+    "removed": [],
+    "modified": []
+  },
+  {
+    "stage_index": 1,
+    "input_span_count": 4,
+    "output_span_count": 3,
+    "added": [],
+    "removed": [
+      {
+        "spanId": "2020202020202020",
+        "status": "removed",
+        "name": "span-to-remove"
+      }
+    ],
+    "modified": []
+  },
+  {
+    "stage_index": 2,
+    "input_span_count": 3,
+    "output_span_count": 3,
+    "added": [],
+    "removed": [],
+    "modified": [
+      {
+        "spanId": "3030303030303030",
+        "status": "modified",
+        "name": "span-to-modify"
+      }
+    ]
+  }
+]

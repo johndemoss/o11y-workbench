@@ -1,0 +1,67 @@
+{
+  "id": "fixture-run-001",
+  "status": "completed",
+  "config": {
+    "Seed": 42,
+    "TraceCount": 10,
+    "Topology": "flat",
+    "SpanCount": 10,
+    "MaxDepth": 5,
+    "ServiceName": "fixture-service",
+    "SignalType": "traces"
+  },
+  "started_at": "2025-01-15T10:00:00Z",
+  "completed_at": "2025-01-15T10:00:05Z",
+  "duration_ns": 5000000000,
+  "span_count": 3,
+  "trace_count": 1,
+  "trace_count_completed": 1,
+  "trace_data": {
+    "resourceSpans": [
+      {
+        "resource": {
+          "attributes": [
+            {"key": "service.name", "value": {"stringValue": "fixture-service"}}
+          ]
+        },
+        "scopeSpans": [
+          {
+            "scope": {
+              "name": "fixture-scope",
+              "version": "1.0.0"
+            },
+            "spans": [
+              {
+                "traceId": "4f2e8c3a1b7d9e5f6a0c2d8e4b6f1a3c",
+                "spanId": "1010101010101010",
+                "name": "span-to-add",
+                "kind": 1,
+                "startTimeUnixNano": "1705312800000000000",
+                "endTimeUnixNano": "1705312801000000000"
+              },
+              {
+                "traceId": "4f2e8c3a1b7d9e5f6a0c2d8e4b6f1a3c",
+                "spanId": "2020202020202020",
+                "name": "span-to-remove",
+                "kind": 1,
+                "startTimeUnixNano": "1705312800000000000",
+                "endTimeUnixNano": "1705312801000000000"
+              },
+              {
+                "traceId": "4f2e8c3a1b7d9e5f6a0c2d8e4b6f1a3c",
+                "spanId": "3030303030303030",
+                "name": "span-to-modify",
+                "kind": 1,
+                "startTimeUnixNano": "1705312800000000000",
+                "endTimeUnixNano": "1705312801000000000",
+                "attributes": [
+                  {"key": "attr1", "value": {"stringValue": "original"}}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

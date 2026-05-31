@@ -1,0 +1,27 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+
+processors:
+  transform/add_env:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["env"], "prod")
+  filter/drop_internal:
+    error_mode: propagate
+    traces:
+      span:
+        - kind != SPAN_KIND_INTERNAL
+
+exporters:
+  debug:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [transform/add_env, filter/drop_internal]
+      exporters: [debug]
