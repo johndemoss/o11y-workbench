@@ -66,6 +66,12 @@ var namingPrefixes = []string{
 // using rng for all structural decisions. The returned root's subtree contains
 // approximately spanCount spans total.
 func GenerateTopology(t TopologyType, rng *SeededRNG, spanCount int, maxDepth int) (*SpanNode, error) {
+	return GenerateTopologyWithErrors(t, rng, spanCount, maxDepth, 10)
+}
+
+// GenerateTopologyWithErrors creates a tree and marks errors based on errorPercent.
+// errorPercent: 0 = no errors, 10 = ~10% errors (legacy default). Minimum 1 error if > 0.
+func GenerateTopologyWithErrors(t TopologyType, rng *SeededRNG, spanCount int, maxDepth int, errorPercent int) (*SpanNode, error) {
 	if spanCount < 1 {
 		spanCount = 1
 	}
@@ -97,7 +103,9 @@ func GenerateTopology(t TopologyType, rng *SeededRNG, spanCount int, maxDepth in
 		root.Children = children
 	}
 
-	markRandomErrors(root, rng)
+	if errorPercent > 0 {
+		markRandomErrors(root, rng, errorPercent)
+	}
 	return root, nil
 }
 
@@ -265,8 +273,8 @@ func buildSubtree(rng *SeededRNG, alloc, depth, maxDepth int) (*SpanNode, error)
 	return root, nil
 }
 
-// markRandomErrors marks roughly 10% of spans as errors via partial Fisher-Yates.
-func markRandomErrors(root *SpanNode, rng *SeededRNG) {
+// markRandomErrors marks pct% of spans as errors via partial Fisher-Yates.
+func markRandomErrors(root *SpanNode, rng *SeededRNG, pct int) {
 	var all []*SpanNode
 	var walk func(*SpanNode)
 	walk = func(n *SpanNode) {
@@ -281,8 +289,8 @@ func markRandomErrors(root *SpanNode, rng *SeededRNG) {
 	if n == 0 {
 		return
 	}
-	errors := n / 10
-	if errors == 0 {
+	errors := n * pct / 100
+	if errors == 0 && pct > 0 {
 		errors = 1
 	}
 

@@ -47,8 +47,8 @@ type Run struct {
 	SpanCount            int        `json:"span_count"`
 	TraceCount           int        `json:"trace_count"`
 	TraceCountCompleted  int        `json:"trace_count_completed"`
-	LogCount             int        `json:"log_count,omitempty"`
-	LogCountCompleted    int        `json:"log_count_completed,omitempty"`
+	LogCount             int        `json:"log_count"`
+	LogCountCompleted    int        `json:"log_count_completed"`
 	MetricCount          int        `json:"metric_count,omitempty"`
 	MetricCountCompleted int        `json:"metric_count_completed,omitempty"`
 	// Computed breakdowns — populated during finalization so the backend is the single source of truth.

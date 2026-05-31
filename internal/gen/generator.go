@@ -125,6 +125,7 @@ type Config struct {
 	Signals           Signals       `json:"signals,omitempty"`
 	LogConfig         LogConfig     `json:"log_config,omitempty"`
 	MetricConfig      MetricConfig  `json:"metric_config,omitempty"`
+	ErrorPercent      int           // percentage of spans to mark as errors; 0 = none
 }
 
 func DefaultConfig() Config {
@@ -137,6 +138,7 @@ func DefaultConfig() Config {
 		ServiceName:   "mock-service",
 		BaseTime:      time.Now(),
 		TraceDuration: 5 * time.Second,
+		ErrorPercent:  10,
 	}
 }
 
@@ -258,7 +260,7 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 			spansByService = g.buildScenarioSpans(idRng, scenarioRoots, traceID, g.config.BaseTime)
 		} else {
 			topology := g.config.Topology
-			root, err := GenerateTopology(topology, topoRng, spanCount, g.config.MaxDepth)
+			root, err := GenerateTopologyWithErrors(topology, topoRng, spanCount, g.config.MaxDepth, g.config.ErrorPercent)
 			if err != nil {
 				return err
 			}

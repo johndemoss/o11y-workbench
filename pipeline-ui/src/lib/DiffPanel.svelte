@@ -12,9 +12,33 @@
   } = $props()
 
   let expanded = $state(false)
+  const pageSize = 50
+
+  let modifiedPage = $state(0)
+  let addedPage = $state(0)
+  let removedPage = $state(0)
+  let unifiedPage = $state(0)
 
   function toggleExpanded() {
     expanded = !expanded
+    if (expanded) {
+      modifiedPage = 0
+      addedPage = 0
+      removedPage = 0
+      unifiedPage = 0
+    }
+  }
+
+  function totalPages(count: number) {
+    return Math.max(1, Math.ceil(count / pageSize))
+  }
+
+  function prevPage(setter: (p: number) => void, current: number) {
+    if (current > 0) setter(current - 1)
+  }
+
+  function nextPage(setter: (p: number) => void, current: number, total: number) {
+    if (current < total - 1) setter(current + 1)
   }
 </script>
 
@@ -36,7 +60,7 @@
       </div>
 
       {#if diffView === 'inline'}
-        {#each stageDiff.modified as span}
+        {#each stageDiff.modified.slice(modifiedPage * pageSize, (modifiedPage + 1) * pageSize) as span}
           <div class="diff-item diff-modified">
             <span class="diff-badge">MODIFIED</span>
             <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
@@ -63,18 +87,39 @@
             {/if}
           </div>
         {/each}
-        {#each stageDiff.added as span}
+        {#if stageDiff.modified.length > pageSize}
+          <div class="pagination">
+            <button disabled={modifiedPage === 0} onclick={() => modifiedPage--}>Prev</button>
+            <span>{modifiedPage + 1} / {Math.ceil(stageDiff.modified.length / pageSize)}</span>
+            <button disabled={modifiedPage >= Math.ceil(stageDiff.modified.length / pageSize) - 1} onclick={() => modifiedPage++}>Next</button>
+          </div>
+        {/if}
+        {#each stageDiff.added.slice(addedPage * pageSize, (addedPage + 1) * pageSize) as span}
           <div class="diff-item diff-added">
             <span class="diff-badge">ADDED</span>
             <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
           </div>
         {/each}
-        {#each stageDiff.removed as span}
+        {#if stageDiff.added.length > pageSize}
+          <div class="pagination">
+            <button disabled={addedPage === 0} onclick={() => addedPage--}>Prev</button>
+            <span>{addedPage + 1} / {Math.ceil(stageDiff.added.length / pageSize)}</span>
+            <button disabled={addedPage >= Math.ceil(stageDiff.added.length / pageSize) - 1} onclick={() => addedPage++}>Next</button>
+          </div>
+        {/if}
+        {#each stageDiff.removed.slice(removedPage * pageSize, (removedPage + 1) * pageSize) as span}
           <div class="diff-item diff-removed">
             <span class="diff-badge">REMOVED</span>
             <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
           </div>
         {/each}
+        {#if stageDiff.removed.length > pageSize}
+          <div class="pagination">
+            <button disabled={removedPage === 0} onclick={() => removedPage--}>Prev</button>
+            <span>{removedPage + 1} / {Math.ceil(stageDiff.removed.length / pageSize)}</span>
+            <button disabled={removedPage >= Math.ceil(stageDiff.removed.length / pageSize) - 1} onclick={() => removedPage++}>Next</button>
+          </div>
+        {/if}
         {#if stageDiff.added.length === 0 && stageDiff.removed.length === 0 && stageDiff.modified.length === 0}
           <div class="diff-empty">No changes detected</div>
         {/if}
@@ -242,4 +287,29 @@
   :global(.json-number) { color: #fca5a5; }
   :global(.json-bool) { color: #c084fc; }
   :global(.json-null) { color: #94a3b8; font-style: italic; }
+
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary, #94a3b8);
+  }
+  .pagination button {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border, #334155);
+    background: var(--color-surface, #1e293b);
+    color: var(--color-text, #f1f5f9);
+    cursor: pointer;
+    border-radius: var(--radius-sm, 4px);
+  }
+  .pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .pagination button:not(:disabled):hover {
+    background: var(--color-border, #334155);
+  }
 </style>
