@@ -647,3 +647,69 @@ describe('reorderStage', () => {
     expect(edges).toEqual(edgesCopy)
   })
 })
+
+// ===== Drop a 3rd transform onto imported 2-stage pipeline =====
+// Reproduces the exact node/edge mutation that SwimlaneFlowBuilder.handleDrop
+// performs, then asserts flowToPipelines produces the correct 3-stage pipeline
+// with the new processor config. Validates the DATA layer in isolation.
+
+describe('handleDrop: add 3rd transform to imported default', () => {
+  it('flowToPipelines yields 3 stages + new processor after drop mutation', async () => {
+    // Imported default: 2 transforms in traces
+    const imported: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 'stage-1', type: 'transform' as StageType, processor_ref: 'transform/t1' },
+          { id: 'stage-2', type: 'transform' as StageType, processor_ref: 'transform/t2' },
+        ],
+        processors: { 'transform/t1': {}, 'transform/t2': {} },
+        receivers: ['otlp'],
+        exporters: ['debug'],
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+
+    const { nodes, edges } = pipelinesToFlow(imported)
+
+    // --- Replicate handleDrop: append new stage node + connecting edge ---
+    const id = 'stage-3'
+    const procName = 'transform/transform-stage-3'
+    const snippetProcessor = {
+      error_mode: 'ignore',
+      trace_statements: [
+        { context: 'span', statements: ['set(attributes["env"], "prod")'] },
+      ],
+    }
+
+    const siblings = nodes.filter(
+      (n) => n.parentId === 'swimlane-traces' && n.type === 'stage',
+    )
+    const lastSibling = siblings[siblings.length - 1]
+
+    const newNode: Node<StageNodeData> = {
+      id,
+      type: 'stage',
+      parentId: 'swimlane-traces',
+      position: { x: 650, y: 35 },
+      data: {
+        stage: { id, type: 'transform' as StageType, processor_ref: procName },
+        processor: snippetProcessor,
+        stageIndex: siblings.length,
+      },
+    }
+
+    const newNodes = [...nodes, newNode]
+    const newEdges = [
+      ...edges,
+      { id: `e-${lastSibling.id}-${id}`, source: lastSibling.id, target: id },
+    ]
+
+    // --- The actual assertion: does the data layer reflect the drop? ---
+    const result = await flowToPipelines(newNodes, newEdges, imported)
+
+    expect(result.traces.stages).toHaveLength(3)
+    expect(result.traces.stages.map((s) => s.id)).toEqual(['stage-1', 'stage-2', 'stage-3'])
+    expect(result.traces.processors[procName]).toEqual(snippetProcessor)
+  })
+})

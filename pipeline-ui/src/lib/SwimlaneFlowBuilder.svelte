@@ -263,7 +263,6 @@
       }
     }
 
-    skipNextFlowToPipelines = true
     nodes = newNodes
     edges = newEdges
   }
