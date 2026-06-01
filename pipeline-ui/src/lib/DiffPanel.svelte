@@ -12,7 +12,7 @@
   } = $props()
 
   let expanded = $state(false)
-  const pageSize = 50
+  const pageSize = 10
 
   let modifiedPage = $state(0)
   let addedPage = $state(0)
