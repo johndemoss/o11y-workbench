@@ -58,9 +58,9 @@
       <div style="display:flex;align-items:center;gap:16px;justify-content:space-between">
         <div class="signal-pills" id="signal-type">
           <button class="pill-all" onclick="selectAllSignals()" type="button">All</button>
-          <label><input type="checkbox" value="traces" checked onchange="onSignalCheckboxChange('traces')"> Traces</label>
-          <label><input type="checkbox" value="logs" onchange="onSignalCheckboxChange('logs')"> Logs</label>
-          <label><input type="checkbox" value="metrics" onchange="onSignalCheckboxChange('metrics')"> Metrics</label>
+          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="traces" checked onclick="onSignalPillClick(event,'traces')"> Traces</label>
+          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs" onclick="onSignalPillClick(event,'logs')"> Logs</label>
+          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics" onclick="onSignalPillClick(event,'metrics')"> Metrics</label>
         </div>
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;font-weight:400;flex-shrink:0" onclick="toggleAllSignalConfigs()" id="toggle-all-btn">Collapse All</button>
       </div>
@@ -289,9 +289,9 @@
   <div class="filter-bar">
     <div class="signal-pills" id="run-filter-signals">
       <button class="pill-all" onclick="resetSignalFilter()" type="button">All</button>
-      <label><input type="checkbox" value="traces" checked onchange="onFilterSignalChange()"> Traces</label>
-      <label><input type="checkbox" value="logs" checked onchange="onFilterSignalChange()"> Logs</label>
-      <label><input type="checkbox" value="metrics" checked onchange="onFilterSignalChange()"> Metrics</label>
+      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="traces" checked onclick="onFilterSignalPillClick(event,'traces')"> Traces</label>
+      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs" checked onclick="onFilterSignalPillClick(event,'logs')"> Logs</label>
+      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics" checked onclick="onFilterSignalPillClick(event,'metrics')"> Metrics</label>
     </div>
     <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs..." oninput="renderRunList()">
   </div>

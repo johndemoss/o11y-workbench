@@ -241,6 +241,21 @@ function selectAllSignals() {
   updateAllPillState('signal-type');
 }
 
+// Do NOT preventDefault: it triggers the checkbox activation-revert, undoing
+// the manual checked changes below. Let the native toggle commit, then adjust.
+function onSignalPillClick(event, value) {
+  const multiSelect = event.ctrlKey || event.metaKey;
+  const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
+  const clicked = document.querySelector('#signal-type input[value="' + value + '"]');
+  if (multiSelect) {
+    if (!Array.from(checks).some(c => c.checked)) clicked.checked = true;
+  } else {
+    checks.forEach(c => { c.checked = (c.value === value); });
+  }
+  onSignalCheckboxChange(value);
+  updateAllPillState('signal-type');
+}
+
 function onSignalCheckboxChange(changed) {
   const checks = document.querySelectorAll('#signal-type input[type="checkbox"]');
   // Ensure at least one checkbox is checked
@@ -528,6 +543,17 @@ function resetSignalFilter() {
   }
   renderRunList();
   updateAllPillState('run-filter-signals');
+}
+
+// Do NOT preventDefault: it triggers the checkbox activation-revert, undoing
+// the manual checked changes below. Let the native toggle commit, then adjust.
+function onFilterSignalPillClick(event, value) {
+  const multiSelect = event.ctrlKey || event.metaKey;
+  if (!multiSelect) {
+    const checks = document.querySelectorAll('#run-filter-signals input[type="checkbox"]');
+    checks.forEach(c => { c.checked = (c.value === value); });
+  }
+  onFilterSignalChange();
 }
 
 function onFilterSignalChange() {
