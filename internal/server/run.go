@@ -350,21 +350,10 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 	}
 	store.Add(run)
 
-	var genCtx context.Context
-	var cancel context.CancelFunc
-
-	// When multiple signals are enabled, don't use a deadline context
-	// because signals generate sequentially and would time out.
-	// The Duration in cfg controls the trace generator's rate limiting internally.
-	multiSignal := (cfg.IncludesTraces() && cfg.IncludesLogs()) ||
-		(cfg.IncludesTraces() && cfg.IncludesMetrics()) ||
-		(cfg.IncludesLogs() && cfg.IncludesMetrics())
-
-	if cfg.Duration > 0 && !multiSignal {
-		genCtx, cancel = context.WithTimeout(context.Background(), cfg.Duration)
-	} else {
-		genCtx, cancel = context.WithCancel(context.Background())
-	}
+	// WithCancel (not WithTimeout): generators apply Duration internally with
+	// the clock starting at generation time. A server-side deadline starts at
+	// StartRun, letting setup steal budget (90 spans instead of 100).
+	genCtx, cancel := context.WithCancel(context.Background())
 
 	run.mu.Lock()
 	run.cancel = cancel

@@ -954,6 +954,80 @@ func TestSpanCount_Exact100(t *testing.T) {
 	}
 }
 
+func newRateDurCfg(rate, spanCount int, dur time.Duration) gen.Config {
+	return gen.Config{
+		Seed:          42,
+		TraceCount:    0,
+		Rate:          rate,
+		Duration:      dur,
+		Topology:      gen.TopologyFlat,
+		SpanCount:     spanCount,
+		MaxDepth:      5,
+		ServiceName:   "test-svc",
+		BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		TraceDuration: 5 * time.Second,
+	}
+}
+
+func TestSpanCount_SetupGapStealsBudget(t *testing.T) {
+	const (
+		rate      = 1
+		spanCount = 10
+		dur       = 3 * time.Second
+		setupGap  = 1100 * time.Millisecond
+	)
+	wantSpans := int(dur/time.Second) * spanCount
+
+	parentWithTimeout, cancelA := context.WithTimeout(context.Background(), dur)
+	defer cancelA()
+	time.Sleep(setupGap)
+	gA := gen.NewGenerator(newRateDurCfg(rate, spanCount, dur))
+	expA := &mockExporter{}
+	if err := gA.Run(parentWithTimeout, expA); err != nil {
+		t.Fatalf("run A: %v", err)
+	}
+	gotA := len(collectAllSpans(expA.spans))
+
+	parentWithCancel, cancelB := context.WithCancel(context.Background())
+	defer cancelB()
+	time.Sleep(setupGap)
+	gB := gen.NewGenerator(newRateDurCfg(rate, spanCount, dur))
+	expB := &mockExporter{}
+	if err := gB.Run(parentWithCancel, expB); err != nil {
+		t.Fatalf("run B: %v", err)
+	}
+	gotB := len(collectAllSpans(expB.spans))
+
+	if gotA >= wantSpans {
+		t.Errorf("WithTimeout parent should LOSE budget to setup gap: got %d, want < %d", gotA, wantSpans)
+	}
+	if gotB != wantSpans {
+		t.Errorf("WithCancel parent should be unaffected by setup gap: got %d, want %d", gotB, wantSpans)
+	}
+}
+
+func TestSpanCount_RateDurationExactAndDeterministic(t *testing.T) {
+	const (
+		rate       = 100
+		spanCount  = 10
+		dur        = 100 * time.Millisecond
+		iterations = 15
+	)
+	wantSpans := int(float64(rate)*dur.Seconds()) * spanCount
+
+	for it := 0; it < iterations; it++ {
+		g := gen.NewGenerator(newRateDurCfg(rate, spanCount, dur))
+		exp := &mockExporter{}
+		if err := g.Run(context.Background(), exp); err != nil {
+			t.Fatalf("iter %d: %v", it, err)
+		}
+		if got := len(collectAllSpans(exp.spans)); got != wantSpans {
+			t.Errorf("iter %d: rate=%d dur=%s expected exactly %d spans, got %d",
+				it, rate, dur, wantSpans, got)
+		}
+	}
+}
+
 func TestGenerator_ContextCancellation(t *testing.T) {
 	c := gen.Config{
 		Seed:          42,

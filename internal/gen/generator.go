@@ -220,8 +220,16 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 		defer ticker.Stop()
 	}
 
-	for i := 0; g.config.TraceCount == 0 || i < g.config.TraceCount; i++ {
-		if ticker != nil {
+	traceCount := g.config.TraceCount
+	if traceCount == 0 && g.config.Rate > 0 && g.config.Duration > 0 {
+		traceCount = int(float64(g.config.Rate) * g.config.Duration.Seconds())
+		if traceCount == 0 {
+			traceCount = 1
+		}
+	}
+
+	for i := 0; traceCount == 0 || i < traceCount; i++ {
+		if i > 0 && ticker != nil {
 			select {
 			case <-ticker.C:
 			case <-ctx.Done():
