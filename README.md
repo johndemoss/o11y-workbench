@@ -6,6 +6,8 @@
 
 Generate structurally valid OTLP traces, logs, and metrics with reproducible output — feed them into any collector (Jaeger, Datadog, Grafana, etc.), inspect locally as JSON/protobuf files, or prototype collector pipelines in the browser.
 
+Agent and contributor workflow lives in [AGENTS.md](AGENTS.md).
+
 ## Features
 
 - **Deterministic generation** — same seed always produces identical traces, logs, and metrics. Reproduce bugs, share test cases.
@@ -167,7 +169,7 @@ The web dashboard at `http://localhost:8080` provides:
 | `POST` | `/api/remotetap/disconnect` | Disconnect from the remote endpoint |
 | `GET` | `/api/remotetap/status` | Get remote TAP connection status |
 | `GET` | `/api/remotetap/usage/{runID}` | Get remote TAP usage stats for a run |
-| `GET` | `/` | Serves the web dashboard (HTMX) |
+| `GET` | `/` | Serves the web dashboard |
 | `GET` | `/pipeline/` | Serves the pipeline prototyper SPA |
 
 ## OTTL Prototyper
@@ -326,10 +328,11 @@ make build-all
 # Go tests
 go test ./...
 
-# Frontend e2e smoke tests (requires running server)
-npm test                 # headless
-npm run test:headed      # headed browser
-npm run test:ui          # Playwright UI mode
+# Browser smoke tests (Playwright can start the server)
+npx playwright test --config playwright.config.js
+
+# Pipeline UI unit tests
+cd pipeline-ui && npm test
 ```
 
 ### Project Structure
@@ -373,7 +376,7 @@ internal/
   remotetap/               # Remote TAP client (OTel Desktop Viewer)
     client.go              #   Remote TAP gRPC client
     mock.go                #   Mock remote endpoint for testing
-  server/                  # Web server + HTMX dashboard
+  server/                  # Web server + vanilla JS dashboard
     server.go              #   Route registration, HTTP server setup
     web/                   #   Static web assets (HTML/CSS/JS)
     pipeline-ui/           #   Embedded Svelte SPA (built)
