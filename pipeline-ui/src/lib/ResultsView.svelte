@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { computeUnifiedDiff, formatJSON, highlightJSON } from './diff'
-  import type { UnifiedDiffLine } from './diff'
+  import { buildStageUnifiedDiffsLazy, formatJSON, highlightJSON } from './diff'
   import type { PipelineResult, StageDiff } from './types'
   import StatsBar from './StatsBar.svelte'
   import DiffPanel from './DiffPanel.svelte'
@@ -93,13 +92,25 @@
     diffView = diffView === 'inline' ? 'unified' : 'inline'
   }
 
-  let stageUnifiedDiffs: UnifiedDiffLine[][] = $derived(
-    result ? result.stages.map((stage, i) => {
-      const before = i === 0 ? originalData ?? null : result.stages[i - 1].intermediate_data
-      const after = stage.intermediate_data
-      return computeUnifiedDiff(before, after)
-    }) : []
-  )
+  const unifiedDiffCache = buildStageUnifiedDiffsLazy()
+
+  $effect(() => {
+    void result
+    void originalData
+    unifiedDiffCache.clear()
+  })
+
+  function getUnifiedDiff(stageIndex: number) {
+    if (!result) return []
+    const before = stageIndex === 0
+      ? originalData ?? null
+      : result.stages[stageIndex - 1]?.intermediate_data
+    const after = result.stages[stageIndex]?.intermediate_data
+    return unifiedDiffCache.get(stageIndex, before, after, {
+      expanded: expandedStages.has(stageIndex),
+      unified: diffView === 'unified',
+    })
+  }
 
   function downloadJSON(data: unknown, filename: string) {
     const json = JSON.stringify(data, null, 2)
@@ -149,7 +160,7 @@
           {#if stageDiffs[stage.stage_index]}
             <DiffPanel
               stageDiff={stageDiffs[stage.stage_index]}
-              unifiedDiff={stageUnifiedDiffs[stage.stage_index]}
+              unifiedDiff={getUnifiedDiff(stage.stage_index)}
               stageIndex={stage.stage_index}
               {diffView}
               onToggleView={toggleView}

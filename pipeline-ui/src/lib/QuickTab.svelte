@@ -7,7 +7,7 @@
     onresult
   }: {
     pipelineYaml?: string
-    onresult?: (result: PipelineResult | null, error?: string, runId?: string) => void
+    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalTrace?: unknown) => void
   } = $props()
 
   let quickType: 'transform' | 'filter' = $state('transform')

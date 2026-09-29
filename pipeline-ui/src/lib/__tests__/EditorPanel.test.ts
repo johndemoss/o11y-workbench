@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { exportPipelinesToYamlLocal } from '../export-yaml'
 import type { PipelinesBySignal } from '../types'
 
 // ---------------------------------------------------------------------------
 // Pure-logic equivalents of EditorPanel's reactive sync/gating logic
-// (syncStatus $derived + resyncFromGraph)
+// (syncStatus $derived + resyncFromGraph + Model-1 yaml prop sync)
 // ---------------------------------------------------------------------------
 
 type SyncStatus = 'synced' | 'editing' | 'syncing'
@@ -27,25 +27,41 @@ interface EditorPanelState {
 }
 
 /**
- * Mirrors the resyncFromGraph function in EditorPanel.svelte.
+ * Mirrors resyncFromGraph — resets flags and applies App-owned yaml prop.
  */
-function resyncFromGraph(pipelines: PipelinesBySignal): EditorPanelState {
+function resyncFromGraph(yamlProp: string): EditorPanelState {
   return {
     userIsEditing: false,
     awaitingOwnSync: false,
-    yamlContent: exportPipelinesToYamlLocal(pipelines),
+    yamlContent: yamlProp,
   }
 }
 
 /**
- * Mirrors the $effect's sync-to-yaml guard:
- *   if (!userIsEditing && !awaitingOwnSync) { yamlContent = exportPipelinesToYamlLocal(pipelines) }
+ * Mirrors the $effect guard for prop→editor sync (Model 1 — no fetch):
+ *   if (!userIsEditing && !awaitingOwnSync) { yamlContent = yamlProp }
  */
 function shouldSyncYaml(
   userIsEditing: boolean,
   awaitingOwnSync: boolean,
 ): boolean {
   return !userIsEditing && !awaitingOwnSync
+}
+
+/**
+ * Apply App yaml prop to editor when guards allow. Returns next yamlContent
+ * (or previous if blocked). Never calls export/fetch.
+ */
+function applyYamlProp(
+  yamlProp: string,
+  currentYaml: string,
+  userIsEditing: boolean,
+  awaitingOwnSync: boolean,
+): string {
+  if (shouldSyncYaml(userIsEditing, awaitingOwnSync)) {
+    return yamlProp
+  }
+  return currentYaml
 }
 
 // ----- setup ---------------------------------------------------------------
@@ -116,18 +132,43 @@ describe('shouldSyncYaml (effect guard)', () => {
   })
 })
 
+// ===== Model 1: yaml prop sync without fetch ==============================
+
+describe('applyYamlProp (Model 1 — no export fetch)', () => {
+  it('updates yaml from prop when !userIsEditing without calling fetch', () => {
+    const fetchSpy = vi.fn()
+    const propYaml = exportPipelinesToYamlLocal(populatedPipelines)
+    const next = applyYamlProp(propYaml, 'old', false, false)
+    expect(next).toBe(propYaml)
+    expect(next).toContain('add_env')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite editor while userIsEditing', () => {
+    const next = applyYamlProp('from-app', 'user-typed', true, false)
+    expect(next).toBe('user-typed')
+  })
+
+  it('does not overwrite editor while awaitingOwnSync', () => {
+    const next = applyYamlProp('from-app', 'pending', false, true)
+    expect(next).toBe('pending')
+  })
+})
+
 // ===== resyncFromGraph ====================================================
 
 describe('resyncFromGraph', () => {
-  it('resets flags and regenerates yaml content from pipelines', () => {
-    const next = resyncFromGraph(emptyPipelines)
+  it('resets flags and applies App yaml prop', () => {
+    const yamlProp = exportPipelinesToYamlLocal(emptyPipelines)
+    const next = resyncFromGraph(yamlProp)
     expect(next.userIsEditing).toBe(false)
     expect(next.awaitingOwnSync).toBe(false)
-    expect(next.yamlContent).toBe(exportPipelinesToYamlLocal(emptyPipelines))
+    expect(next.yamlContent).toBe(yamlProp)
   })
 
-  it('produces valid YAML from populated pipelines', () => {
-    const next = resyncFromGraph(populatedPipelines)
+  it('produces valid YAML from populated pipelines prop', () => {
+    const yamlProp = exportPipelinesToYamlLocal(populatedPipelines)
+    const next = resyncFromGraph(yamlProp)
     expect(next.yamlContent).toContain('add_env')
     expect(next.yamlContent).toContain('traces')
     expect(next.yamlContent).toContain('receivers:')
@@ -136,7 +177,7 @@ describe('resyncFromGraph', () => {
 
   it('is idempotent', () => {
     const content = exportPipelinesToYamlLocal(emptyPipelines)
-    const next = resyncFromGraph(emptyPipelines)
+    const next = resyncFromGraph(content)
     expect(next.yamlContent).toBe(content)
     expect(next.userIsEditing).toBe(false)
     expect(next.awaitingOwnSync).toBe(false)
@@ -155,10 +196,11 @@ describe('handleEditorChange cycle (without timers)', () => {
     //
     // We verify the intermediate states of this state machine.
 
+    const appYaml = exportPipelinesToYamlLocal(emptyPipelines)
     let state: EditorPanelState = {
       userIsEditing: false,
       awaitingOwnSync: false,
-      yamlContent: exportPipelinesToYamlLocal(emptyPipelines),
+      yamlContent: appYaml,
     }
 
     // Simulate step 1: user starts editing
@@ -172,13 +214,13 @@ describe('handleEditorChange cycle (without timers)', () => {
     expect(computeSyncStatus(state.awaitingOwnSync, state.userIsEditing)).toBe('syncing')
     expect(shouldSyncYaml(state.userIsEditing, state.awaitingOwnSync)).toBe(false)
 
-    // Simulate step 4: after tick(), sync completes
+    // Simulate step 4: after tick(), sync completes; App prop reapplied
     state.awaitingOwnSync = false
     state.userIsEditing = false
-    state = resyncFromGraph(emptyPipelines)
+    state = resyncFromGraph(appYaml)
     expect(computeSyncStatus(state.awaitingOwnSync, state.userIsEditing)).toBe('synced')
     expect(shouldSyncYaml(state.userIsEditing, state.awaitingOwnSync)).toBe(true)
-    expect(state.yamlContent).toBe(exportPipelinesToYamlLocal(emptyPipelines))
+    expect(state.yamlContent).toBe(appYaml)
   })
 
   it('shows that parse errors gate further state transitions', () => {

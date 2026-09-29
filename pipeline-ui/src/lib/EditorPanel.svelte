@@ -1,16 +1,18 @@
 <script lang="ts">
   import CodeMirrorEditor from './CodeMirrorEditor.svelte'
-  import { exportPipelinesToYaml } from './export-yaml'
   import type { PipelinesBySignal } from './types'
   import yaml from 'js-yaml'
   import { tick } from 'svelte'
 
   let {
     pipelines,
+    yaml: yamlProp = '',
     onPipelinesChange,
     selectedNodeId,
   }: {
     pipelines: PipelinesBySignal
+    /** App-owned pipeline YAML (Model 1 — no EditorPanel POST /export). */
+    yaml?: string
     onPipelinesChange?: (p: PipelinesBySignal) => void
     selectedNodeId?: string | null
   } = $props()
@@ -58,10 +60,10 @@
     }, 500)
   }
 
-  async function resyncFromGraph() {
+  function resyncFromGraph() {
     userIsEditing = false
     awaitingOwnSync = false
-    yamlContent = await exportPipelinesToYaml(pipelines)
+    yamlContent = yamlProp
   }
 
   function startResize(e: MouseEvent) {
@@ -82,12 +84,11 @@
     window.addEventListener('mouseup', onMouseUp)
   }
 
-  // Sync pipelines to yamlContent when not being edited
+  // Sync editor from App yaml prop when not being edited (no POST /export here)
   $effect(() => {
-    // Track pipelines prop changes
-    const _ = JSON.stringify(pipelines)
+    const y = yamlProp
     if (!userIsEditing && !awaitingOwnSync) {
-      exportPipelinesToYaml(pipelines).then(y => yamlContent = y)
+      yamlContent = y
     }
   })
 

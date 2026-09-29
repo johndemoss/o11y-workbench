@@ -10,7 +10,9 @@
   import ConfigImport from './lib/ConfigImport.svelte'
   import QuickTab from './lib/QuickTab.svelte'
   import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
+  import { debounce } from './lib/debounce'
   import yaml from 'js-yaml'
+  import { onDestroy } from 'svelte'
 
   let pipeline: Pipeline = $state({ stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
   let pipelinesBySignal: PipelinesBySignal = $state({
@@ -21,6 +23,7 @@
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
   let originalData: unknown = $state(null)
+  let selectedRunTraceData: unknown = $state(null)
   let showImport: boolean = $state(false)
   let pipelineYaml: string = $state('')
   let activeTab: 'quick' | 'pipeline' | 'graph' = $state('graph')
@@ -71,9 +74,15 @@
       .then(r => r.json()).then(d => alert(d.valid ? 'Pipeline is valid!' : 'Validation errors:\n' + (d.errors || []).join('\n')))
       .catch(e => alert('Validation failed: ' + e.message))
   }
-  async function handleExecuteResult(r: PipelineResult | null, err?: string, runId?: string) {
-    result = r; resultError = err
-    if (r && runId) { try { const res = await fetch(`/api/runs/${runId}`); if (res.ok) originalData = (await res.json()).trace_data ?? null } catch {} }
+  function handleRunSelect(_runId: string, traceData: unknown) {
+    selectedRunTraceData = traceData
+  }
+  function handleExecuteResult(r: PipelineResult | null, err?: string, _runId?: string, originalTrace?: unknown) {
+    result = r
+    resultError = err
+    if (!r) return
+    // Prefer select-time cache (Item 5B); never post-execute Get solely for originalData
+    originalData = originalTrace !== undefined ? originalTrace : selectedRunTraceData
   }
   function handleImport(p: PipelinesBySignal) {
     pipelinesBySignal = p; pipeline = p.traces || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] }
@@ -116,26 +125,33 @@
     return out
   }
 
-  // ─── Pipeline YAML export (API with client-side fallback) ─────────────
+  // ─── Pipeline YAML export: App owns debounced API (Model 1 / Item 6) ───
   let yamlVersion = 0
 
+  const debouncedFetchExportYaml = debounce(
+    (ver: number, tab: string, pipelines: PipelinesBySignal, singlePipeline: Pipeline) => {
+      void fetchExportYaml(ver, tab, pipelines, singlePipeline)
+    },
+    400,
+  )
+  onDestroy(() => debouncedFetchExportYaml.cancel())
+
   $effect(() => {
-    // Track reactive dependencies
     const tab = activeTab
     const pipelines = pipelinesBySignal
     const singlePipeline = pipeline
 
     const ver = ++yamlVersion
 
-    // Synchronous client-side fallback (always available)
+    // Immediate local yaml for responsive UI / EditorPanel prop
     if (tab === 'graph') {
       pipelineYaml = exportPipelinesToYamlLocal(pipelines)
     } else {
       pipelineYaml = yamlStringify(singlePipeline)
     }
 
-    // Async API upgrade — POST /api/ottl/pipeline/export
-    fetchExportYaml(ver, tab, pipelines, singlePipeline)
+    // Debounced API upgrade — POST /api/ottl/pipeline/export (single owner)
+    debouncedFetchExportYaml(ver, tab, pipelines, singlePipeline)
   })
 
   async function fetchExportYaml(
@@ -160,7 +176,6 @@
       })
       if (res.ok) {
         const text = await res.text()
-        // Only apply if no newer request has superseded this one
         if (ver === yamlVersion) {
           pipelineYaml = text
         }
@@ -176,7 +191,7 @@
     <QuickTab onresult={handleExecuteResult} />
   {:else if activeTab === 'graph'}
     <div class="graph-fullscreen">
-      <EditorPanel pipelines={pipelinesBySignal} {selectedNodeId} onPipelinesChange={handlePipelinesChange} />
+      <EditorPanel pipelines={pipelinesBySignal} yaml={pipelineYaml} {selectedNodeId} onPipelinesChange={handlePipelinesChange} />
       <div class="graph-main">
         <div class="canvas-wrapper" class:maximized={isMaximized}>
           <SwimlaneFlowBuilder pipelines={pipelinesBySignal} {result} onImport={() => showImport = true} onExport={handleExport} onNodeEdit={handleNodeEdit} onPipelinesChange={handlePipelinesChange} onNodeSelected={handleNodeSelected} onResultClear={() => { result = null; resultError = undefined }} />
@@ -190,7 +205,7 @@
           </div>
           {#if !isCollapsed}
             <div class="panel-content">
-              <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} /></section>
+              <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
               <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>
             </div>
           {/if}
@@ -199,7 +214,7 @@
     </div>
   {:else}
     <PipelineBuilder {pipeline} onValidate={handleValidate} onImport={() => showImport = true} />
-    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} /></section>
+    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
   {/if}
   {#if activeTab !== 'graph'}
     <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>

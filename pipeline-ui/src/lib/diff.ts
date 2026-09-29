@@ -235,6 +235,31 @@ export function computeUnifiedDiff(before: unknown, after: unknown): UnifiedDiff
   return reversed.reverse()
 }
 
+/** Lazy unified-diff cache: LCS runs only when expanded + unified. */
+export function buildStageUnifiedDiffsLazy(
+  compute: (before: unknown, after: unknown) => UnifiedDiffLine[] = computeUnifiedDiff,
+) {
+  const cache = new Map<number, UnifiedDiffLine[]>()
+  return {
+    clear() {
+      cache.clear()
+    },
+    get(
+      stageIndex: number,
+      before: unknown,
+      after: unknown,
+      opts: { expanded: boolean; unified: boolean },
+    ): UnifiedDiffLine[] {
+      if (!opts.expanded || !opts.unified) return []
+      const hit = cache.get(stageIndex)
+      if (hit !== undefined) return hit
+      const lines = compute(before, after)
+      cache.set(stageIndex, lines)
+      return lines
+    },
+  }
+}
+
 function normalizeAttrs(attr: unknown): Record<string, unknown> {
   const result: Record<string, unknown> = {}
   if (!attr || !Array.isArray(attr)) return result
