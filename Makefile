@@ -18,7 +18,7 @@ test:
 serve:
 	@echo "Starting o11y-workbench-web (containerized)..."
 	$(COMPOSE) up -d o11y-workbench-web otel-collector
-	@echo "Web server started at http://localhost:8080"
+	@echo "Web server started at http://localhost:$(WEB_PORT)"
 	@echo "Use 'make logs' to see logs"
 
 # Stop the web server
@@ -58,6 +58,11 @@ help:
 	@echo "  make otel-demo-sender-stop Stop the demo sender binary"
 	@echo "  make serve-stop          Stop the web server binary"
 	@echo "  make clean-remotetap     Stop all services (both containerized and binary)"
+
+# Host port for the web dashboard (container still listens on 8080).
+# Override: make dev-remotetap WEB_PORT=9090
+WEB_PORT ?= 18080
+export WEB_PORT
 
 # Detect container runtime (docker or podman)
 CONTAINER_RUNTIME := $(shell command -v podman > /dev/null 2>&1 && echo podman || echo docker)
@@ -171,7 +176,7 @@ dev-remotetap: otel-desktop-viewer-start
 	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
 	@echo ""
 	@echo "==> All services running:"
-	@echo "    o11y-workbench dashboard:  http://localhost:8080 (containerized)"
+	@echo "    o11y-workbench dashboard:  http://localhost:$(WEB_PORT) (containerized)"
 	@echo "    otel-desktop-viewer UI:    http://localhost:8000 (binary on host)"
 	@echo "    otel-collector:            localhost:14317 (gRPC) / localhost:14318 (HTTP)"
 	@echo "    remotetap WebSocket:       localhost:12001"

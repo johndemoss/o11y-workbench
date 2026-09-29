@@ -51,7 +51,7 @@ go run ./cmd/o11y-workbench --traces 3 --scenario microservice \
 # Start the web server (builds frontend + Go binary, waits until ready)
 ./scripts/serve.sh
 
-# Open http://localhost:8080
+# Open http://localhost:18080
 ```
 
 The dashboard lets you configure telemetry parameters, run generation jobs (including logs and metrics), inspect results, import traces, and experiment with OTTL transform/filter statements.
@@ -66,13 +66,14 @@ Enable the visual pipeline builder with the `--pipeline-prototyper` flag:
 export O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true
 ```
 
-Open [http://localhost:8080/pipeline/](http://localhost:8080/pipeline/) for the Svelte SPA.
+Open [http://localhost:18080/pipeline/](http://localhost:18080/pipeline/) for the Svelte SPA.
 
 ### Docker
 
 ```bash
 docker build -f Dockerfile.web -t o11y-workbench-web .
-docker run -p 8080:8080 o11y-workbench-web
+# Host 18080 → container 8080 (avoids clash with a local process on :8080)
+docker run -p 18080:8080 o11y-workbench-web
 ```
 
 Docker Compose profiles are also available for local development with OTel Desktop Viewer:
@@ -124,7 +125,7 @@ Precedence: CLI flag > environment variable (`O11Y_WORKBENCH_*`) > config file >
 Usage: o11y-workbench-web [flags]
 
 Flags:
-      --addr string              HTTP listen address (default ":8080")
+      --addr string              HTTP listen address (default ":18080")
       --jobs string              Path to JSON file with startup job definitions
       --scenario-file string     Path to YAML/JSON with user-defined scenario definitions
       --pipeline-prototyper      Enable the pipeline prototyper UI and API
@@ -132,7 +133,7 @@ Flags:
 
 ## Web Dashboard & API
 
-The web dashboard at `http://localhost:8080` provides:
+The web dashboard at `http://localhost:18080` provides:
 
 - **Configuration panel** — seed, trace count, rate, topology, span count, max depth, scenario selection, signal type (traces/logs/metrics), output mode, and endpoints.
 - **Run management** — start, stop, pause, and resume trace generation runs with live progress tracking and real-time span/log/metric counts.

@@ -38,7 +38,8 @@ services:
       dockerfile: Dockerfile.web
     container_name: o11y-workbench-web
     ports:
-      - "8080:8080"
+      # Host WEB_PORT (default 18080) avoids clash with a local process on :8080.
+      - "${WEB_PORT:-18080}:8080"
     environment:
       - O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true
       - O11Y_WORKBENCH_LOG_LEVEL=debug

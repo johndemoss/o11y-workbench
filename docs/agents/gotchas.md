@@ -20,7 +20,7 @@ go run ./cmd/o11y-workbench-web --pipeline-prototyper
 cd pipeline-ui && npm run dev
 ```
 
-Vite proxies `/api/*` to `:8080`. Production-style: `./scripts/serve.sh`.
+Vite proxies `/api/*` to `:18080` (default listen addr; override with `--addr` / `WEB_PORT`). Production-style: `./scripts/serve.sh`. Host port defaults to **18080** so it does not clash with a local process on `:8080`.
 
 ## Docker / IDs / routes
 

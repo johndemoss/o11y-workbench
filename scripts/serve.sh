@@ -2,7 +2,7 @@
 # scripts/serve.sh — Reliable o11y-workbench-web server launcher for agents.
 set -euo pipefail
 
-ADDR=":8080"
+ADDR=":18080"
 SKIP_BUILD=false
 WAIT_SECONDS=30
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

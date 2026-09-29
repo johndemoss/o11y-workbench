@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP listen address")
+	addr := flag.String("addr", ":18080", "HTTP listen address")
 	jobsPath := flag.String("jobs", "", "Path to JSON file with startup job definitions")
 	scenarioFile := flag.String("scenario-file", "", "Path to YAML/JSON file with user-defined scenario definitions")
 	pipelinePrototyper := flag.Bool("pipeline-prototyper", false, "Enable the pipeline prototyper UI and API")
