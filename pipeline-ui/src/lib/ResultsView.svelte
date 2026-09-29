@@ -11,6 +11,8 @@
   } = $props()
 
   let expandedStages: Set<number> = $state(new Set())
+  /** Stages whose DiffPanel "Show Diff" is open — gates lazy unified LCS. */
+  let diffExpandedStages: Set<number> = $state(new Set())
   let expandedFinal = $state(false)
 
   function toggleStage(index: number) {
@@ -18,6 +20,13 @@
     if (next.has(index)) next.delete(index)
     else next.add(index)
     expandedStages = next
+  }
+
+  function onDiffExpandChange(stageIndex: number, expanded: boolean) {
+    const next = new Set(diffExpandedStages)
+    if (expanded) next.add(stageIndex)
+    else next.delete(stageIndex)
+    diffExpandedStages = next
   }
 
   function formatDuration(ns: number): string {
@@ -98,6 +107,7 @@
     void result
     void originalData
     unifiedDiffCache.clear()
+    diffExpandedStages = new Set()
   })
 
   function getUnifiedDiff(stageIndex: number) {
@@ -107,7 +117,7 @@
       : result.stages[stageIndex - 1]?.intermediate_data
     const after = result.stages[stageIndex]?.intermediate_data
     return unifiedDiffCache.get(stageIndex, before, after, {
-      expanded: expandedStages.has(stageIndex),
+      expanded: diffExpandedStages.has(stageIndex),
       unified: diffView === 'unified',
     })
   }
@@ -164,6 +174,7 @@
               stageIndex={stage.stage_index}
               {diffView}
               onToggleView={toggleView}
+              onExpandChange={(expanded) => onDiffExpandChange(stage.stage_index, expanded)}
             />
           {/if}
 

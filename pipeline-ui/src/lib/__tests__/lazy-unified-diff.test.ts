@@ -69,4 +69,23 @@ describe('buildStageUnifiedDiffsLazy', () => {
     cache.get(0, before, after, { expanded: true, unified: true })
     expect(compute).toHaveBeenCalledTimes(2)
   })
+
+  it('DiffPanel Show Diff expand + unified triggers compute without stage-header expand', () => {
+    // ResultsView maps DiffPanel onExpandChange → opts.expanded (not expandedStages)
+    const compute = vi.fn((): UnifiedDiffLine[] => [{ type: 'add', text: 'diff' }])
+    const cache = buildStageUnifiedDiffsLazy(compute)
+
+    // mount / result present: DiffPanels collapsed, even if global view is already unified
+    for (let i = 0; i < stages.length; i++) {
+      const { before, after } = payloads(i)
+      cache.get(i, before, after, { expanded: false, unified: true })
+    }
+    expect(compute).toHaveBeenCalledTimes(0)
+
+    // user opens Show Diff on stage 0 while unified → LCS for that stage only
+    const { before, after } = payloads(0)
+    cache.get(0, before, after, { expanded: true, unified: true })
+    expect(compute).toHaveBeenCalledTimes(1)
+    expect(compute).toHaveBeenCalledWith(before, after)
+  })
 })

@@ -3,12 +3,13 @@
   import type { UnifiedDiffLine } from './diff'
   import type { StageDiff } from './types'
 
-  let { stageDiff, unifiedDiff, stageIndex, diffView, onToggleView }: {
+  let { stageDiff, unifiedDiff, stageIndex, diffView, onToggleView, onExpandChange }: {
     stageDiff: StageDiff
     unifiedDiff: UnifiedDiffLine[]
     stageIndex: number
     diffView: 'inline' | 'unified'
     onToggleView: () => void
+    onExpandChange?: (expanded: boolean) => void
   } = $props()
 
   let expanded = $state(false)
@@ -21,6 +22,7 @@
 
   function toggleExpanded() {
     expanded = !expanded
+    onExpandChange?.(expanded)
     if (expanded) {
       modifiedPage = 0
       addedPage = 0
