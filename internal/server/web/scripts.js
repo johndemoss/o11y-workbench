@@ -569,6 +569,42 @@ function onFilterSignalChange() {
 let runs = {};
 let pollTimer = null;
 
+const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'paused', 'streaming']);
+
+function hasActiveRuns(runsMap) {
+  return Object.values(runsMap).some(r => ACTIVE_RUN_STATUSES.has(r.status));
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function mergeListRun(prev, incoming) {
+  // List omits OTLP payloads; keep any previously fetched detail blobs.
+  if (prev) {
+    if (incoming.trace_data == null && prev.trace_data != null) incoming.trace_data = prev.trace_data;
+    if (incoming.log_data == null && prev.log_data != null) incoming.log_data = prev.log_data;
+    if (incoming.metric_data == null && prev.metric_data != null) incoming.metric_data = prev.metric_data;
+  }
+  return incoming;
+}
+
+function runNeedsPayloadFetch(r) {
+  return (!!r.has_trace_data && !r.trace_data) ||
+    (!!r.has_log_data && !r.log_data) ||
+    (!!r.has_metric_data && !r.metric_data);
+}
+
+async function fetchRunDetail(id) {
+  const full = await api('/api/runs/' + id);
+  const prev = runs[id];
+  runs[id] = prev ? { ...prev, ...full } : full;
+  return runs[id];
+}
+
 async function startRun() {
   const runBtn = document.getElementById('run-btn');
   runBtn.disabled = true;
@@ -785,13 +821,15 @@ function showOtterToast(run) {
 }
 
 function startPolling() {
+  if (pollTimer) return;
   const announcedCompleted = new Set();
   pollTimer = setInterval(async () => {
     try {
       const data = await api('/api/runs');
-      data.runs.forEach(r => {
-        const prevStatus = runs[r.id]?.status;
-        runs[r.id] = r;
+      for (const r of data.runs) {
+        const prev = runs[r.id];
+        const prevStatus = prev?.status;
+        runs[r.id] = mergeListRun(prev, r);
         // Show brief "Completed!" when a run transitions to completed
         if (r.status === 'completed' && prevStatus && prevStatus !== 'completed' && !announcedCompleted.has(r.id)) {
           announcedCompleted.add(r.id);
@@ -800,15 +838,19 @@ function startPolling() {
           el.textContent = 'Completed!';
           setTimeout(() => { if (el.textContent === 'Completed!') el.textContent = ''; }, 3000);
         }
-      });
+      }
       renderRunList();
       // Show detail if viewing one
       const detail = document.getElementById('detail-section');
       if (!detail.classList.contains('hidden')) {
         const id = detail.querySelector('#detail-id').textContent;
-        const r = runs[id];
+        let r = runs[id];
+        if (r && runNeedsPayloadFetch(r)) {
+          try { r = await fetchRunDetail(id); } catch (e) { console.error('Detail refresh error:', e); }
+        }
         if (r) renderDetail(r);
       }
+      if (!hasActiveRuns(runs)) stopPolling();
     } catch(e) {
       console.error('Polling error:', e);
       const statusEl = document.getElementById('run-status');
@@ -858,9 +900,9 @@ function renderRunList() {
   document.querySelectorAll('#run-filter-signals input[type="checkbox"]:checked').forEach(c => checkedSignals.push(c.value));
   if (checkedSignals.length > 0 && checkedSignals.length < 3) {
     entries = entries.filter(r =>
-      (checkedSignals.includes('traces') && !!r.trace_data) ||
-      (checkedSignals.includes('logs') && !!(r.log_data || r.log_count || r.log_count_completed)) ||
-      (checkedSignals.includes('metrics') && !!(r.metric_data || r.metric_count || r.metric_count_completed))
+      (checkedSignals.includes('traces') && !!(r.has_trace_data || r.trace_data)) ||
+      (checkedSignals.includes('logs') && !!(r.has_log_data || r.log_data || r.log_count || r.log_count_completed)) ||
+      (checkedSignals.includes('metrics') && !!(r.has_metric_data || r.metric_data || r.metric_count || r.metric_count_completed))
     );
   }
   if (search) {
@@ -929,15 +971,20 @@ function renderRunList() {
   if (stopAllBtn) stopAllBtn.style.display = hasActive ? '' : 'none';
 }
 
-function showDetail(id) {
-  const r = runs[id];
-  if (!r) return;
+async function showDetail(id) {
   const section = document.getElementById('detail-section');
   section.classList.remove('hidden');
-  document.getElementById('detail-id').textContent = r.id;
+  document.getElementById('detail-id').textContent = id;
   lastDetailKey = '';
-  renderDetail(r);
   section.scrollIntoView({ behavior: 'smooth' });
+  try {
+    const r = await fetchRunDetail(id);
+    renderDetail(r);
+  } catch (e) {
+    console.error('Failed to load run detail:', e);
+    const el = document.getElementById('detail-content');
+    if (el) el.innerHTML = '<div class="error">Failed to load run detail</div>';
+  }
 }
 
 let detailTab = 'traces';
@@ -945,13 +992,16 @@ let detailTab = 'traces';
 function renderDetail(r) {
   // Build a key from the run's mutable fields. If unchanged since last
   // render, skip DOM replacement to preserve scroll position in <pre>.
-  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.log_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + (typeof r.trace_data === 'string' ? r.trace_data.substring(0, 100) : '') + '|' + detailTab;
+  const payloadKey = (r.has_trace_data ? 't' : '') + (r.trace_data ? String(r.trace_data.length || 1) : '0') +
+    (r.has_log_data ? 'l' : '') + (r.log_data ? String(r.log_data.length || 1) : '0') +
+    (r.has_metric_data ? 'm' : '') + (r.metric_data ? String(r.metric_data.length || 1) : '0');
+  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.log_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + payloadKey + '|' + detailTab;
   if (key === lastDetailKey) return;
   lastDetailKey = key;
 
   const el = document.getElementById('detail-content');
   const signals = getRunSignals(r);
-  const hasLogs = r.log_data || (r.log_count && r.log_count > 0);
+  const hasLogs = r.has_log_data || r.log_data || (r.log_count && r.log_count > 0);
 
   // Running state
   if (r.status === 'running') {
@@ -1042,9 +1092,9 @@ function renderDetail(r) {
   }
 
   // Build tab bar
-  var hasTraceData = !!r.trace_data;
-  var hasLogData = logRecordCount > 0;
-  var hasMetricData = metricRecordCount > 0;
+  var hasTraceData = !!(r.has_trace_data || r.trace_data);
+  var hasLogData = logRecordCount > 0 || !!(r.has_log_data || r.log_data);
+  var hasMetricData = metricRecordCount > 0 || !!(r.has_metric_data || r.metric_data);
   var tabHtml = '<div class="detail-tabs">';
   if (hasTraceData) {
     tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Spans<span class="tab-badge">' + (spanCountTotal || r.span_count || 0) + '</span></button>';
@@ -1460,11 +1510,11 @@ updateToggleAllBtn();
   try {
     const data = await api('/api/runs');
     if (data.runs) {
-      data.runs.forEach(r => { runs[r.id] = r; });
+      data.runs.forEach(r => { runs[r.id] = mergeListRun(runs[r.id], r); });
       renderRunList();
     }
   } catch(e) { /* page may load before any runs exist */ }
-  if (!pollTimer) startPolling();
+  if (hasActiveRuns(runs)) startPolling();
 })();
 
 updateAllPillState('signal-type');

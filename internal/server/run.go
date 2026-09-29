@@ -65,11 +65,16 @@ type Run struct {
 	Error             string             `json:"error,omitempty"`
 	TraceData         *json.RawMessage   `json:"trace_data,omitempty"`
 	LogData           *json.RawMessage   `json:"log_data,omitempty"`
-	Endpoints         []string           `json:"endpoints"`
-	Insecure          bool               `json:"insecure"`
-	Output            string             `json:"output"`
-	cancel            context.CancelFunc // not exported, not json
-	pauseCh           chan struct{}      // nil when running; non-nil live channel when paused; not exported
+	// Has* flags are set from payload pointers so List can omit TraceData/LogData/MetricData
+	// while Jobs List signal filters and detail fetch still know payloads exist.
+	HasTraceData  bool `json:"has_trace_data,omitempty"`
+	HasLogData    bool `json:"has_log_data,omitempty"`
+	HasMetricData bool `json:"has_metric_data,omitempty"`
+	Endpoints     []string `json:"endpoints"`
+	Insecure      bool     `json:"insecure"`
+	Output        string   `json:"output"`
+	cancel        context.CancelFunc // not exported, not json
+	pauseCh       chan struct{}      // nil when running; non-nil live channel when paused; not exported
 }
 
 func (r *Run) Pause() {
@@ -109,6 +114,14 @@ func (r *Run) Stop() {
 }
 
 func (r *Run) snapshot() *Run {
+	return r.snapshotWithPayloads(true)
+}
+
+func (r *Run) snapshotSummary() *Run {
+	return r.snapshotWithPayloads(false)
+}
+
+func (r *Run) snapshotWithPayloads(includePayloads bool) *Run {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c := &Run{
@@ -134,8 +147,14 @@ func (r *Run) snapshot() *Run {
 		MetricRecordCount: r.MetricRecordCount,
 		MetricTypes:       append([]string(nil), r.MetricTypes...),
 		Scenario:          r.Scenario, Error: r.Error,
+		HasTraceData:  r.TraceData != nil,
+		HasLogData:    r.LogData != nil,
+		HasMetricData: r.MetricData != nil,
 		Endpoints: append([]string(nil), r.Endpoints...),
 		Insecure:  r.Insecure, Output: r.Output,
+	}
+	if !includePayloads {
+		return c
 	}
 	if r.TraceData != nil {
 		data := make(json.RawMessage, len(*r.TraceData))
@@ -253,7 +272,7 @@ func (s *RunStore) List() []*Run {
 	defer s.mu.RUnlock()
 	result := make([]*Run, 0, len(s.runs))
 	for _, r := range s.runs {
-		result = append(result, r.snapshot())
+		result = append(result, r.snapshotSummary())
 	}
 	for i := 0; i < len(result); i++ {
 		for j := i + 1; j < len(result); j++ {
