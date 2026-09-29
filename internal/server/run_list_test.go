@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,6 +26,57 @@ func seedCompletedRun(t *testing.T, store *RunStore, id string) *Run {
 	}
 	store.Add(run)
 	return run
+}
+
+func TestRunStore_PruneCompleted(t *testing.T) {
+	store := NewRunStore()
+	base := time.Now().Add(-2 * time.Hour)
+	var oldestID string
+	for i := 0; i < 51; i++ {
+		id := fmt.Sprintf("completed-%d", i)
+		if i == 0 {
+			oldestID = id
+		}
+		run := &Run{
+			ID:        id,
+			Status:    RunStatusCompleted,
+			StartedAt: base.Add(time.Duration(i) * time.Minute),
+			Endpoints: []string{"localhost:4317"},
+		}
+		store.Add(run)
+	}
+	running := &Run{
+		ID:        "running-1",
+		Status:    RunStatusRunning,
+		StartedAt: base.Add(-time.Hour),
+		Endpoints: []string{"localhost:4317"},
+	}
+	store.Add(running)
+
+	store.PruneCompleted(50)
+
+	list := store.List()
+	var completed, stillRunning int
+	for _, r := range list {
+		switch r.Status {
+		case RunStatusCompleted:
+			completed++
+		case RunStatusRunning:
+			stillRunning++
+		}
+	}
+	if completed != 50 {
+		t.Fatalf("completed count = %d, want 50", completed)
+	}
+	if stillRunning != 1 {
+		t.Fatalf("running count = %d, want 1", stillRunning)
+	}
+	if got := store.Get(oldestID); got != nil {
+		t.Fatalf("Get(%s) = %#v, want nil", oldestID, got)
+	}
+	if got := store.Get("running-1"); got == nil || got.Status != RunStatusRunning {
+		t.Fatalf("running run missing or wrong status: %#v", got)
+	}
 }
 
 func TestRunStore_ListOmitsPayloads(t *testing.T) {

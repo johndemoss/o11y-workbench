@@ -34,7 +34,19 @@ const (
 	RunStatusFailed    RunStatus = "failed"
 	RunStatusStopped   RunStatus = "stopped"
 	RunStatusStreaming RunStatus = "streaming"
+
+	// maxCompletedRuns caps how many terminal runs stay in memory.
+	maxCompletedRuns = 50
 )
+
+func isTerminalStatus(s RunStatus) bool {
+	switch s {
+	case RunStatusCompleted, RunStatusFailed, RunStatusStopped:
+		return true
+	default:
+		return false
+	}
+}
 
 type Run struct {
 	mu                   sync.Mutex
@@ -431,6 +443,39 @@ func (s *RunStore) Delete(id string) {
 	delete(s.runs, id)
 }
 
+// PruneCompleted deletes oldest terminal runs until at most max remain.
+// Never deletes pending, running, paused, or streaming runs.
+func (s *RunStore) PruneCompleted(max int) {
+	if max < 0 {
+		max = 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	type timed struct {
+		id        string
+		startedAt time.Time
+	}
+	var terminal []timed
+	for id, r := range s.runs {
+		r.mu.Lock()
+		st, started := r.Status, r.StartedAt
+		r.mu.Unlock()
+		if isTerminalStatus(st) {
+			terminal = append(terminal, timed{id: id, startedAt: started})
+		}
+	}
+	if len(terminal) <= max {
+		return
+	}
+	sort.Slice(terminal, func(i, j int) bool {
+		return terminal[i].startedAt.Before(terminal[j].startedAt)
+	})
+	for _, t := range terminal[:len(terminal)-max] {
+		delete(s.runs, t.id)
+	}
+}
+
 func countSpansIn(spans []*tracev1.ResourceSpans) (spanCount, resourceSpanCount int) {
 	resourceSpanCount = len(spans)
 	for _, rs := range spans {
@@ -523,6 +568,15 @@ func buildRunPayloads(spans []*tracev1.ResourceSpans, logs []*logsv1.ResourceLog
 }
 
 func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Context) {
+	defer func() {
+		run.mu.Lock()
+		st := run.Status
+		run.mu.Unlock()
+		if isTerminalStatus(st) {
+			store.PruneCompleted(maxCompletedRuns)
+		}
+	}()
+
 	run.mu.Lock()
 	run.Status = RunStatusRunning
 	run.mu.Unlock()

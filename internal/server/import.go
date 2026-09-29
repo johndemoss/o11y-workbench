@@ -63,6 +63,7 @@ func (s *Server) handleImportRun(w http.ResponseWriter, r *http.Request) {
 		TraceData:         &raw,
 	}
 	s.store.Add(run)
+	s.store.PruneCompleted(maxCompletedRuns)
 
 	writeJSON(w, http.StatusCreated, run)
 }

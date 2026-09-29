@@ -321,6 +321,9 @@ func (m *RemotetapManager) onDisconnectLocked() {
 		now := time.Now()
 		m.run.Status = RunStatusCompleted
 		m.run.CompletedAt = &now
+		if m.store != nil {
+			m.store.PruneCompleted(maxCompletedRuns)
+		}
 	}
 	m.client = nil
 	m.run = nil
