@@ -98,7 +98,7 @@ func TransformRunDataSelected(traceData json.RawMessage, statements []string, sp
 
 	data, err := protojson.MarshalOptions{
 		UseProtoNames: false,
-		Indent:        "  ",
+		Indent:        "",
 	}.Marshal(&dstReq)
 	if err != nil {
 		return nil, 0, fmt.Errorf("marshal result JSON: %w", err)

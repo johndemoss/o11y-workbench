@@ -234,7 +234,7 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 
 	outJSON, err := protojson.MarshalOptions{
 		UseProtoNames: false,
-		Indent:        "  ",
+		Indent:        "",
 	}.Marshal(&outReq)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("marshal result JSON: %w", err)

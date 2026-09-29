@@ -1,8 +1,10 @@
 package export
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -20,27 +22,27 @@ func TestFixTraceSpanIDsForMarshal(t *testing.T) {
 		{
 			name:     "snake_case trace_id and span_id",
 			input:    `{"trace_id":"` + base64TraceID + `","span_id":"` + base64SpanID + `"}`,
-			expected: "{\n  \"span_id\": \"" + hexSpanID + "\",\n  \"trace_id\": \"" + hexTraceID + "\"\n}",
+			expected: `{"span_id":"` + hexSpanID + `","trace_id":"` + hexTraceID + `"}`,
 		},
 		{
 			name:     "camelCase traceId and spanId",
 			input:    `{"traceId":"` + base64TraceID + `","spanId":"` + base64SpanID + `"}`,
-			expected: "{\n  \"spanId\": \"" + hexSpanID + "\",\n  \"traceId\": \"" + hexTraceID + "\"\n}",
+			expected: `{"spanId":"` + hexSpanID + `","traceId":"` + hexTraceID + `"}`,
 		},
 		{
 			name:     "parentSpanId and parent_span_id",
 			input:    `{"parentSpanId":"` + base64SpanID + `","parent_span_id":"` + base64SpanID + `"}`,
-			expected: "{\n  \"parentSpanId\": \"" + hexSpanID + "\",\n  \"parent_span_id\": \"" + hexSpanID + "\"\n}",
+			expected: `{"parentSpanId":"` + hexSpanID + `","parent_span_id":"` + hexSpanID + `"}`,
 		},
 		{
 			name:     "non-identity fields untouched",
 			input:    `{"name":"hello","duration":"1s","trace_id":"` + base64TraceID + `"}`,
-			expected: "{\n  \"duration\": \"1s\",\n  \"name\": \"hello\",\n  \"trace_id\": \"" + hexTraceID + "\"\n}",
+			expected: `{"duration":"1s","name":"hello","trace_id":"` + hexTraceID + `"}`,
 		},
 		{
 			name:     "invalid base64 left untouched",
 			input:    `{"trace_id":"not-valid-base64!!"}`,
-			expected: "{\n  \"trace_id\": \"not-valid-base64!!\"\n}",
+			expected: `{"trace_id":"not-valid-base64!!"}`,
 		},
 	}
 
@@ -50,10 +52,31 @@ func TestFixTraceSpanIDsForMarshal(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if string(result) != tt.expected {
-				t.Errorf("got:\n  %s\nwant:\n  %s", string(result), tt.expected)
+			var got, want map[string]any
+			if err := json.Unmarshal(result, &got); err != nil {
+				t.Fatalf("unmarshal result: %v", err)
+			}
+			if err := json.Unmarshal([]byte(tt.expected), &want); err != nil {
+				t.Fatalf("unmarshal expected: %v", err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("got %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestFixTraceSpanIDsForMarshal_NoIndentWhitespace(t *testing.T) {
+	input := `{"trace_id":"AAECAwQFBgcICQoLDA0ODw==","span_id":"CgsMDQ4PEBE="}`
+	result, err := FixTraceSpanIDsForMarshal([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bytes.Contains(result, []byte("\n  ")) {
+		t.Errorf("result has pretty-print indent whitespace: %s", result)
+	}
+	if bytes.Contains(result, []byte("\n")) {
+		t.Errorf("result contains newlines: %s", result)
 	}
 }
 

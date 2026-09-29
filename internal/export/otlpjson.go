@@ -18,7 +18,7 @@ import (
 func marshalOTLPJSON(req *collectortracev1.ExportTraceServiceRequest) ([]byte, error) {
 	opts := protojson.MarshalOptions{
 		UseProtoNames: false,
-		Indent:        "  ",
+		Indent:        "",
 	}
 	data, err := opts.Marshal(req)
 	if err != nil {
@@ -36,7 +36,7 @@ func FixTraceSpanIDsForMarshal(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unmarshal trace JSON: %w", err)
 	}
 	fixNodeForMarshal(v)
-	return json.MarshalIndent(v, "", "  ")
+	return json.Marshal(v)
 }
 
 // FixTraceSpanIDsForUnmarshal converts hex-encoded trace_id, span_id, and

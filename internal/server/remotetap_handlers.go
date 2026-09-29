@@ -309,7 +309,7 @@ func (m *RemotetapManager) onDisconnectLocked() {
 			items := m.buffer.GetAll()
 			if len(items) > 0 {
 				req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: items}
-				opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
+				opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
 				if data, err := opts.Marshal(req); err == nil {
 					if fixed, err := export.FixTraceSpanIDsForMarshal(data); err == nil {
 						raw := json.RawMessage(fixed)

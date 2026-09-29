@@ -1,6 +1,7 @@
 package ottl
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -108,5 +109,39 @@ func TestSerialize_NilData(t *testing.T) {
 	_, err := UnmarshalTracesFromJSON(nil)
 	if err == nil {
 		t.Fatal("expected error for nil data")
+	}
+}
+
+func TestMarshalTracesToJSON_Compact(t *testing.T) {
+	req := makeSampleTrace()
+	originalJSON, err := marshalTrace(req)
+	if err != nil {
+		t.Fatalf("marshalTrace: %v", err)
+	}
+
+	traces, err := UnmarshalTracesFromJSON(originalJSON)
+	if err != nil {
+		t.Fatalf("UnmarshalTracesFromJSON: %v", err)
+	}
+
+	data, err := MarshalTracesToJSON(traces)
+	if err != nil {
+		t.Fatalf("MarshalTracesToJSON: %v", err)
+	}
+
+	if bytes.Contains(data, []byte("\n  ")) {
+		t.Errorf("MarshalTracesToJSON produced pretty-print indent whitespace: %s", data)
+	}
+
+	roundTripped, err := UnmarshalTracesFromJSON(data)
+	if err != nil {
+		t.Fatalf("round-trip UnmarshalTracesFromJSON: %v", err)
+	}
+	if roundTripped.ResourceSpans().Len() != 1 {
+		t.Fatalf("expected 1 ResourceSpans after round-trip, got %d", roundTripped.ResourceSpans().Len())
+	}
+	span := roundTripped.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+	if span.Name() != "test-span" {
+		t.Errorf("expected span name 'test-span', got %q", span.Name())
 	}
 }

@@ -177,15 +177,35 @@ func (r *Run) snapshotWithPayloads(includePayloads bool) *Run {
 var runIDCounter atomic.Int64
 
 type bufferExporter struct {
-	mu    sync.Mutex
-	spans []*tracev1.ResourceSpans
+	mu        sync.Mutex
+	spans     []*tracev1.ResourceSpans
+	spanCount int
 }
 
 func (e *bufferExporter) Export(_ context.Context, spans []*tracev1.ResourceSpans) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	for _, rs := range spans {
+		for _, ss := range rs.ScopeSpans {
+			e.spanCount += len(ss.Spans)
+		}
+	}
 	e.spans = append(e.spans, spans...)
 	return nil
+}
+
+func (e *bufferExporter) SpanCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.spanCount
+}
+
+func (e *bufferExporter) Snapshot() []*tracev1.ResourceSpans {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]*tracev1.ResourceSpans, len(e.spans))
+	copy(out, e.spans)
+	return out
 }
 
 func (e *bufferExporter) Shutdown(_ context.Context) error {
@@ -286,7 +306,7 @@ func (s *RunStore) List() []*Run {
 
 func marshalTraceJSON(spans []*tracev1.ResourceSpans) ([]byte, error) {
 	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
-	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
+	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
 	data, err := opts.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -296,13 +316,13 @@ func marshalTraceJSON(spans []*tracev1.ResourceSpans) ([]byte, error) {
 
 func marshalLogJSON(logs []*logsv1.ResourceLogs) ([]byte, error) {
 	req := &collectorlogsv1.ExportLogsServiceRequest{ResourceLogs: logs}
-	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
+	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
 	return opts.Marshal(req)
 }
 
 func marshalMetricJSON(metrics []*metricspb.ResourceMetrics) ([]byte, error) {
 	req := &collectormetricsv1.ExportMetricsServiceRequest{ResourceMetrics: metrics}
-	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}
+	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
 	return opts.Marshal(req)
 }
 
@@ -411,6 +431,97 @@ func (s *RunStore) Delete(id string) {
 	delete(s.runs, id)
 }
 
+func countSpansIn(spans []*tracev1.ResourceSpans) (spanCount, resourceSpanCount int) {
+	resourceSpanCount = len(spans)
+	for _, rs := range spans {
+		for _, ss := range rs.ScopeSpans {
+			spanCount += len(ss.Spans)
+		}
+	}
+	return
+}
+
+func summarizeLogs(logs []*logsv1.ResourceLogs) (total int, sevCounts map[string]int) {
+	for _, rl := range logs {
+		for _, sl := range rl.ScopeLogs {
+			total += len(sl.LogRecords)
+		}
+	}
+	if total == 0 {
+		return 0, nil
+	}
+	sevCounts = make(map[string]int)
+	for _, rl := range logs {
+		for _, sl := range rl.ScopeLogs {
+			for _, lr := range sl.LogRecords {
+				sev := lr.SeverityText
+				if sev == "" {
+					sev = "INFO"
+				}
+				sevCounts[strings.ToLower(sev)]++
+			}
+		}
+	}
+	return total, sevCounts
+}
+
+func summarizeMetrics(metrics []*metricspb.ResourceMetrics) (total, series int, types []string) {
+	typeSet := make(map[string]struct{})
+	for _, rm := range metrics {
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				series++
+				switch m.Data.(type) {
+				case *metricspb.Metric_Gauge:
+					total += len(m.GetGauge().DataPoints)
+					typeSet["gauge"] = struct{}{}
+				case *metricspb.Metric_Sum:
+					total += len(m.GetSum().DataPoints)
+					typeSet["sum"] = struct{}{}
+				case *metricspb.Metric_Histogram:
+					total += len(m.GetHistogram().DataPoints)
+					typeSet["histogram"] = struct{}{}
+				case *metricspb.Metric_ExponentialHistogram:
+					typeSet["exponential_histogram"] = struct{}{}
+				case *metricspb.Metric_Summary:
+					typeSet["summary"] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(typeSet) > 0 {
+		types = make([]string, 0, len(typeSet))
+		for t := range typeSet {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+	}
+	return total, series, types
+}
+
+// buildRunPayloads marshals buffered OTLP signals to JSON without holding run.mu.
+func buildRunPayloads(spans []*tracev1.ResourceSpans, logs []*logsv1.ResourceLogs, metrics []*metricspb.ResourceMetrics) (traceData, logData, metricData *json.RawMessage) {
+	if len(spans) > 0 {
+		if data, err := marshalTraceJSON(spans); err == nil {
+			raw := json.RawMessage(data)
+			traceData = &raw
+		}
+	}
+	if len(logs) > 0 {
+		if data, err := marshalLogJSON(logs); err == nil {
+			raw := json.RawMessage(data)
+			logData = &raw
+		}
+	}
+	if len(metrics) > 0 {
+		if data, err := marshalMetricJSON(metrics); err == nil {
+			raw := json.RawMessage(data)
+			metricData = &raw
+		}
+	}
+	return
+}
+
 func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Context) {
 	run.mu.Lock()
 	run.Status = RunStatusRunning
@@ -456,15 +567,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		g.OnProgress = func(completed, total int) {
 			run.mu.Lock()
 			run.TraceCountCompleted = completed
-			buf.mu.Lock()
-			spanTotal := 0
-			for _, rs := range buf.spans {
-				for _, ss := range rs.ScopeSpans {
-					spanTotal += len(ss.Spans)
-				}
-			}
-			run.SpanCount = spanTotal
-			buf.mu.Unlock()
+			run.SpanCount = buf.SpanCount()
 			run.mu.Unlock()
 
 			run.mu.Lock()
@@ -571,16 +674,21 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	}
 
 	elapsed := time.Since(start).Nanoseconds()
+
+	// Snapshot buffers once; generation is finished so exporters are idle.
+	spans := buf.Snapshot()
+	logs := append([]*logsv1.ResourceLogs(nil), logBuf.logs...)
+	metrics := append([]*metricspb.ResourceMetrics(nil), metricBuf.metrics...)
+
+	logTotal, sevCounts := summarizeLogs(logs)
+	metricTotal, metricSeries, metricTypes := summarizeMetrics(metrics)
+	spanTotal := buf.SpanCount()
+	if spanTotal == 0 {
+		spanTotal, _ = countSpansIn(spans)
+	}
+
 	run.mu.Lock()
 	run.DurationNs = elapsed
-
-	// Count log records from log buffer.
-	logTotal := 0
-	for _, rl := range logBuf.logs {
-		for _, sl := range rl.ScopeLogs {
-			logTotal += len(sl.LogRecords)
-		}
-	}
 	if logTotal > 0 {
 		run.LogCountCompleted = logTotal
 		if run.LogCount == 0 {
@@ -588,42 +696,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 	}
 	run.LogRecordCount = logTotal
-	if logTotal > 0 {
-		sevCounts := make(map[string]int)
-		for _, rl := range logBuf.logs {
-			for _, sl := range rl.ScopeLogs {
-				for _, lr := range sl.LogRecords {
-					sev := lr.SeverityText
-					if sev == "" {
-						sev = "INFO"
-					}
-					sev = strings.ToLower(sev)
-					sevCounts[sev]++
-				}
-			}
-		}
+	if sevCounts != nil {
 		run.LogSeverityCounts = sevCounts
-	}
-
-	// Count metric data points (metricTotal) and metric definitions (metricSeries).
-	metricTotal := 0
-	metricSeries := 0
-	if metricBuf != nil {
-		for _, rm := range metricBuf.metrics {
-			for _, sm := range rm.ScopeMetrics {
-				for _, m := range sm.Metrics {
-					metricSeries++
-					switch m.Data.(type) {
-					case *metricspb.Metric_Gauge:
-						metricTotal += len(m.GetGauge().DataPoints)
-					case *metricspb.Metric_Sum:
-						metricTotal += len(m.GetSum().DataPoints)
-					case *metricspb.Metric_Histogram:
-						metricTotal += len(m.GetHistogram().DataPoints)
-					}
-				}
-			}
-		}
 	}
 	run.MetricSeriesCount = metricSeries
 	if metricTotal > 0 {
@@ -633,66 +707,22 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 	}
 	run.MetricRecordCount = metricTotal
-	if metricTotal > 0 {
-		typeSet := make(map[string]struct{})
-		for _, rm := range metricBuf.metrics {
-			for _, sm := range rm.ScopeMetrics {
-				for _, m := range sm.Metrics {
-					switch m.Data.(type) {
-					case *metricspb.Metric_Gauge:
-						typeSet["gauge"] = struct{}{}
-					case *metricspb.Metric_Sum:
-						typeSet["sum"] = struct{}{}
-					case *metricspb.Metric_Histogram:
-						typeSet["histogram"] = struct{}{}
-					case *metricspb.Metric_ExponentialHistogram:
-						typeSet["exponential_histogram"] = struct{}{}
-					case *metricspb.Metric_Summary:
-						typeSet["summary"] = struct{}{}
-					}
-				}
-			}
-		}
-		types := make([]string, 0, len(typeSet))
-		for t := range typeSet {
-			types = append(types, t)
-		}
-		sort.Strings(types)
-		run.MetricTypes = types
+	if metricTypes != nil {
+		run.MetricTypes = metricTypes
 	}
+	stopped := run.Status == RunStatusStopped
+	run.mu.Unlock()
 
 	// Check for cancellation / stop first.
 	if traceErr == context.Canceled || logErr == context.Canceled || metricErr == context.Canceled {
-		if run.Status == RunStatusStopped {
-			total := 0
-			for _, rs := range buf.spans {
-				for _, ss := range rs.ScopeSpans {
-					total += len(ss.Spans)
-				}
-			}
-			run.SpanCount = total
-			run.ResourceSpanCount = len(buf.spans)
-			if len(buf.spans) > 0 {
-				data, err := marshalTraceJSON(buf.spans)
-				if err == nil {
-					raw := json.RawMessage(data)
-					run.TraceData = &raw
-				}
-			}
-			if len(logBuf.logs) > 0 {
-				data, err := marshalLogJSON(logBuf.logs)
-				if err == nil {
-					raw := json.RawMessage(data)
-					run.LogData = &raw
-				}
-			}
-			if len(metricBuf.metrics) > 0 {
-				data, err := marshalMetricJSON(metricBuf.metrics)
-				if err == nil {
-					raw := json.RawMessage(data)
-					run.MetricData = &raw
-				}
-			}
+		if stopped {
+			traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
+			run.mu.Lock()
+			run.SpanCount = spanTotal
+			run.ResourceSpanCount = len(spans)
+			run.TraceData = traceData
+			run.LogData = logData
+			run.MetricData = metricData
 			run.mu.Unlock()
 			return
 		}
@@ -715,6 +745,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	}
 
 	if err != nil {
+		run.mu.Lock()
 		if err == context.Canceled {
 			run.Error = "cancelled"
 		} else {
@@ -727,42 +758,15 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		return
 	}
 
-	// Finalise trace data.
-	totalSpans := 0
-	for _, rs := range buf.spans {
-		for _, ss := range rs.ScopeSpans {
-			totalSpans += len(ss.Spans)
-		}
-	}
-	run.SpanCount = totalSpans
-	run.ResourceSpanCount = len(buf.spans)
+	// Marshal OTLP JSON outside run.mu so List/Get stay responsive.
+	traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
 
-	if len(buf.spans) > 0 {
-		data, err := marshalTraceJSON(buf.spans)
-		if err == nil {
-			raw := json.RawMessage(data)
-			run.TraceData = &raw
-		}
-	}
-
-	// Finalise log data.
-	if len(logBuf.logs) > 0 {
-		data, err := marshalLogJSON(logBuf.logs)
-		if err == nil {
-			raw := json.RawMessage(data)
-			run.LogData = &raw
-		}
-	}
-
-	// Finalise metric data.
-	if len(metricBuf.metrics) > 0 {
-		data, err := marshalMetricJSON(metricBuf.metrics)
-		if err == nil {
-			raw := json.RawMessage(data)
-			run.MetricData = &raw
-		}
-	}
-
+	run.mu.Lock()
+	run.SpanCount = spanTotal
+	run.ResourceSpanCount = len(spans)
+	run.TraceData = traceData
+	run.LogData = logData
+	run.MetricData = metricData
 	run.Status = RunStatusCompleted
 	now := time.Now()
 	run.CompletedAt = &now

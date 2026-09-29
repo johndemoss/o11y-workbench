@@ -57,7 +57,7 @@ func MarshalTracesToJSON(traces ptrace.Traces) (json.RawMessage, error) {
 
 	data, err := protojson.MarshalOptions{
 		UseProtoNames: false,
-		Indent:        "  ",
+		Indent:        "",
 	}.Marshal(&dstReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal result JSON: %w", err)

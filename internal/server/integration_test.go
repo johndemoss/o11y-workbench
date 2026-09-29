@@ -345,7 +345,7 @@ func (s *Server) handleImportRunHelper(body []byte) *Run {
 		}
 	}
 	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
-	data, _ := protojson.MarshalOptions{UseProtoNames: false, Indent: "  "}.Marshal(req)
+	data, _ := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}.Marshal(req)
 	raw := json.RawMessage(data)
 	now := time.Now()
 	run := &Run{
