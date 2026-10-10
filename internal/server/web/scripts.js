@@ -605,6 +605,65 @@ async function fetchRunDetail(id) {
   return runs[id];
 }
 
+
+function onWorkloadModeChange() {
+  const mode = document.getElementById('wl-mode')?.value || 'constant';
+  document.querySelectorAll('.wl-burst-only').forEach((el) => {
+    el.style.display = mode === 'burst' ? '' : 'none';
+  });
+}
+
+function onWorkloadShapeChange() {
+  const flat = !!document.getElementById('wl-shape-flat')?.checked;
+  ['topology', 'scenario', 'span-count', 'scenario-span-count', 'max-depth'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = flat;
+    el.title = flat ? 'Ignored when Shape=flat' : '';
+  });
+  if (flat) {
+    const sr = document.getElementById('wl-single-resource');
+    if (sr) sr.checked = true;
+  }
+}
+
+function collectWorkloadProfile() {
+  const shapeFlat = !!document.getElementById('wl-shape-flat')?.checked;
+  const single = !!document.getElementById('wl-single-resource')?.checked;
+  const cont = !!document.getElementById('wl-continue-on-err')?.checked;
+  const experimentId = (document.getElementById('wl-experiment-id')?.value || '').trim();
+  const rateItems = parseFloat(document.getElementById('wl-rate-items')?.value || '0') || 0;
+  const itemsPerReq = parseInt(document.getElementById('wl-items-per-req')?.value || '0', 10) || 0;
+  const attrCount = parseInt(document.getElementById('wl-attr-count')?.value || '0', 10) || 0;
+  const attrBytes = parseInt(document.getElementById('wl-attr-bytes')?.value || '0', 10) || 0;
+  const cardinality = parseInt(document.getElementById('wl-cardinality')?.value || '0', 10) || 0;
+  const mode = document.getElementById('wl-mode')?.value || 'constant';
+  const burstOn = parseFloat(document.getElementById('wl-burst-on')?.value || '0') || 0;
+  const burstOff = parseFloat(document.getElementById('wl-burst-off')?.value || '0') || 0;
+  const burstPeak = parseFloat(document.getElementById('wl-burst-peak')?.value || '0') || 0;
+  const active = shapeFlat || single || cont || experimentId || rateItems > 0 || itemsPerReq > 0 ||
+    attrCount > 0 || attrBytes > 0 || cardinality > 0 || mode === 'burst';
+  if (!active) return null;
+  const wl = {
+    shape: shapeFlat ? 'flat' : '',
+    single_resource: single,
+    continue_on_export_err: cont,
+    experiment_id: experimentId,
+    rate_items_per_sec: rateItems,
+    items_per_request: itemsPerReq,
+    attribute_count: attrCount,
+    attribute_value_bytes: attrBytes,
+    cardinality: cardinality,
+    mode: mode
+  };
+  if (mode === 'burst') {
+    wl.burst_on_s = burstOn;
+    wl.burst_off_s = burstOff;
+    wl.burst_peak_rate_items_per_sec = burstPeak;
+  }
+  return wl;
+}
+
 async function startRun() {
   const runBtn = document.getElementById('run-btn');
   runBtn.disabled = true;
@@ -632,6 +691,8 @@ async function startRun() {
     body.scenario_span_count = parseInt(document.getElementById('scenario-span-count').value) || 0;
     body.max_depth = parseInt(document.getElementById('max-depth').value) || 5;
     body.service_name = document.getElementById('service-name').value || 'mock-service';
+    const wl = collectWorkloadProfile();
+    if (wl) body.workload = wl;
   }
 
   if (signals.metrics) {
@@ -1079,6 +1140,14 @@ function renderDetail(r) {
   summaryHtml += '<div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div>';
   summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed || '-')) + '</div><div class="label">Seed</div></div>';
   summaryHtml += '</div>';
+  if (r.generator_stats) {
+    var gs = r.generator_stats;
+    summaryHtml += '<div class="stat-row" style="margin-top:8px">';
+    summaryHtml += '<div class="stat"><div class="value">' + (gs.acked_requests ?? 0) + '/' + (gs.attempted_requests ?? 0) + '</div><div class="label">Req acked/attempted</div></div>';
+    summaryHtml += '<div class="stat"><div class="value">' + (gs.acked_items ?? 0) + '/' + (gs.attempted_items ?? 0) + '</div><div class="label">Items acked/attempted</div></div>';
+    summaryHtml += '<div class="stat"><div class="value">' + (gs.failed_requests ?? 0) + '</div><div class="label">Failed requests</div></div>';
+    summaryHtml += '</div>';
+  }
 
   // Severity mini tiles — below stat row, each severity as a small stat tile
   if (logRecordCount > 0) {
@@ -1522,4 +1591,6 @@ updateAllPillState('run-filter-signals');
 
 // Initialize infinite indicators on page load
 ['trace-count', 'rate', 'duration'].forEach(updateInfiniteIndicator);
+onWorkloadModeChange();
+onWorkloadShapeChange();
 syncTraceCountDuration();

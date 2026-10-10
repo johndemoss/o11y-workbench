@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/johndemoss/o11y-workbench/internal/gen"
@@ -30,6 +31,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Signals           *gen.Signals     `json:"signals"`
 		LogConfig         gen.LogConfig    `json:"log_config"`
 		MetricConfig      gen.MetricConfig `json:"metric_config"`
+		Workload          *workloadRequest `json:"workload"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -67,8 +69,10 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		signals = &s
 	}
 
+	wl := workloadFromRequest(body.Workload)
+
 	var topoType gen.TopologyType
-	if body.Scenario == "" {
+	if body.Scenario == "" && !strings.EqualFold(wl.Shape, "flat") {
 		if signals.Traces {
 			var err error
 			topoType, err = gen.ParseTopology(body.Topology)
@@ -91,6 +95,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		SignalType:   gen.DeriveSignalType(*signals), // for backwards compat in responses
 		LogConfig:    body.LogConfig,
 		MetricConfig: body.MetricConfig,
+		Workload:     wl,
 	}
 
 	// Validate log config.
@@ -172,4 +177,51 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.ResumeRun(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
+}
+
+
+// workloadRequest is the dashboard/API shape for WorkloadProfile overlays.
+// Burst on/off are seconds (not Go Duration nanoseconds).
+type workloadRequest struct {
+	ExperimentID               string  `json:"experiment_id"`
+	ItemsPerRequest            int     `json:"items_per_request"`
+	AttributeCount             int     `json:"attribute_count"`
+	AttributeValueBytes        int     `json:"attribute_value_bytes"`
+	Cardinality                int     `json:"cardinality"`
+	Mode                       string  `json:"mode"`
+	RateItemsPerSec            float64 `json:"rate_items_per_sec"`
+	RequestsPerSec             float64 `json:"requests_per_sec"`
+	ContinueOnExportErr        bool    `json:"continue_on_export_err"`
+	SingleResource             bool    `json:"single_resource"`
+	Shape                      string  `json:"shape"`
+	BurstOnS                   float64 `json:"burst_on_s"`
+	BurstOffS                  float64 `json:"burst_off_s"`
+	BurstPeakRateItemsPerSec   float64 `json:"burst_peak_rate_items_per_sec"`
+}
+
+func workloadFromRequest(req *workloadRequest) gen.WorkloadProfile {
+	if req == nil {
+		return gen.WorkloadProfile{}
+	}
+	wl := gen.WorkloadProfile{
+		ExperimentID:        strings.TrimSpace(req.ExperimentID),
+		ItemsPerRequest:     req.ItemsPerRequest,
+		AttributeCount:      req.AttributeCount,
+		AttributeValueBytes: req.AttributeValueBytes,
+		Cardinality:         req.Cardinality,
+		Mode:                req.Mode,
+		RateItemsPerSec:     req.RateItemsPerSec,
+		RequestsPerSec:      req.RequestsPerSec,
+		ContinueOnExportErr: req.ContinueOnExportErr,
+		SingleResource:      req.SingleResource,
+		Shape:               strings.TrimSpace(req.Shape),
+	}
+	if strings.EqualFold(wl.Mode, "burst") || req.BurstOnS > 0 || req.BurstOffS > 0 || req.BurstPeakRateItemsPerSec > 0 {
+		wl.Burst = gen.BurstConfig{
+			On:                  time.Duration(req.BurstOnS * float64(time.Second)),
+			Off:                 time.Duration(req.BurstOffS * float64(time.Second)),
+			PeakRateItemsPerSec: req.BurstPeakRateItemsPerSec,
+		}
+	}
+	return wl
 }

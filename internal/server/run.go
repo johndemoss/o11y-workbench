@@ -84,8 +84,9 @@ type Run struct {
 	HasMetricData bool `json:"has_metric_data,omitempty"`
 	Endpoints     []string `json:"endpoints"`
 	Insecure      bool     `json:"insecure"`
-	Output        string   `json:"output"`
-	cancel        context.CancelFunc // not exported, not json
+	Output         string    `json:"output"`
+	GeneratorStats *gen.Stats `json:"generator_stats,omitempty"`
+	cancel         context.CancelFunc // not exported, not json
 	pauseCh       chan struct{}      // nil when running; non-nil live channel when paused; not exported
 }
 
@@ -164,6 +165,13 @@ func (r *Run) snapshotWithPayloads(includePayloads bool) *Run {
 		HasMetricData: r.MetricData != nil,
 		Endpoints: append([]string(nil), r.Endpoints...),
 		Insecure:  r.Insecure, Output: r.Output,
+		GeneratorStats: func() *gen.Stats {
+			if r.GeneratorStats == nil {
+				return nil
+			}
+			c := *r.GeneratorStats
+			return &c
+		}(),
 	}
 	if !includePayloads {
 		return c
@@ -635,6 +643,10 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			}
 		}
 		traceErr = g.Run(genCtx, exp)
+		st := g.Stats()
+		run.mu.Lock()
+		run.GeneratorStats = &st
+		run.mu.Unlock()
 	}
 
 	// --- LOG GENERATION ---

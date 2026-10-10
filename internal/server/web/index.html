@@ -127,6 +127,66 @@
           <input type="text" id="service-name" value="mock-service">
         </div>
       </div>
+
+      <h3 class="workload-heading">WorkloadProfile overlays <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">(compose with topology/scenario — see generator-unification ADR)</span></h3>
+      <p class="muted tip" style="margin:0 0 12px;font-size:12px">Empty = classic topology/scenario path. <code>Shape=flat</code> selects the explicit flat evidence grammar (Capacity Run default). Other knobs overlay without replacing shape.</p>
+      <div class="form-grid" id="workload-fields" style="margin-bottom:0">
+        <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+          <input type="checkbox" id="wl-shape-flat" style="width:18px;height:18px" onchange="onWorkloadShapeChange()">
+          <label for="wl-shape-flat" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Shape: flat (<code>workload.span</code>)</label>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+          <input type="checkbox" id="wl-single-resource" style="width:18px;height:18px">
+          <label for="wl-single-resource" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Single resource (no region fan-out)</label>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+          <input type="checkbox" id="wl-continue-on-err" style="width:18px;height:18px">
+          <label for="wl-continue-on-err" style="margin:0;text-transform:none;letter-spacing:0;cursor:pointer">Continue on export error</label>
+        </div>
+        <div class="field">
+          <label>Experiment ID</label>
+          <input type="text" id="wl-experiment-id" placeholder="optional">
+        </div>
+        <div class="field">
+          <label>Rate items/sec</label>
+          <input type="number" id="wl-rate-items" value="0" min="0" step="1" title="0 = use Trace Rate above">
+        </div>
+        <div class="field">
+          <label>Items per request (spans)</label>
+          <input type="number" id="wl-items-per-req" value="0" min="0" step="1" title="0 = no chunking overlay">
+        </div>
+        <div class="field">
+          <label>Attribute count</label>
+          <input type="number" id="wl-attr-count" value="0" min="0" step="1">
+        </div>
+        <div class="field">
+          <label>Attribute value bytes</label>
+          <input type="number" id="wl-attr-bytes" value="0" min="0" step="1">
+        </div>
+        <div class="field">
+          <label>Cardinality</label>
+          <input type="number" id="wl-cardinality" value="0" min="0" step="1">
+        </div>
+        <div class="field">
+          <label>Mode</label>
+          <select id="wl-mode" onchange="onWorkloadModeChange()">
+            <option value="constant">constant</option>
+            <option value="burst">burst</option>
+          </select>
+        </div>
+        <div class="field wl-burst-only" style="display:none">
+          <label>Burst on (s)</label>
+          <input type="number" id="wl-burst-on" value="1" min="0" step="0.1">
+        </div>
+        <div class="field wl-burst-only" style="display:none">
+          <label>Burst off (s)</label>
+          <input type="number" id="wl-burst-off" value="1" min="0" step="0.1">
+        </div>
+        <div class="field wl-burst-only" style="display:none">
+          <label>Burst peak items/sec</label>
+          <input type="number" id="wl-burst-peak" value="200" min="0" step="1">
+        </div>
+      </div>
       </div>
     </div>
   </div>

@@ -7,7 +7,7 @@ Load this when referring to UI in prompts or commits.
 | Name | What |
 |---|---|
 | Dashboard | App shell (nav, signal-eq) |
-| Config Panel | Generation config form (topology/scenario/logs/metrics). WorkloadProfile overlays may be added without a mode switch (`docs/generator-unification-adr.md`) |
+| Config Panel | Generation config form (topology/scenario/logs/metrics) + WorkloadProfile overlays (no mode switch; `Shape=flat` optional) |
 | Jobs List | Run list with filters, pause/stop |
 | Run Detail | Expanded single-run telemetry |
 | Pipeline Promo | Link to Pipeline Prototyper |
