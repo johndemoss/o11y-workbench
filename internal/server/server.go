@@ -7,7 +7,9 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
+
 )
 
 //go:embed web
@@ -26,6 +28,10 @@ type Server struct {
 
 func New(addr string, pipelineEnabled bool) (*Server, error) {
 	store := NewRunStore()
+	capacityStore, err := capacitystore.New(os.Getenv("O11Y_WORKBENCH_CAPACITY_MODELS_DIR"))
+	if err != nil {
+		return nil, fmt.Errorf("capacity store: %w", err)
+	}
 	s := &Server{
 		store:           store,
 		mux:             http.NewServeMux(),
@@ -106,7 +112,7 @@ func (s *Server) registerRoutes() error {
 func (s *Server) Store() *RunStore { return s.store }
 
 func (s *Server) ListenAndServe() error {
-		log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
+	log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
 	return http.ListenAndServe(s.addr, s.mux)
 }
 

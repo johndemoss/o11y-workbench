@@ -12,3 +12,4 @@
 package main
 
 //go:generate make build-pipeline-ui
+//go:generate make build-capacity-ui

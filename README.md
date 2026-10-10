@@ -397,3 +397,7 @@ scripts/
   serve.sh                 # Build and serve launcher
   stop-odv.sh              # OTel Desktop Viewer cleanup
 ```
+
+## Capacity Assess
+
+Evidence-constrained Collector capacity assessment is built into the workbench (`/capacity/` Assess tab, `o11y-workbench capacity assess`). Analytical Plan is experimental only. Details: `docs/capacity-plan-vs-assess.md`.

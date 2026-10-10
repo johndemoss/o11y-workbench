@@ -6,6 +6,14 @@ build-pipeline-ui:
 	rm -rf internal/server/pipeline-ui/dist
 	cp -r pipeline-ui/dist internal/server/pipeline-ui/dist
 
+build-capacity-ui:
+	cd capacity-ui && npm install && npm run build
+	rm -rf internal/server/capacity-ui/dist
+	cp -r capacity-ui/dist internal/server/capacity-ui/dist
+
+build-otelcol-phase2:
+	./scripts/build-otelcol-phase2.sh
+
 # Build everything
 build-all: build-pipeline-ui
 	go build ./cmd/o11y-workbench-web/...

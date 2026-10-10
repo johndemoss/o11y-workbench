@@ -77,6 +77,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -126,6 +127,9 @@ type Config struct {
 	LogConfig         LogConfig     `json:"log_config,omitempty"`
 	MetricConfig      MetricConfig  `json:"metric_config,omitempty"`
 	ErrorPercent      int           // percentage of spans to mark as errors; 0 = none
+	// Workload enables optional paced synthetic-ingress knobs.
+	// Zero value keeps topology/scenario generation unchanged.
+	Workload WorkloadProfile `json:"workload,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -179,6 +183,7 @@ func (c Config) IncludesMetrics() bool {
 
 type Generator struct {
 	config     Config
+	stats      statsCounters
 	OnProgress func(completed, total int)
 }
 
@@ -196,6 +201,11 @@ func NewGenerator(config Config) *Generator {
 	return &Generator{config: config}
 }
 
+// Stats returns attempted/acked/failed export counters for this generator.
+func (g *Generator) Stats() Stats {
+	return g.stats.snapshot()
+}
+
 // Run generates traces and exports them via exporter.
 // Topology (span names, depth, parent-child) is deterministic from the
 // config seed, while trace/span IDs use a fresh random seed per run so
@@ -204,14 +214,23 @@ func NewGenerator(config Config) *Generator {
 // traces per second. The actual rate may be lower if generation + export
 // takes longer than the tick interval.
 func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
+	// Explicit flat shape keeps the Capacity Run helper. WorkloadProfile knobs alone
+	// compose onto topology/scenario below (see docs/generator-unification-adr.md).
+	if g.config.Workload.flatShape() {
+		return g.runWorkloadProfile(ctx, exp)
+	}
+
 	if g.config.Duration > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, g.config.Duration)
 		defer cancel()
 	}
 
+	wl := g.config.Workload
+	useWorkloadPacing := wl.pacingActive()
+
 	var ticker *time.Ticker
-	if g.config.Rate > 0 {
+	if !useWorkloadPacing && g.config.Rate > 0 {
 		interval := time.Second / time.Duration(g.config.Rate)
 		if interval == 0 {
 			interval = time.Nanosecond
@@ -221,15 +240,33 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 	}
 
 	traceCount := g.config.TraceCount
-	if traceCount == 0 && g.config.Rate > 0 && g.config.Duration > 0 {
+	if traceCount == 0 && !useWorkloadPacing && g.config.Rate > 0 && g.config.Duration > 0 {
 		traceCount = int(float64(g.config.Rate) * g.config.Duration.Seconds())
 		if traceCount == 0 {
 			traceCount = 1
 		}
 	}
 
+	var exportSeq uint64
 	for i := 0; traceCount == 0 || i < traceCount; i++ {
-		if i > 0 && ticker != nil {
+		if useWorkloadPacing {
+			rate := wl.requestRate(time.Now())
+			if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(wl.Mode, "burst") {
+				rate = float64(g.config.Rate)
+			}
+			if rate <= 0 {
+				select {
+				case <-ctx.Done():
+					if ctx.Err() == context.DeadlineExceeded {
+						return nil
+					}
+					return ctx.Err()
+				case <-time.After(10 * time.Millisecond):
+				}
+				i-- // do not consume a trace slot during burst-off / zero-rate wait
+				continue
+			}
+		} else if i > 0 && ticker != nil {
 			select {
 			case <-ticker.C:
 			case <-ctx.Done():
@@ -280,16 +317,15 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 		if len(endpoints) == 0 {
 			continue
 		}
+		if wl.SingleResource {
+			endpoints = endpoints[:1]
+		}
 
-		// Distribute spans by (endpoint, serviceName) so each ResourceSpans
-		// gets the correct resource-level service.name.
 		type epSvcKey struct {
 			ep  region.Name
 			svc string
 		}
 
-		// Collect deterministic service name ordering before distribution
-		// (map iteration is non-deterministic and would break the RNG sequence).
 		svcNames := make([]string, 0, len(spansByService))
 		for svcName := range spansByService {
 			svcNames = append(svcNames, svcName)
@@ -299,41 +335,77 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 		groups := make(map[epSvcKey][]*tracev1.Span)
 		for _, svcName := range svcNames {
 			for _, sp := range spansByService[svcName] {
-				ep := endpoints[topoRng.Int63n(int64(len(endpoints)))]
+				var ep region.Name
+				if wl.SingleResource {
+					ep = endpoints[0]
+				} else {
+					ep = endpoints[topoRng.Int63n(int64(len(endpoints)))]
+				}
 				key := epSvcKey{ep, svcName}
 				groups[key] = append(groups[key], sp)
 			}
 		}
 
-		// Iterate in region.All() × sorted service name order.
 		for _, ep := range endpoints {
 			for _, svcName := range svcNames {
 				key := epSvcKey{ep, svcName}
-				if groupSpans := groups[key]; len(groupSpans) > 0 {
-					rs := &tracev1.ResourceSpans{
-						Resource: &resourcev1.Resource{
-							Attributes: region.ResourceAttributes(ep, svcName),
-						},
-						ScopeSpans: []*tracev1.ScopeSpans{
-							{
-								Scope: &commonv1.InstrumentationScope{
-									Name:    "o11y-workbench",
-									Version: "0.1.0",
-								},
-								Spans: groupSpans,
+				groupSpans := groups[key]
+				if len(groupSpans) == 0 {
+					continue
+				}
+				rs := &tracev1.ResourceSpans{
+					Resource: &resourcev1.Resource{
+						Attributes: region.ResourceAttributes(ep, svcName),
+					},
+					ScopeSpans: []*tracev1.ScopeSpans{
+						{
+							Scope: &commonv1.InstrumentationScope{
+								Name:    "o11y-workbench",
+								Version: "0.1.0",
 							},
+							Spans: groupSpans,
 						},
-						SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
-					}
-
-					if err := exp.Export(ctx, []*tracev1.ResourceSpans{rs}); err != nil {
+					},
+					SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
+				}
+				if wl.Active() {
+					if err := g.exportSpanBatches(ctx, exp, rs, &exportSeq); err != nil {
 						return err
 					}
+				} else {
+					itemCount := len(groupSpans)
+					g.stats.recordAttempt(itemCount)
+					if err := exp.Export(ctx, []*tracev1.ResourceSpans{rs}); err != nil {
+						g.stats.recordFail(itemCount)
+						return err
+					}
+					g.stats.recordAck(itemCount)
 				}
 			}
 		}
 		if g.OnProgress != nil {
 			g.OnProgress(i+1, g.config.TraceCount)
+		}
+
+		if useWorkloadPacing {
+			rate := wl.requestRate(time.Now())
+			if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(wl.Mode, "burst") {
+				rate = float64(g.config.Rate)
+			}
+			if rate > 0 {
+				interval := time.Duration(float64(time.Second) / rate)
+				if interval <= 0 {
+					interval = time.Millisecond
+				}
+				select {
+				case <-ctx.Done():
+					if ctx.Err() == context.DeadlineExceeded {
+						return nil
+					}
+					return ctx.Err()
+				case <-time.After(interval):
+				}
+			}
 		}
 	}
 

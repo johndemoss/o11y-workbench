@@ -49,6 +49,17 @@ if ! $SKIP_BUILD; then
     echo "==> Frontend dist synced to embedded location"
   fi
 
+  if [ -d "$PROJECT_DIR/capacity-ui" ]; then
+    echo "==> Building capacity-ui (frontend)..."
+    (cd "$PROJECT_DIR/capacity-ui" && npm install --silent && npm run build) || {
+      echo "ERROR: capacity-ui build failed" >&2
+      exit 1
+    }
+    rm -rf "$PROJECT_DIR/internal/server/capacity-ui/dist"
+    cp -r "$PROJECT_DIR/capacity-ui/dist" "$PROJECT_DIR/internal/server/capacity-ui/dist"
+    echo "==> Capacity UI dist synced to embedded location"
+  fi
+
   echo "==> Building o11y-workbench-web (Go server with embedded assets)..."
   go build -o "$BINARY" "$PROJECT_DIR/cmd/o11y-workbench-web/" || {
     echo "ERROR: Go build failed" >&2

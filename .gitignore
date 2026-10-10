@@ -21,6 +21,12 @@ traces/
 # Svelte pipeline UI build output
 pipeline-ui/dist/
 internal/server/pipeline-ui/dist/
+
+# Svelte capacity UI build output (stub index.html/.gitkeep committed)
+capacity-ui/dist/
+internal/server/capacity-ui/dist/
+!internal/server/capacity-ui/dist/.gitkeep
+!internal/server/capacity-ui/dist/index.html
 .playwright-mcp/
 
 # Playwright cache
