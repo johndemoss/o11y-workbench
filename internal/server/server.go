@@ -24,25 +24,96 @@ type Server struct {
 	addr            string
 	pipelineEnabled bool
 	remotetap       *RemotetapManager
+
+	evaluation     *evaluation.Coordinator
+	evalStore      *evaluation.Store
+	evalInventory  *evaluation.BuildInventory
+	evalLibrary    []evaluation.LibraryEntry
+	legacyCapacity bool
+}
+
+type serverConfig struct {
+	addr            string
+	pipelineEnabled bool
+	legacyCapacity  *bool
 }
 
 func New(addr string, pipelineEnabled bool) (*Server, error) {
+	return newServer(serverConfig{addr: addr, pipelineEnabled: pipelineEnabled})
+}
+
+func newServer(cfg serverConfig) (*Server, error) {
 	store := NewRunStore()
 	capacityStore, err := capacitystore.New(os.Getenv("O11Y_WORKBENCH_CAPACITY_MODELS_DIR"))
 	if err != nil {
 		return nil, fmt.Errorf("capacity store: %w", err)
 	}
+
+	evalRoot := cfg.evalRoot
+	if strings.TrimSpace(evalRoot) == "" {
+		evalRoot = defaultEvaluationRoot()
+	}
+	evalStore, err := evaluation.OpenStore(evalRoot)
+	if err != nil {
+		return nil, fmt.Errorf("evaluation store: %w", err)
+	}
+
+	inv := cfg.inventory
+	if inv == nil {
+		inv, err = evaluation.NewBuildInventory()
+		if err != nil {
+			return nil, fmt.Errorf("evaluation inventory: %w", err)
+		}
+	}
+
+	runner := cfg.runner
+	if runner == nil {
+		runner = evaluation.FailClosedRunner{}
+	}
+
+	lib := cfg.library
+	if lib == nil {
+		lib, err = evaluation.BuiltinLibrary()
+		if err != nil {
+			return nil, fmt.Errorf("evaluation library: %w", err)
+		}
+	}
+
+	coord, err := evaluation.NewCoordinator(evaluation.CoordinatorOptions{
+		Store:     evalStore,
+		Inventory: inv,
+		Runner:    runner,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("evaluation coordinator: %w", err)
+	}
+
+	legacy := legacyCapacityEnabledFromEnv()
+	if cfg.legacyCapacity != nil {
+		legacy = *cfg.legacyCapacity
+	}
+
 	s := &Server{
 		store:           store,
 		mux:             http.NewServeMux(),
-		addr:            addr,
-		pipelineEnabled: pipelineEnabled,
+		addr:            cfg.addr,
+		pipelineEnabled: cfg.pipelineEnabled,
 		remotetap:       NewRemotetapManager(store),
+		legacyCapacity:  legacy,
 	}
 	if err := s.registerRoutes(); err != nil {
+		coord.Close()
 		return nil, fmt.Errorf("register routes: %w", err)
 	}
 	return s, nil
+}
+
+// Close releases evaluation coordinator resources.
+func (s *Server) Close() {
+	if s == nil || s.evaluation == nil {
+		return
+	}
+	s.evaluation.Close()
 }
 
 func (s *Server) registerRoutes() error {
