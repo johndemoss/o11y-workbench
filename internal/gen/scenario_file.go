@@ -160,4 +160,3 @@ func LoadScenarioFile(path string) (map[string][]*ScenarioSpanNode, error) {
 	}
 	return scenarios, nil
 }
-

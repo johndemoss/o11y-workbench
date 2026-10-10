@@ -17,7 +17,7 @@ import (
 
 // ScenarioDef is the top-level JSON structure for a user-defined scenario.
 type ScenarioDef struct {
-	Name  string           `json:"name" yaml:"name"`
+	Name  string            `json:"name" yaml:"name"`
 	Roots []ScenarioNodeDef `json:"roots" yaml:"roots"`
 }
 

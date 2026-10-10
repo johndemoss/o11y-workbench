@@ -155,7 +155,7 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 					Gauge: &metricspb.Gauge{
 						DataPoints: []*metricspb.NumberDataPoint{
 							{
-								Attributes:  attrs,
+								Attributes:   attrs,
 								TimeUnixNano: uint64(now.UnixNano()),
 								Value: &metricspb.NumberDataPoint_AsDouble{
 									AsDouble: value,
@@ -174,8 +174,8 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 					Sum: &metricspb.Sum{
 						DataPoints: []*metricspb.NumberDataPoint{
 							{
-								Attributes:       attrs,
-								TimeUnixNano:     uint64(now.UnixNano()),
+								Attributes:        attrs,
+								TimeUnixNano:      uint64(now.UnixNano()),
 								StartTimeUnixNano: uint64(startTime.UnixNano()),
 								Value: &metricspb.NumberDataPoint_AsDouble{
 									AsDouble: value,
@@ -219,13 +219,13 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 					Histogram: &metricspb.Histogram{
 						DataPoints: []*metricspb.HistogramDataPoint{
 							{
-								Attributes:       attrs,
-								TimeUnixNano:     uint64(now.UnixNano()),
+								Attributes:        attrs,
+								TimeUnixNano:      uint64(now.UnixNano()),
 								StartTimeUnixNano: uint64(startTime.UnixNano()),
-								Count:            totalCount,
-								Sum:              &histSum,
-								BucketCounts:     bucketCounts,
-								ExplicitBounds:   explicitBounds,
+								Count:             totalCount,
+								Sum:               &histSum,
+								BucketCounts:      bucketCounts,
+								ExplicitBounds:    explicitBounds,
 							},
 						},
 						AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,

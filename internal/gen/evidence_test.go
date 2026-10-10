@@ -202,11 +202,11 @@ func TestWorkloadProfile_ComposesWithTopology(t *testing.T) {
 		BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		TraceDuration: time.Second,
 		Workload: gen.WorkloadProfile{
-			ExperimentID:    "exp-compose",
-			SingleResource:  true,
-			AttributeCount:  1,
+			ExperimentID:        "exp-compose",
+			SingleResource:      true,
+			AttributeCount:      1,
 			AttributeValueBytes: 2,
-			Cardinality:     2,
+			Cardinality:         2,
 		},
 	}
 	g := gen.NewGenerator(c)

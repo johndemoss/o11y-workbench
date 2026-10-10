@@ -37,7 +37,7 @@ func NewGenericFileExporter[T any, R any](
 		outputDir:    outputDir,
 		format:       format,
 		prefix:       prefix,
-		toRequest:     toRequest,
+		toRequest:    toRequest,
 		marshalJSON:  marshalJSON,
 		marshalProto: marshalProto,
 		index:        0,
@@ -85,7 +85,11 @@ func (e *GenericFileExporter[T, R]) Export(ctx context.Context, resources []T) e
 	if err != nil {
 		return fmt.Errorf("create output file: %w", err)
 	}
-	defer func() { if err := file.Close(); err != nil { log.Printf("error closing file: %v", err) } }()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("error closing file: %v", err)
+		}
+	}()
 
 	if _, err := file.Write(data); err != nil {
 		return fmt.Errorf("write output file: %w", err)

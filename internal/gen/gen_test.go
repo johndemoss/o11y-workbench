@@ -80,12 +80,12 @@ func TestSeededRNG_Determinism(t *testing.T) {
 
 	ir1, _ := rng1.IntRange(10, 50)
 	ir2, _ := rng2.IntRange(10, 50)
- 	if ir1 != ir2 {
- 		t.Errorf("IntRange(10,50) mismatch: %d vs %d", ir1, ir2)
- 	}
+	if ir1 != ir2 {
+		t.Errorf("IntRange(10,50) mismatch: %d vs %d", ir1, ir2)
+	}
 
- 	rngA := gen.NewSeededRNG(seed)
- 	rngB := gen.NewSeededRNG(seed)
+	rngA := gen.NewSeededRNG(seed)
+	rngB := gen.NewSeededRNG(seed)
 	for i := 0; i < 100; i++ {
 		tn := rngA.Int63n(1000)
 		tnB := rngB.Int63n(1000)
@@ -349,7 +349,7 @@ func TestTopology_ParseValid(t *testing.T) {
 }
 
 func TestTopology_ParseInvalid(t *testing.T) {
-	invalid := []string{"", "random", "flatly", "TREE",  "circular"}
+	invalid := []string{"", "random", "flatly", "TREE", "circular"}
 	for _, s := range invalid {
 		t.Run(s, func(t *testing.T) {
 			_, err := gen.ParseTopology(s)
