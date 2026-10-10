@@ -45,4 +45,4 @@ Vite proxies `/api/*` to `:18080` (default listen addr; override with `--addr` /
 
 - README lists CLI `--signal-type`, `--log-count`, `--metric-count`. Those flags are **not** in `@cmd/o11y-workbench/main.go`.
 
-- Capacity authority is **Assess**, not Experimental Plan. Plan-era design docs under `docs/superpowers/specs/` and related QA notes are deprecated/archive banners only — see `docs/capacity-plan-vs-assess.md`.
+- `/capacity/` product workflow is **Pipeline Evaluation**; Assess remains advanced evidence authority inside evaluation, not a peer UI mode. Plan/Run/measured product HTTP routes are retired (T36). Plan-era design docs under `docs/superpowers/specs/` are archive banners only — see `docs/capacity-plan-vs-assess.md`.

@@ -25,17 +25,15 @@ type Server struct {
 	pipelineEnabled bool
 	remotetap       *RemotetapManager
 
-	evaluation     *evaluation.Coordinator
-	evalStore      *evaluation.Store
-	evalInventory  *evaluation.BuildInventory
-	evalLibrary    []evaluation.LibraryEntry
-	legacyCapacity bool
+	evaluation    *evaluation.Coordinator
+	evalStore     *evaluation.Store
+	evalInventory *evaluation.BuildInventory
+	evalLibrary   []evaluation.LibraryEntry
 }
 
 type serverConfig struct {
 	addr            string
 	pipelineEnabled bool
-	legacyCapacity  *bool
 }
 
 func New(addr string, pipelineEnabled bool) (*Server, error) {
@@ -97,18 +95,12 @@ func newServer(cfg serverConfig) (*Server, error) {
 		return nil, fmt.Errorf("evaluation coordinator: %w", err)
 	}
 
-	legacy := legacyCapacityEnabledFromEnv()
-	if cfg.legacyCapacity != nil {
-		legacy = *cfg.legacyCapacity
-	}
-
 	s := &Server{
 		store:           store,
 		mux:             http.NewServeMux(),
 		addr:            cfg.addr,
 		pipelineEnabled: cfg.pipelineEnabled,
 		remotetap:       NewRemotetapManager(store),
-		legacyCapacity:  legacy,
 	}
 	if err := s.registerRoutes(); err != nil {
 		coord.Close()
