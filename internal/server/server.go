@@ -60,15 +60,24 @@ func newServer(cfg serverConfig) (*Server, error) {
 
 	inv := cfg.inventory
 	if inv == nil {
-		inv, err = evaluation.NewBuildInventory()
+		inv, err = evaluation.InventoryFromPhase2Binary()
 		if err != nil {
-			return nil, fmt.Errorf("evaluation inventory: %w", err)
+			// Binary may be absent in source-only checkouts; keep empty inventory
+			// and fail closed at prepare/run rather than refusing server start.
+			inv, err = evaluation.NewBuildInventory()
+			if err != nil {
+				return nil, fmt.Errorf("evaluation inventory: %w", err)
+			}
 		}
 	}
 
 	runner := cfg.runner
 	if runner == nil {
-		runner = evaluation.FailClosedRunner{}
+		if len(inv.List()) > 0 {
+			runner = evaluation.NewPhase2Runner(evaluation.Phase2RunnerOptions{Inventory: inv})
+		} else {
+			runner = evaluation.FailClosedRunner{}
+		}
 	}
 
 	lib := cfg.library
