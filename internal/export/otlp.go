@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	insecurecreds "google.golang.org/grpc/credentials/insecure"
@@ -106,25 +106,41 @@ func NewOTLPMetricExporter(endpoint string, insecure bool, headers map[string]st
 	}, nil
 }
 
+func (e *TracesExporter) withHeaders(ctx context.Context) context.Context {
+	if len(e.headers) == 0 {
+		return ctx
+	}
+	md := make(metadata.MD, len(e.headers))
+	for k, v := range e.headers {
+		md[k] = []string{v}
+	}
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// Export sends spans over OTLP. Partial rejection is not an Export error;
+// callers that need accepted/rejected counts should use ExportWithReceipt.
 func (e *TracesExporter) Export(ctx context.Context, spans []*tracev1.ResourceSpans) error {
-	req := &collectortracev1.ExportTraceServiceRequest{
-		ResourceSpans: spans,
-	}
+	_, err := e.ExportWithReceipt(ctx, spans)
+	return err
+}
 
-	if len(e.headers) > 0 {
-		md := make(metadata.MD, len(e.headers))
-		for k, v := range e.headers {
-			md[k] = []string{v}
-		}
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-
-	_, err := e.client.Export(ctx, req)
+// ExportWithReceipt inspects the OTLP Export response for partial acceptance.
+// Outcome fields describe transport/response acceptance, not destination delivery.
+func (e *TracesExporter) ExportWithReceipt(ctx context.Context, spans []*tracev1.ResourceSpans) (ExportReceipt, error) {
+	attempted := CountSpans(spans)
+	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
+	resp, err := e.client.Export(e.withHeaders(ctx), req)
 	if err != nil {
-		return fmt.Errorf("export to %s: %w", e.endpoint, err)
+		wrapped := fmt.Errorf("export to %s: %w", e.endpoint, err)
+		return ReceiptRPCFailure(attempted, wrapped), wrapped
 	}
-
-	return nil
+	rejected := int64(0)
+	msg := ""
+	if ps := resp.GetPartialSuccess(); ps != nil {
+		rejected = ps.GetRejectedSpans()
+		msg = ps.GetErrorMessage()
+	}
+	return ReceiptFromRejected(attempted, rejected, msg), nil
 }
 
 func (e *TracesExporter) Shutdown(ctx context.Context) error {
@@ -134,36 +150,44 @@ func (e *TracesExporter) Shutdown(ctx context.Context) error {
 	return e.conn.Close()
 }
 
+func (e *LogsExporter) withHeaders(ctx context.Context) context.Context {
+	if len(e.headers) == 0 {
+		return ctx
+	}
+	md := make(metadata.MD, len(e.headers))
+	for k, v := range e.headers {
+		md[k] = []string{v}
+	}
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// Export sends logs over OTLP. Partial rejection is not an Export error;
+// callers that need accepted/rejected counts should use ExportWithReceipt.
 func (e *LogsExporter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) error {
-	// Count total log records
-	totalLogs := 0
-	for _, rl := range logs {
-		for _, sl := range rl.ScopeLogs {
-			totalLogs += len(sl.LogRecords)
-		}
-	}
-	logging.Debugf("OTLP LogsExporter: Exporting %d ResourceLogs (%d total log records) to %s", len(logs), totalLogs, e.endpoint)
+	_, err := e.ExportWithReceipt(ctx, logs)
+	return err
+}
 
-	req := &collectorlogsv1.ExportLogsServiceRequest{
-		ResourceLogs: logs,
-	}
-
-	if len(e.headers) > 0 {
-		md := make(metadata.MD, len(e.headers))
-		for k, v := range e.headers {
-			md[k] = []string{v}
-		}
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-
-	_, err := e.client.Export(ctx, req)
+// ExportWithReceipt inspects the OTLP Export response for partial acceptance.
+// Outcome fields describe transport/response acceptance, not destination delivery.
+func (e *LogsExporter) ExportWithReceipt(ctx context.Context, logs []*logsv1.ResourceLogs) (ExportReceipt, error) {
+	attempted := CountLogRecords(logs)
+	logging.Debugf("OTLP LogsExporter: Exporting %d ResourceLogs (%d total log records) to %s", len(logs), attempted, e.endpoint)
+	req := &collectorlogsv1.ExportLogsServiceRequest{ResourceLogs: logs}
+	resp, err := e.client.Export(e.withHeaders(ctx), req)
 	if err != nil {
 		logging.Warnf("OTLP LogsExporter: Export FAILED to %s: %v", e.endpoint, err)
-		return fmt.Errorf("export logs to %s: %w", e.endpoint, err)
+		wrapped := fmt.Errorf("export logs to %s: %w", e.endpoint, err)
+		return ReceiptRPCFailure(attempted, wrapped), wrapped
 	}
-
-	logging.Debugf("OTLP LogsExporter: Export SUCCESS to %s", e.endpoint)
-	return nil
+	rejected := int64(0)
+	msg := ""
+	if ps := resp.GetPartialSuccess(); ps != nil {
+		rejected = ps.GetRejectedLogRecords()
+		msg = ps.GetErrorMessage()
+	}
+	logging.Debugf("OTLP LogsExporter: Export SUCCESS to %s (rejected=%d)", e.endpoint, rejected)
+	return ReceiptFromRejected(attempted, rejected, msg), nil
 }
 
 func (e *LogsExporter) Shutdown(ctx context.Context) error {
@@ -173,25 +197,41 @@ func (e *LogsExporter) Shutdown(ctx context.Context) error {
 	return e.conn.Close()
 }
 
+func (e *MetricsExporter) withHeaders(ctx context.Context) context.Context {
+	if len(e.headers) == 0 {
+		return ctx
+	}
+	md := make(metadata.MD, len(e.headers))
+	for k, v := range e.headers {
+		md[k] = []string{v}
+	}
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+// Export sends metrics over OTLP. Partial rejection is not an Export error;
+// callers that need accepted/rejected counts should use ExportWithReceipt.
 func (e *MetricsExporter) Export(ctx context.Context, metrics []*metricspb.ResourceMetrics) error {
-	req := &collectormetricsv1.ExportMetricsServiceRequest{
-		ResourceMetrics: metrics,
-	}
+	_, err := e.ExportWithReceipt(ctx, metrics)
+	return err
+}
 
-	if len(e.headers) > 0 {
-		md := make(metadata.MD, len(e.headers))
-		for k, v := range e.headers {
-			md[k] = []string{v}
-		}
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-
-	_, err := e.client.Export(ctx, req)
+// ExportWithReceipt inspects the OTLP Export response for partial acceptance.
+// Outcome fields describe transport/response acceptance, not destination delivery.
+func (e *MetricsExporter) ExportWithReceipt(ctx context.Context, metrics []*metricspb.ResourceMetrics) (ExportReceipt, error) {
+	attempted := CountDataPoints(metrics)
+	req := &collectormetricsv1.ExportMetricsServiceRequest{ResourceMetrics: metrics}
+	resp, err := e.client.Export(e.withHeaders(ctx), req)
 	if err != nil {
-		return fmt.Errorf("export metrics to %s: %w", e.endpoint, err)
+		wrapped := fmt.Errorf("export metrics to %s: %w", e.endpoint, err)
+		return ReceiptRPCFailure(attempted, wrapped), wrapped
 	}
-
-	return nil
+	rejected := int64(0)
+	msg := ""
+	if ps := resp.GetPartialSuccess(); ps != nil {
+		rejected = ps.GetRejectedDataPoints()
+		msg = ps.GetErrorMessage()
+	}
+	return ReceiptFromRejected(attempted, rejected, msg), nil
 }
 
 func (e *MetricsExporter) Shutdown(ctx context.Context) error {

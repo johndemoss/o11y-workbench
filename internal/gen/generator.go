@@ -46,11 +46,16 @@
 // CONCERNS:
 // ⚠️  Generators are already independent — no shared base class or parent interface
 // ⚠️  MetricGenerator.Run and LogGenerator.Run have different signatures
-//     (LogGenerator.Run accepts traceSpans for correlation; MetricGenerator.Run does not)
+//
+//	(LogGenerator.Run accepts traceSpans for correlation; MetricGenerator.Run does not)
+//
 // ⚠️  Run.go would still need to know which signals are enabled (doTraces/doLogs/doMetrics)
-//     — a strategy interface doesn't eliminate that branching, it just moves it
+//
+//	— a strategy interface doesn't eliminate that branching, it just moves it
+//
 // ⚠️  Run.go signal routing is already clean and unlikely to grow — adding a new
-//     signal would only require adding one more if-block
+//
+//	signal would only require adding one more if-block
 //
 // VERDICT: DO NOT IMPLEMENT a strategy pattern.
 //
@@ -373,13 +378,9 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 						return err
 					}
 				} else {
-					itemCount := len(groupSpans)
-					g.stats.recordAttempt(itemCount)
-					if err := exp.Export(ctx, []*tracev1.ResourceSpans{rs}); err != nil {
-						g.stats.recordFail(itemCount)
+					if err := g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, len(groupSpans)); err != nil {
 						return err
 					}
-					g.stats.recordAck(itemCount)
 				}
 			}
 		}

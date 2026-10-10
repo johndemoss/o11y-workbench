@@ -169,22 +169,9 @@ func (g *Generator) runWorkloadProfile(ctx context.Context, exp export.TraceExpo
 		}
 
 		seq++
-		g.stats.recordAttempt(items)
 		rs := g.workloadResourceSpans(expID, svc, seq, items)
-		err := exp.Export(ctx, []*tracev1.ResourceSpans{rs})
-		if err != nil {
-			g.stats.recordFail(items)
-			if !p.ContinueOnExportErr {
-				return err
-			}
-			if ctx.Err() != nil {
-				if ctx.Err() == context.DeadlineExceeded {
-					return nil
-				}
-				return ctx.Err()
-			}
-		} else {
-			g.stats.recordAck(items)
+		if err := g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, items); err != nil {
+			return err
 		}
 
 		if g.OnProgress != nil {
@@ -324,21 +311,5 @@ func (g *Generator) exportOne(ctx context.Context, exp export.TraceExporter, rs 
 		g.stampEvidenceAttrs(spans, expID, *seq)
 	}
 	items := len(spans)
-	g.stats.recordAttempt(items)
-	err := exp.Export(ctx, []*tracev1.ResourceSpans{rs})
-	if err != nil {
-		g.stats.recordFail(items)
-		if g.config.Workload.ContinueOnExportErr {
-			if ctx.Err() != nil {
-				if ctx.Err() == context.DeadlineExceeded {
-					return nil
-				}
-				return ctx.Err()
-			}
-			return nil
-		}
-		return err
-	}
-	g.stats.recordAck(items)
-	return nil
+	return g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, items)
 }
