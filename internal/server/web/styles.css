@@ -303,21 +303,6 @@ section h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 1
   padding: 32px;
   margin-bottom: 24px;
 }
-.workload-heading {
-  font-size: 13px;
-  font-weight: 600;
-  color: #94a3b8;
-  margin: 18px 0 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-#workload-fields input:disabled,
-#workload-fields select:disabled,
-#trace-fields-group input:disabled,
-#trace-fields-group select:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 .promo-content h2 {
   font-size: 20px;
   font-weight: 700;

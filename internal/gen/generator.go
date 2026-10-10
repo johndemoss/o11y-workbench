@@ -214,9 +214,9 @@ func (g *Generator) Stats() Stats {
 // traces per second. The actual rate may be lower if generation + export
 // takes longer than the tick interval.
 func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
-	// Explicit flat shape keeps the Capacity Run helper. WorkloadProfile knobs alone
-	// compose onto topology/scenario below (see docs/generator-unification-adr.md).
-	if g.config.Workload.flatShape() {
+	// Explicit flat evidence grammar: Workload.Shape=flat or Scenario=workload.
+	// WorkloadProfile knobs alone still compose onto topology/tree scenarios.
+	if g.config.Workload.flatShape() || IsWorkloadScenario(g.config.Scenario) {
 		return g.runWorkloadProfile(ctx, exp)
 	}
 

@@ -187,7 +187,7 @@ func RegisterUserScenario(name string, roots []*ScenarioSpanNode) error {
 	}
 	// Check for conflict with built-in scenarios
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "microservice", "monolith", "3-tier-web-app", "event-driven":
+	case "microservice", "monolith", "3-tier-web-app", "event-driven", "workload":
 		return fmt.Errorf("cannot override built-in scenario %q", name)
 	}
 	userScenariosMu.Lock()

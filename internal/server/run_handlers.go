@@ -70,6 +70,9 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wl := workloadFromRequest(body.Workload)
+	if gen.IsWorkloadScenario(body.Scenario) && wl.Shape == "" {
+		wl.Shape = "flat"
+	}
 
 	var topoType gen.TopologyType
 	if body.Scenario == "" && !strings.EqualFold(wl.Shape, "flat") {

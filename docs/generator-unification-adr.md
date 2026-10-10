@@ -122,3 +122,9 @@ Capacity Run remains the operator surface for pinned-collector experiments; it i
 4. **Field:** `WorkloadProfile.SingleResource bool` (`json:"single_resource,omitempty"`).
 5. **Flat grammar is explicit:** `WorkloadProfile.Shape == "flat"` selects the flat `workload.span` helper. Empty Shape uses Config topology/scenario. WorkloadProfile knobs alone must not switch grammar.
 6. **Chunking:** when a ResourceSpans has more spans than `ItemsPerRequest`, split into consecutive span chunks of that size and `Export` each chunk. Undersized final chunk is exported as-is (no pad, no reject).
+
+## Product framing (2026-10-10 follow-up)
+
+- Dashboard **Scenario** dropdown selects shape grammar. Built-in `workload` means flat evidence (`workload.span`), equivalent to `WorkloadProfile.Shape=flat`.
+- Measurement knobs (rate items/sec, attrs, burst, continue-on-err) stay on **Capacity Run**, not as Trace Config overlays.
+- `WorkloadProfile` remains the engine overlay type; UX no longer presents it as a parallel mode on `/`.

@@ -32,6 +32,18 @@ func (b *budget) take(n int) bool {
 	return true
 }
 
+// BuiltInScenarioNames lists dashboard/CLI scenarios. Tree shapes plus the
+// special "workload" selector for flat evidence grammar (see IsWorkloadScenario).
+func BuiltInScenarioNames() []string {
+	return []string{"microservice", "monolith", "3-tier-web-app", "event-driven", "workload"}
+}
+
+// IsWorkloadScenario reports whether name selects flat evidence grammar
+// (workload.span) instead of a service-graph span tree.
+func IsWorkloadScenario(scenario string) bool {
+	return strings.EqualFold(strings.TrimSpace(scenario), "workload")
+}
+
 func GenerateScenario(scenario string, rng *SeededRNG, spanCount, maxDepth int) ([]*ScenarioSpanNode, error) {
 	if spanCount < 1 {
 		spanCount = 1
@@ -49,8 +61,10 @@ func GenerateScenario(scenario string, rng *SeededRNG, spanCount, maxDepth int) 
 		return buildThreeTier(rng, spanCount, maxDepth), nil
 	case "event-driven":
 		return buildEventDriven(rng, spanCount, maxDepth), nil
+	case "workload":
+		return nil, fmt.Errorf("scenario %q selects flat evidence grammar (workload.span), not a span tree; set Config.Scenario=workload or Workload.Shape=flat", scenario)
 	default:
-		return nil, fmt.Errorf("unknown scenario %q, expected one of: microservice, monolith, 3-tier-web-app, event-driven", scenario)
+		return nil, fmt.Errorf("unknown scenario %q, expected one of: %s", scenario, strings.Join(BuiltInScenarioNames(), ", "))
 	}
 }
 

@@ -16,7 +16,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
-	builtIn := []string{"microservice", "monolith", "3-tier-web-app", "event-driven"}
+	builtIn := gen.BuiltInScenarioNames()
 	userDefined := gen.ListUserScenarios()
 	all := append([]string{}, builtIn...)
 	all = append(all, userDefined...)

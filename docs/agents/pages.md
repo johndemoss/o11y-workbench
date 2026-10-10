@@ -7,7 +7,7 @@ Load this when referring to UI in prompts or commits.
 | Name | What |
 |---|---|
 | Dashboard | App shell (nav, signal-eq) |
-| Config Panel | Generation config form (topology/scenario/logs/metrics) + WorkloadProfile overlays (no mode switch; `Shape=flat` optional) |
+| Config Panel | Generation config form (topology/scenario/logs/metrics). Scenario `workload` selects flat evidence grammar (`workload.span`); measurement knobs live on Capacity Run |
 | Jobs List | Run list with filters, pause/stop |
 | Run Detail | Expanded single-run telemetry |
 | Pipeline Promo | Link to Pipeline Prototyper |

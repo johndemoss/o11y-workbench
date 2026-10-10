@@ -94,3 +94,36 @@ func TestHandleStartRun_FlatShapeSkipsTopologyParse(t *testing.T) {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+
+func TestHandleStartRun_ScenarioWorkload(t *testing.T) {
+	s, err := New(":0", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"seed":        1,
+		"trace_count": 1,
+		"topology":    "not-a-real-topology",
+		"scenario":    "workload",
+		"output":      "file",
+		"signals":     map[string]bool{"traces": true},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/runs", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var run map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &run); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := run["config"].(map[string]any)
+	wl, _ := cfg["workload"].(map[string]any)
+	if wl == nil || wl["shape"] != "flat" {
+		t.Fatalf("expected workload.shape=flat, got %#v", cfg)
+	}
+	// Config.Scenario has no json tag; assert via Workload.Shape pin instead.
+	_ = cfg
+}

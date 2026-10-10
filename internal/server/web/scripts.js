@@ -72,6 +72,7 @@ document.addEventListener('keydown', function(e) {
 
 function handleScenarioChange(el) {
   const topo = document.getElementById('topology');
+  const workload = el.value === 'workload';
   if (el.value) {
     topo.disabled = true;
     topo.style.opacity = '0.5';
@@ -81,6 +82,13 @@ function handleScenarioChange(el) {
     topo.style.opacity = '';
     topo.style.cursor = '';
   }
+  // workload is flat evidence grammar — span tree knobs do not apply
+  ['span-count', 'scenario-span-count', 'max-depth'].forEach((id) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    field.disabled = workload;
+    field.title = workload ? 'Ignored for scenario=workload (flat evidence grammar)' : '';
+  });
 }
 
 async function loadScenarios() {
@@ -91,7 +99,7 @@ async function loadScenarios() {
     scenarios.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s;
-      opt.textContent = s;
+      opt.textContent = s === 'workload' ? 'workload (flat evidence)' : s;
       sel.appendChild(opt);
     });
     if (scenarios.includes('microservice')) {
@@ -605,65 +613,6 @@ async function fetchRunDetail(id) {
   return runs[id];
 }
 
-
-function onWorkloadModeChange() {
-  const mode = document.getElementById('wl-mode')?.value || 'constant';
-  document.querySelectorAll('.wl-burst-only').forEach((el) => {
-    el.style.display = mode === 'burst' ? '' : 'none';
-  });
-}
-
-function onWorkloadShapeChange() {
-  const flat = !!document.getElementById('wl-shape-flat')?.checked;
-  ['topology', 'scenario', 'span-count', 'scenario-span-count', 'max-depth'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.disabled = flat;
-    el.title = flat ? 'Ignored when Shape=flat' : '';
-  });
-  if (flat) {
-    const sr = document.getElementById('wl-single-resource');
-    if (sr) sr.checked = true;
-  }
-}
-
-function collectWorkloadProfile() {
-  const shapeFlat = !!document.getElementById('wl-shape-flat')?.checked;
-  const single = !!document.getElementById('wl-single-resource')?.checked;
-  const cont = !!document.getElementById('wl-continue-on-err')?.checked;
-  const experimentId = (document.getElementById('wl-experiment-id')?.value || '').trim();
-  const rateItems = parseFloat(document.getElementById('wl-rate-items')?.value || '0') || 0;
-  const itemsPerReq = parseInt(document.getElementById('wl-items-per-req')?.value || '0', 10) || 0;
-  const attrCount = parseInt(document.getElementById('wl-attr-count')?.value || '0', 10) || 0;
-  const attrBytes = parseInt(document.getElementById('wl-attr-bytes')?.value || '0', 10) || 0;
-  const cardinality = parseInt(document.getElementById('wl-cardinality')?.value || '0', 10) || 0;
-  const mode = document.getElementById('wl-mode')?.value || 'constant';
-  const burstOn = parseFloat(document.getElementById('wl-burst-on')?.value || '0') || 0;
-  const burstOff = parseFloat(document.getElementById('wl-burst-off')?.value || '0') || 0;
-  const burstPeak = parseFloat(document.getElementById('wl-burst-peak')?.value || '0') || 0;
-  const active = shapeFlat || single || cont || experimentId || rateItems > 0 || itemsPerReq > 0 ||
-    attrCount > 0 || attrBytes > 0 || cardinality > 0 || mode === 'burst';
-  if (!active) return null;
-  const wl = {
-    shape: shapeFlat ? 'flat' : '',
-    single_resource: single,
-    continue_on_export_err: cont,
-    experiment_id: experimentId,
-    rate_items_per_sec: rateItems,
-    items_per_request: itemsPerReq,
-    attribute_count: attrCount,
-    attribute_value_bytes: attrBytes,
-    cardinality: cardinality,
-    mode: mode
-  };
-  if (mode === 'burst') {
-    wl.burst_on_s = burstOn;
-    wl.burst_off_s = burstOff;
-    wl.burst_peak_rate_items_per_sec = burstPeak;
-  }
-  return wl;
-}
-
 async function startRun() {
   const runBtn = document.getElementById('run-btn');
   runBtn.disabled = true;
@@ -691,8 +640,6 @@ async function startRun() {
     body.scenario_span_count = parseInt(document.getElementById('scenario-span-count').value) || 0;
     body.max_depth = parseInt(document.getElementById('max-depth').value) || 5;
     body.service_name = document.getElementById('service-name').value || 'mock-service';
-    const wl = collectWorkloadProfile();
-    if (wl) body.workload = wl;
   }
 
   if (signals.metrics) {
@@ -1591,6 +1538,4 @@ updateAllPillState('run-filter-signals');
 
 // Initialize infinite indicators on page load
 ['trace-count', 'rate', 'duration'].forEach(updateInfiniteIndicator);
-onWorkloadModeChange();
-onWorkloadShapeChange();
 syncTraceCountDuration();

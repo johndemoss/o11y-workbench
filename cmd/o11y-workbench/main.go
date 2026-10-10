@@ -80,6 +80,10 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				traces = 0
 			}
 
+			wl := gen.WorkloadProfile{}
+			if gen.IsWorkloadScenario(scenario) {
+				wl.Shape = "flat"
+			}
 			cfg := gen.Config{
 				Seed:              viper.GetInt64("seed"),
 				TraceCount:        traces,
@@ -91,6 +95,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				ServiceName:       viper.GetString("service-name"),
 				Scenario:          scenario,
 				ScenarioSpanCount: viper.GetInt("scenario-span-count"),
+				Workload:          wl,
 			}
 
 			var exporter export.TraceExporter
@@ -143,7 +148,7 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 	cmd.Flags().Int("rate", 1, "target traces per second (0 = unlimited)")
 	cmd.Flags().Int("duration", 10, "max run duration in seconds (0 = unlimited; mutually exclusive with --traces)")
 	cmd.Flags().String("topology", "flat", "trace topology shape (flat, branching, split)")
-	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven, or a user-defined scenario")
+	cmd.Flags().String("scenario", "", "trace scenario: microservice, monolith, 3-tier-web-app, event-driven, workload (flat evidence), or a user-defined scenario")
 	cmd.Flags().String("scenario-file", "", "path to YAML/JSON file with user-defined scenario definitions")
 	cmd.Flags().Int("scenario-span-count", 0, "per-service span budget for scenarios; 0 uses --span-count")
 	cmd.Flags().Int("span-count", 10, "target number of spans per trace")
