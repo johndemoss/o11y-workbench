@@ -148,7 +148,8 @@ The web dashboard at `http://localhost:18080` provides:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health` | Health check (includes registered OTTL trains) |
+| `GET` | `/api/collector-versions` | List default + registered OTTL collector trains |
 | `GET` | `/api/scenarios` | List built-in and user-defined scenarios |
 | `POST` | `/api/scenarios` | Upload user-defined scenarios (YAML/JSON) |
 | `GET` | `/api/config/defaults` | Get default configuration values |
@@ -176,6 +177,8 @@ The web dashboard at `http://localhost:18080` provides:
 ## OTTL Prototyper
 
 The **OTTL Prototyper** is a browser-based sandbox for writing and testing [OpenTelemetry Transformation Language](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) statements — no collector setup required.
+
+OTTL execution is dual-train: the web binary embeds one in-process collector version (see `go.mod` / `versions/otel.env`), and optional worker binaries under `workers/` provide additional trains selected via `collector_version`. Local serve builds workers with `make ottl-workers` and exports `O11Y_OTTL_WORKERS` from `versions/otel.env`.
 
 ### Transform Mode
 

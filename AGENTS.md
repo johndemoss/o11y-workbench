@@ -24,7 +24,7 @@ Do not load these unless the task matches. In chat, attach with `@path`.
 | When                                      | File                                           |
 | ----------------------------------------- | ---------------------------------------------- |
 | Changing Go, API, OTTL, or TS types       | `docs/agents/coding.md`                        |
-| Serving, Docker, pipeline-ui / capacity-ui rebuild | `docs/agents/gotchas.md`                 |
+| Serving, Docker, pipeline-ui, OTTL workers | `docs/agents/gotchas.md`                       |
 | Naming UI in prompts                      | `docs/agents/pages.md`                         |
 | Generator unification (shape vs evidence knobs) | `docs/generator-unification-adr.md` |
 | Bumping OTel collector / OTTL / image pins | `docs/otel-version-support.md`                 |
@@ -40,6 +40,7 @@ Do not load these unless the task matches. In chat, attach with `@path`.
 - JSON APIs, `net/http` Go 1.22+ routes (`GET /api/runs/{id}`), wrap errors with `%w`
 - Go structs win over `pipeline-ui/src/lib/types.ts`
 - Handlers call `store.StartRun()`; do not construct generators in handlers
+- Versioned OTTL goes through `internal/ottlengine`; retain worker stoppers from `StartConfiguredWorkers` and stop them on Close/SIGTERM. Pins live in `versions/otel.env` (see `docs/agents/gotchas.md`)
 - Dashboard and Pipeline Prototyper are one product — not two competing apps
 
 

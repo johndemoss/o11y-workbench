@@ -1,5 +1,9 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps ottl-workers
+
+.PHONY: ottl-workers
+ottl-workers:
+	cd workers/ottl-0.162 && go build -o ../../bin/ottl-worker-0.162.0 .
 
 build-pipeline-ui:
 	cd pipeline-ui && npm install && npm run build
@@ -53,6 +57,7 @@ help:
 	@echo ""
 	@echo "==> Local Development:"
 	@echo "  make build-pipeline-ui   Build the Svelte frontend locally"
+	@echo "  make ottl-workers        Build extra-train OTTL worker binaries into bin/"
 	@echo "  make build-all           Build everything locally (frontend + Go binary)"
 	@echo "  make test                Run all tests"
 	@echo ""
@@ -106,6 +111,7 @@ export DOCKER_CONFIG := $(EMPTY_DOCKER_CONFIG)
 endif
 
 # OTel collector config for remotetap
+OTEL_COLLECTOR_CONTRIB_VERSION ?= 0.151.0
 OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
 
 # Start OTel collector with remotetap processor
@@ -115,7 +121,7 @@ otel-start:
 	$(CONTAINER_RUNTIME) run -d --name otel-collector-remotetap --replace \
 		-p 14317:14317 -p 14318:14318 -p 12001:12001 \
 		-v $(CURDIR)/config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:Z \
-		docker.io/otel/opentelemetry-collector-contrib:latest
+		docker.io/otel/opentelemetry-collector-contrib:$(OTEL_COLLECTOR_CONTRIB_VERSION)
 	@echo "OTel collector started"
 
 # Stop OTel collector
@@ -175,10 +181,21 @@ otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
 otel-desktop-viewer-stop:
 	@bash scripts/stop-odv.sh
 
+# Fixed container_name values collide across worktrees: compose project names
+# differ by directory, but these containers share global names. Reclaim them
+# before up / during clean so leftover stacks from another checkout cannot block.
+NAMED_CONTAINERS := otel-collector-remotetap o11y-workbench-web demo-sender otel-desktop-viewer
+
+.PHONY: reclaim-named-containers
+reclaim-named-containers:
+	@for c in $(NAMED_CONTAINERS); do \
+		$(CONTAINER_RUNTIME) rm -f $$c >/dev/null 2>&1 || true; \
+	done
+
 # Start everything for remotetap testing - HYBRID MODE
 # Web server and collector in containers, viewer as binary
 .PHONY: dev-remotetap
-dev-remotetap: otel-desktop-viewer-start
+dev-remotetap: otel-desktop-viewer-start reclaim-named-containers
 	@echo "Starting full remotetap stack (hybrid)..."
 	@echo "Demo-sender command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
 	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
@@ -236,7 +253,10 @@ clean:
 	$(COMPOSE) -f docker-compose.yml down 2>/dev/null || true
 	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev down 2>/dev/null || true
 	$(COMPOSE) -f docker-compose.hybrid.yml --profile remotetap down 2>/dev/null || true
-	$(MAKE) otel-desktop-viewer-stop
+	@$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap down 2>/dev/null || true
+	@$(MAKE) --no-print-directory reclaim-named-containers
+	@$(MAKE) --no-print-directory otel-stop
+	@$(MAKE) --no-print-directory otel-desktop-viewer-stop
 	@echo "All services stopped"
 
 # Cleanup everything (remotetap-specific, includes collector)

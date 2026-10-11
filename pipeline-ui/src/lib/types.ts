@@ -102,3 +102,9 @@ export interface SnippetTemplate {
   processor: ProcessorConfig
   description: string
 }
+
+export interface CollectorVersionInfo {
+  contrib: string
+  stable: string
+  source: string
+}

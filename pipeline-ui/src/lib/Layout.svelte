@@ -1,11 +1,25 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { onMount } from 'svelte'
+  import CollectorVersionSelect from './CollectorVersionSelect.svelte'
+  import { loadCollectorVersions } from './collector-version'
 
   let { activeTab = 'graph', onTabChange, children }: {
     activeTab: 'quick' | 'pipeline' | 'graph'
     onTabChange?: (tab: 'quick' | 'pipeline' | 'graph') => void
     children?: Snippet
   } = $props()
+
+  let versionsReady = $state(false)
+
+  onMount(async () => {
+    try {
+      await loadCollectorVersions()
+    } catch {
+      /* picker stays empty if API unavailable */
+    }
+    versionsReady = true
+  })
 </script>
 
 <main class="app">
@@ -14,7 +28,12 @@
       <img src="/pipeline/logo.svg" alt="o11y workbench" class="app-logo">
       <span class="app-title">Pipeline Prototyper</span>
     </div>
-    <a href="/" class="nav-link">← Dashboard</a>
+    <div class="nav-right">
+      {#if versionsReady}
+        <CollectorVersionSelect />
+      {/if}
+      <a href="/" class="nav-link">← Dashboard</a>
+    </div>
   </nav>
   <div class="tab-bar">
     <button
@@ -72,6 +91,11 @@
     font-weight: 600;
     font-size: var(--font-size-lg, 1.1rem);
     color: var(--color-text, #f1f5f9);
+  }
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md, 1rem);
   }
   .nav-link {
     color: var(--color-primary, #3b82f6);

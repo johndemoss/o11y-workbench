@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { PipelineResult, SignalType } from './types'
+  import { withCollectorVersion } from './collector-version'
 
   interface Run {
     id: string
@@ -111,7 +112,9 @@
     try {
       if (payloadFetch) await payloadFetch
       const res = await fetch(
-        `/api/ottl/pipeline/execute?run_id=${encodeURIComponent(selectedRunId)}&signal=${encodeURIComponent(signal)}`,
+        withCollectorVersion(
+          `/api/ottl/pipeline/execute?run_id=${encodeURIComponent(selectedRunId)}&signal=${encodeURIComponent(signal)}`,
+        ),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-yaml' },

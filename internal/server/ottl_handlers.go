@@ -10,11 +10,18 @@ import (
 
 func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config     string   `json:"config"`
-		Statements []string `json:"statements"` // backward compat
+		Config           string   `json:"config"`
+		Statements       []string `json:"statements"` // backward compat
+		CollectorVersion string   `json:"collector_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	eng, err := s.resolveEngine(r, req.CollectorVersion)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -30,7 +37,7 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 		statements = req.Statements
 	}
 
-	result := ottl.ValidateStatements(statements)
+	result := eng.ValidateStatements(statements)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest
@@ -40,11 +47,12 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RunID      string        `json:"run_id"`
-		Config     string        `json:"config"`
-		Statements []string      `json:"statements"` // backward compat
-		SignalType string        `json:"signal_type"` // DEPRECATED: use Signals
-		Signals    *gen.Signals  `json:"signals"`
+		RunID            string       `json:"run_id"`
+		Config           string       `json:"config"`
+		Statements       []string     `json:"statements"` // backward compat
+		SignalType       string       `json:"signal_type"` // DEPRECATED: use Signals
+		Signals          *gen.Signals `json:"signals"`
+		CollectorVersion string       `json:"collector_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -52,6 +60,12 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.RunID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run_id is required"})
+		return
+	}
+
+	eng, err := s.resolveEngine(r, req.CollectorVersion)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -80,7 +94,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.TransformResult{Valid: true}
 		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			transformed, spanCount, err := eng.TransformTraces(*run.TraceData, traceStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -94,7 +108,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			result.TransformedCount = spanCount
 		}
 		if len(logStmts) > 0 && run.LogData != nil {
-			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
+			transformed, err := eng.TransformLogs(*run.LogData, logStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -117,7 +131,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.TransformResult{Valid: true}
 		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, traceStmts)
+			transformed, spanCount, err := eng.TransformTraces(*run.TraceData, traceStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -131,7 +145,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			result.TransformedCount = spanCount
 		}
 		if len(logStmts) > 0 && run.LogData != nil {
-			transformed, err := ottl.TransformLogRunData(*run.LogData, logStmts)
+			transformed, err := eng.TransformLogs(*run.LogData, logStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -143,7 +157,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			result.LogStatementsParsed = len(logStmts)
 		}
 		if len(metricStmts) > 0 && run.MetricData != nil {
-			transformed, err := ottl.TransformMetricRunData(*run.MetricData, metricStmts)
+			transformed, err := eng.TransformMetrics(*run.MetricData, metricStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -174,7 +188,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		} else {
 			statements = req.Statements
 		}
-		transformed, err := ottl.TransformLogRunData(*run.LogData, statements)
+		transformed, err := eng.TransformLogs(*run.LogData, statements)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 				Valid:  false,
@@ -206,7 +220,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		} else {
 			statements = req.Statements
 		}
-		transformed, err := ottl.TransformMetricRunData(*run.MetricData, statements)
+		transformed, err := eng.TransformMetrics(*run.MetricData, statements)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 				Valid:  false,
@@ -238,7 +252,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	} else {
 		statements = req.Statements
 	}
-	transformed, spanCount, err := ottl.TransformRunData(*run.TraceData, statements)
+	transformed, spanCount, err := eng.TransformTraces(*run.TraceData, statements)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 			Valid:  false,
@@ -257,12 +271,13 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RunID      string         `json:"run_id"`
-		Config     string         `json:"config"`
-		Mode       ottl.FilterMode `json:"mode"`
-		Conditions []string       `json:"conditions"` // backward compat
-		SignalType string         `json:"signal_type"` // DEPRECATED: use Signals
-		Signals    *gen.Signals   `json:"signals"`
+		RunID            string         `json:"run_id"`
+		Config           string         `json:"config"`
+		Mode             ottl.FilterMode `json:"mode"`
+		Conditions       []string       `json:"conditions"` // backward compat
+		SignalType       string         `json:"signal_type"` // DEPRECATED: use Signals
+		Signals          *gen.Signals   `json:"signals"`
+		CollectorVersion string         `json:"collector_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -274,6 +289,12 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Mode == "" {
 		req.Mode = ottl.FilterModeInclude
+	}
+
+	eng, err := s.resolveEngine(r, req.CollectorVersion)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 
 	run := s.store.Get(req.RunID)
@@ -301,7 +322,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.FilterResult{Valid: true}
 		if len(traceConds) > 0 && run.TraceData != nil {
-			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			filtered, total, kept, err := eng.FilterTraces(*run.TraceData, traceConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}})
 				return
@@ -312,7 +333,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			result.FilteredSpanCount = kept
 		}
 		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			filtered, total, kept, err := eng.FilterLogs(*run.LogData, logConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}})
 				return
@@ -334,7 +355,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		}
 		result := ottl.FilterResult{Valid: true}
 		if len(traceConds) > 0 && run.TraceData != nil {
-			filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, traceConds, req.Mode)
+			filtered, total, kept, err := eng.FilterTraces(*run.TraceData, traceConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}})
 				return
@@ -345,7 +366,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			result.FilteredSpanCount = kept
 		}
 		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, logConds, req.Mode)
+			filtered, total, kept, err := eng.FilterLogs(*run.LogData, logConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}})
 				return
@@ -356,7 +377,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			result.FilteredLogCount = kept
 		}
 		if len(metricConds) > 0 && run.MetricData != nil {
-			metricFiltered, metricTotal, metricKept, err := ottl.FilterMetricRunData(*run.MetricData, metricConds, req.Mode)
+			metricFiltered, metricTotal, metricKept, err := eng.FilterMetrics(*run.MetricData, metricConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}})
 				return
@@ -386,7 +407,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		} else {
 			conditions = req.Conditions
 		}
-		filtered, total, kept, err := ottl.FilterLogRunData(*run.LogData, conditions, req.Mode)
+		filtered, total, kept, err := eng.FilterLogs(*run.LogData, conditions, req.Mode)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 				Valid:  false,
@@ -420,7 +441,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		} else {
 			conditions = req.Conditions
 		}
-		filtered, total, kept, err := ottl.FilterMetricRunData(*run.MetricData, conditions, req.Mode)
+		filtered, total, kept, err := eng.FilterMetrics(*run.MetricData, conditions, req.Mode)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 				Valid:  false,
@@ -429,11 +450,11 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, ottl.FilterResult{
-			Valid:                true,
-			MetricFilteredData:   &filtered,
+			Valid:                  true,
+			MetricFilteredData:     &filtered,
 			MetricConditionsParsed: len(conditions),
-			TotalMetricCount:     total,
-			FilteredMetricCount:  kept,
+			TotalMetricCount:       total,
+			FilteredMetricCount:    kept,
 		})
 		return
 	}
@@ -454,7 +475,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	} else {
 		conditions = req.Conditions
 	}
-	filtered, total, kept, err := ottl.FilterRunData(*run.TraceData, conditions, req.Mode)
+	filtered, total, kept, err := eng.FilterTraces(*run.TraceData, conditions, req.Mode)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 			Valid:  false,
@@ -473,13 +494,20 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config     string       `json:"config"`
-		Conditions []string     `json:"conditions"` // backward compat
-		SignalType string       `json:"signal_type"` // DEPRECATED: use Signals
-		Signals    *gen.Signals `json:"signals"`
+		Config           string       `json:"config"`
+		Conditions       []string     `json:"conditions"` // backward compat
+		SignalType       string       `json:"signal_type"` // DEPRECATED: use Signals
+		Signals          *gen.Signals `json:"signals"`
+		CollectorVersion string       `json:"collector_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	eng, err := s.resolveEngine(r, req.CollectorVersion)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -506,7 +534,7 @@ func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request
 		signals = &s
 	}
 
-	result := ottl.ValidateFilterConditionsParse(conditions, *signals)
+	result := eng.ValidateFilterConditions(conditions, *signals)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest

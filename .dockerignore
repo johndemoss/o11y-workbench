@@ -42,3 +42,8 @@ docs/
 
 # Claude plans
 .claude/
+
+# Local binaries (worker rebuilt inside image)
+bin/
+o11y-workbench
+o11y-workbench-web

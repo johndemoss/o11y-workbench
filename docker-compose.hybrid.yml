@@ -8,7 +8,7 @@ services:
 
   # OTel Collector with remotetap processor
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_CONTRIB_VERSION:-0.151.0}
     container_name: otel-collector-remotetap
     volumes:
       - ./config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:ro,Z

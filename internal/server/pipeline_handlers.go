@@ -169,8 +169,22 @@ func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	eng, err := s.resolveEngine(r, "")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var errs []string
 	if err := pipeline.Validate(); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": []string{err.Error()}})
+		errs = append(errs, err.Error())
+	}
+	ottlRes := eng.ValidatePipelineOTTL(*pipeline)
+	if !ottlRes.Valid {
+		errs = append(errs, ottlRes.Errors...)
+	}
+	if len(errs) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": errs})
 		return
 	}
 
@@ -222,7 +236,13 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := ottl.ExecutePipelineForSignal(data, *pipeline, signal)
+	eng, err := s.resolveEngine(r, "")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result, err := eng.ExecutePipelineForSignal(data, *pipeline, signal)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -273,6 +293,7 @@ func (s *Server) handlePipelineImport(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 
 	var configYAML string
+	var bodyVersion string
 	if strings.Contains(ct, "yaml") {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -282,16 +303,24 @@ func (s *Server) handlePipelineImport(w http.ResponseWriter, r *http.Request) {
 		configYAML = string(body)
 	} else {
 		var req struct {
-			ConfigYAML string `json:"config_yaml"`
+			ConfigYAML       string `json:"config_yaml"`
+			CollectorVersion string `json:"collector_version"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 			return
 		}
 		configYAML = req.ConfigYAML
+		bodyVersion = req.CollectorVersion
 	}
 
-	pipelines, err := ottl.ImportCollectorConfig(configYAML)
+	eng, err := s.resolveEngine(r, bodyVersion)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	pipelines, err := eng.ImportCollectorConfig(configYAML)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

@@ -11,6 +11,7 @@
   import QuickTab from './lib/QuickTab.svelte'
   import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
   import { debounce } from './lib/debounce'
+  import { withCollectorVersion } from './lib/collector-version'
   import yaml from 'js-yaml'
   import { onDestroy } from 'svelte'
 
@@ -71,8 +72,8 @@
   function handleValidate(p: Pipeline) {
     const body = activeTab === 'graph' ? pipelineYaml : yamlStringify(p)
     const url = activeTab === 'graph'
-      ? '/api/ottl/pipeline/validate'
-      : `/api/ottl/pipeline/validate?signal=${encodeURIComponent(selectedSignal)}`
+      ? withCollectorVersion('/api/ottl/pipeline/validate')
+      : withCollectorVersion(`/api/ottl/pipeline/validate?signal=${encodeURIComponent(selectedSignal)}`)
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-yaml' }, body })
       .then(r => r.json()).then(d => alert(d.valid ? 'Pipeline is valid!' : 'Validation errors:\n' + (d.errors || []).join('\n')))
       .catch(e => alert('Validation failed: ' + e.message))

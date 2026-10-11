@@ -6,6 +6,8 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/server"
@@ -80,5 +82,9 @@ func main() {
 		}
 	}
 
-	log.Fatal(srv.ListenAndServe())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := srv.ListenAndServeContext(ctx); err != nil {
+		log.Fatalf("server: %v", err)
+	}
 }

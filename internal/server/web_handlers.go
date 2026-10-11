@@ -12,7 +12,22 @@ import (
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	reg := s.ensureEngines()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"ottl": map[string]any{
+			"default":  reg.Default(),
+			"versions": reg.List(),
+		},
+	})
+}
+
+func (s *Server) handleCollectorVersions(w http.ResponseWriter, r *http.Request) {
+	reg := s.ensureEngines()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"default":  reg.Default(),
+		"versions": reg.List(),
+	})
 }
 
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {

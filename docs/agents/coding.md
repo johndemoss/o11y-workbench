@@ -29,9 +29,12 @@ Load this when changing Go, the API, OTTL, or `pipeline-ui` types. Follow these;
 17. Pipeline stage config is `map[string]interface{}` (collector schema). Type assertions in `@internal/ottl/pipeline_import.go` are approved.
 18. Every handler is a method on `*Server`. Decode JSON, `writeJSON`. Canonical: `@internal/server/ottl_handlers.go`, `@internal/server/run_handlers.go`.
 19. Handlers must not construct generators/exporters. Call `store.StartRun()`; `executeRun` owns the lifecycle.
+20. Version-sensitive OTTL work goes through `@internal/ottlengine` (`Engine` + `Registry`). Handlers call `resolveEngine` / `ensureEngines` — do not import `internal/ottl` directly for execute/validate/transform/filter once an engine is selected.
+21. Extra collector trains are worker subprocesses supervised by `@internal/ottlengine` (`StartConfiguredWorkers`). `server.New` must retain stoppers; `Close` / `Shutdown` / SIGTERM must stop them. Do not discard the stoppers slice.
+22. OTTL `collector_version` keys are bare contrib versions (`0.151.0`).
 
 ## Tests
 
-20. Table-driven: `tests []struct{name string; ...}`, `t.Run`, `want`/`got`.
-21. Integration tests create real runs (`@internal/server/integration_test.go`).
-22. Seeded generators are deterministic. Inline pipeline YAML/JSON in tests (`@internal/ottl/pipeline_executor_test.go`).
+23. Table-driven: `tests []struct{name string; ...}`, `t.Run`, `want`/`got`.
+24. Integration tests create real runs (`@internal/server/integration_test.go`).
+25. Seeded generators are deterministic. Inline pipeline YAML/JSON in tests (`@internal/ottl/pipeline_executor_test.go`).

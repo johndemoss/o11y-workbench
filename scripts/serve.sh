@@ -66,6 +66,12 @@ if ! $SKIP_BUILD; then
     exit 1
   }
   echo "==> Go binary rebuilt with embedded frontend assets"
+
+  echo "==> Building OTTL worker binaries..."
+  (cd "$PROJECT_DIR" && make ottl-workers) || {
+    echo "ERROR: ottl-workers build failed" >&2
+    exit 1
+  }
 elif [ -d "$PROJECT_DIR/pipeline-ui" ]; then
   # Even with --skip-build, check if dist changed and rebuild Go if needed
   if [ -d "$PROJECT_DIR/pipeline-ui/dist" ] && [ -d "$PROJECT_DIR/internal/server/pipeline-ui/dist" ]; then
@@ -82,6 +88,33 @@ elif [ -d "$PROJECT_DIR/pipeline-ui" ]; then
       echo "==> Go binary rebuilt with updated embedded assets"
     fi
   fi
+fi
+
+# Dual-train pins: in-process default comes from the Go binary (0.151.x);
+# extra OTTL trains are worker subprocesses listed in versions/otel.env.
+if [ -f "$PROJECT_DIR/versions/otel.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PROJECT_DIR/versions/otel.env"
+  set +a
+fi
+if [ -z "${O11Y_OTTL_WORKERS:-}" ]; then
+  bindings=()
+  IFS=',' read -r -a worker_versions <<< "${OTEL_OTTL_WORKER_VERSIONS:-}"
+  for ver in "${worker_versions[@]}"; do
+    ver="${ver//[[:space:]]/}"
+    [ -z "$ver" ] && continue
+    bindings+=("$ver=$PROJECT_DIR/bin/ottl-worker-$ver")
+  done
+  if [ "${#bindings[@]}" -gt 0 ]; then
+    old_ifs=$IFS
+    IFS=,
+    export O11Y_OTTL_WORKERS="${bindings[*]}"
+    IFS=$old_ifs
+  fi
+fi
+if [ -n "${O11Y_OTTL_WORKERS:-}" ]; then
+  echo "==> OTTL workers: $O11Y_OTTL_WORKERS"
 fi
 
 if [ -f "$PIDFILE" ]; then

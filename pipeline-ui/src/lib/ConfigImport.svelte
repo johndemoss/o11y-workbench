@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Pipeline, PipelinesBySignal } from './types'
+  import { withCollectorVersion } from './collector-version'
 
   let { onimport }: {
     onimport?: (pipeline: PipelinesBySignal) => void
@@ -66,7 +67,7 @@ service:
     loading = true
     error = ''
     try {
-      const res = await fetch('/api/ottl/pipeline/import-config', {
+      const res = await fetch(withCollectorVersion('/api/ottl/pipeline/import-config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-yaml' },
         body: yamlText
