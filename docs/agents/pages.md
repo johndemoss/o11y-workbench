@@ -19,11 +19,13 @@ Load this when referring to UI in prompts or commits.
 
 ## Pipeline Prototyper (`/pipeline/`) — Svelte `@pipeline-ui/`
 
+Full multi-signal authoring for traces, logs, and metrics (edit/import/export/validate/execute). Remote TAP and Pipeline Evaluation remain separate surfaces.
+
 | Name | What |
 |---|---|
 | Quick Tab | Single-stage transform/filter |
-| Graph Builder | Multi-signal swimlane graph |
-| Pipeline Builder | Single-signal linear pipeline |
-| Config Import | Import OTel collector YAML |
+| Graph Builder | Multi-signal swimlane graph (traces/logs/metrics editable) |
+| Pipeline Builder | Per-signal linear pipeline (signal selector) |
+| Config Import | Import OTel collector YAML (all signals) |
 | Stage Editor | Edit a stage’s processor config |
-| Execute & Results Panel | Run selector + diff results |
+| Execute & Results Panel | Run + signal selector; executes against TraceData/LogData/MetricData |

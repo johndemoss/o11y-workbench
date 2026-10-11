@@ -13,61 +13,157 @@ import (
 )
 
 func parsePipelineFromYAML(pipelineYAML string) (*ottl.Pipeline, error) {
+	return parsePipelineFromYAMLForSignal(pipelineYAML, "traces")
+}
+
+// parsePipelineFromYAMLForSignal parses stages/processors YAML or extracts the
+// requested signal pipeline from a full collector config.
+func parsePipelineFromYAMLForSignal(pipelineYAML, signal string) (*ottl.Pipeline, error) {
+	if signal == "" {
+		signal = "traces"
+	}
 	var pipeline ottl.Pipeline
 	if err := yaml.Unmarshal([]byte(pipelineYAML), &pipeline); err != nil {
-		// Fallback: if YAML looks like a collector config, try ImportCollectorConfig
-		if strings.Contains(pipelineYAML, "receivers:") || strings.Contains(pipelineYAML, "processors:") {
-			if pipelines, err := ottl.ImportCollectorConfig(pipelineYAML); err == nil {
-				if p, ok := pipelines["traces"]; ok && len(p.Stages) > 0 {
-					return p, nil
-				}
+		if looksLikeCollectorConfig(pipelineYAML) {
+			if p, err := pipelineFromCollectorConfig(pipelineYAML, signal); err == nil {
+				return p, nil
 			}
 		}
 		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
 	}
-	// If Stages is empty but YAML has top-level "receivers:", this is a full
-	// collector config — extract the traces pipeline from service.pipelines.
-	if len(pipeline.Stages) == 0 {
-		if strings.Contains(pipelineYAML, "receivers:") || strings.Contains(pipelineYAML, "processors:") {
-			pipelines, err := ottl.ImportCollectorConfig(pipelineYAML)
-			if err != nil {
-				return nil, fmt.Errorf("parse as collector config: %w", err)
-			}
-			if p, ok := pipelines["traces"]; ok && len(p.Stages) > 0 {
-				return p, nil
-			}
-		}
+	if len(pipeline.Stages) == 0 && looksLikeCollectorConfig(pipelineYAML) {
+		return pipelineFromCollectorConfig(pipelineYAML, signal)
 	}
 	return &pipeline, nil
+}
+
+func looksLikeCollectorConfig(pipelineYAML string) bool {
+	return strings.Contains(pipelineYAML, "receivers:") ||
+		strings.Contains(pipelineYAML, "processors:") ||
+		strings.Contains(pipelineYAML, "service:")
+}
+
+func pipelineFromCollectorConfig(pipelineYAML, signal string) (*ottl.Pipeline, error) {
+	pipelines, err := ottl.ImportCollectorConfig(pipelineYAML)
+	if err != nil {
+		return nil, fmt.Errorf("parse as collector config: %w", err)
+	}
+	if signal == "" {
+		signal = resolveSignalFromPipelines("", pipelines)
+	}
+	p, ok := pipelines[signal]
+	if !ok || p == nil || len(p.Stages) == 0 {
+		return nil, fmt.Errorf("no %s pipeline stages found in collector config", signal)
+	}
+	return p, nil
+}
+
+func resolveSignalFromPipelines(requested string, pipelines ottl.PipelinesBySignal) string {
+	if requested != "" {
+		return requested
+	}
+	var withStages []string
+	for _, signal := range []string{"traces", "logs", "metrics"} {
+		if p, ok := pipelines[signal]; ok && p != nil && len(p.Stages) > 0 {
+			withStages = append(withStages, signal)
+		}
+	}
+	if len(withStages) == 1 {
+		return withStages[0]
+	}
+	return "traces"
+}
+
+// parsePipelineRequestBody reads the request body once and returns YAML + optional fields.
+func parsePipelineRequestBody(r *http.Request) (pipelineYAML, runID, signal string, err error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", "", "", fmt.Errorf("read body: %w", err)
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	runID = r.URL.Query().Get("run_id")
+	signal = r.URL.Query().Get("signal")
+
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "yaml") {
+		return string(body), runID, signal, nil
+	}
+
+	var req struct {
+		PipelineYAML string `json:"pipeline_yaml"`
+		RunID        string `json:"run_id"`
+		Signal       string `json:"signal"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", "", "", fmt.Errorf("invalid JSON body: %w", err)
+	}
+	if runID == "" {
+		runID = req.RunID
+	}
+	if signal == "" {
+		signal = req.Signal
+	}
+	return req.PipelineYAML, runID, signal, nil
 }
 
 // parsePipelineFromRequest reads and parses pipeline YAML from the request body.
 // Supports:
 //   - Content-Type: application/x-yaml or text/yaml (raw YAML body)
 //   - Content-Type: application/json (JSON with pipeline_yaml field)
+//
+// Optional signal query/JSON field selects which collector pipeline to extract.
 func parsePipelineFromRequest(r *http.Request) (*ottl.Pipeline, error) {
-	body, err := io.ReadAll(r.Body)
+	pipelineYAML, _, signal, err := parsePipelineRequestBody(r)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, err
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
-	ct := r.Header.Get("Content-Type")
-	if strings.Contains(ct, "yaml") {
-		return parsePipelineFromYAML(string(body))
+	if signal == "" {
+		signal = "traces"
 	}
-
-	var req struct {
-		PipelineYAML string `json:"pipeline_yaml"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("invalid JSON body: %w", err)
-	}
-	return parsePipelineFromYAML(req.PipelineYAML)
+	return parsePipelineFromYAMLForSignal(pipelineYAML, signal)
 }
 
 func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) {
-	pipeline, err := parsePipelineFromRequest(r)
+	pipelineYAML, _, signal, err := parsePipelineRequestBody(r)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": []string{err.Error()}})
+		return
+	}
+
+	// Collector configs: validate every non-empty signal pipeline (or a requested signal).
+	if looksLikeCollectorConfig(pipelineYAML) {
+		if pipelines, importErr := ottl.ImportCollectorConfig(pipelineYAML); importErr == nil {
+			var errs []string
+			validated := 0
+			for _, sig := range []string{"traces", "logs", "metrics"} {
+				if signal != "" && sig != signal {
+					continue
+				}
+				p, ok := pipelines[sig]
+				if !ok || p == nil || len(p.Stages) == 0 {
+					continue
+				}
+				validated++
+				if err := p.Validate(); err != nil {
+					errs = append(errs, fmt.Sprintf("%s: %s", sig, err.Error()))
+				}
+			}
+			if validated > 0 {
+				if len(errs) > 0 {
+					writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": errs})
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"valid": true, "errors": []string{}})
+				return
+			}
+		}
+	}
+
+	if signal == "" {
+		signal = "traces"
+	}
+	pipeline, err := parsePipelineFromYAMLForSignal(pipelineYAML, signal)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": []string{err.Error()}})
 		return
@@ -82,19 +178,10 @@ func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
-	runID := r.URL.Query().Get("run_id")
-
-	if runID == "" {
-		body, err := io.ReadAll(r.Body)
-		if err == nil {
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			var jsonReq struct {
-				RunID string `json:"run_id"`
-			}
-			if json.Unmarshal(body, &jsonReq) == nil && jsonReq.RunID != "" {
-				runID = jsonReq.RunID
-			}
-		}
+	pipelineYAML, runID, signal, err := parsePipelineRequestBody(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 
 	if runID == "" {
@@ -108,12 +195,17 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if run.TraceData == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data"})
-		return
+	// Resolve signal from collector config when omitted and only one signal has stages.
+	if looksLikeCollectorConfig(pipelineYAML) {
+		if pipelines, importErr := ottl.ImportCollectorConfig(pipelineYAML); importErr == nil {
+			signal = resolveSignalFromPipelines(signal, pipelines)
+		}
+	}
+	if signal == "" {
+		signal = "traces"
 	}
 
-	pipeline, err := parsePipelineFromRequest(r)
+	pipeline, err := parsePipelineFromYAMLForSignal(pipelineYAML, signal)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -124,13 +216,41 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := ottl.ExecutePipeline(*run.TraceData, *pipeline)
+	data, err := runPayloadForSignal(run, signal)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result, err := ottl.ExecutePipelineForSignal(data, *pipeline, signal)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func runPayloadForSignal(run *Run, signal string) (json.RawMessage, error) {
+	switch signal {
+	case "", "traces":
+		if run.TraceData == nil {
+			return nil, fmt.Errorf("run has no trace data")
+		}
+		return *run.TraceData, nil
+	case "logs":
+		if run.LogData == nil {
+			return nil, fmt.Errorf("run has no log data")
+		}
+		return *run.LogData, nil
+	case "metrics":
+		if run.MetricData == nil {
+			return nil, fmt.Errorf("run has no metric data")
+		}
+		return *run.MetricData, nil
+	default:
+		return nil, fmt.Errorf("unsupported signal: %s", signal)
+	}
 }
 
 func (s *Server) handlePipelineDiff(w http.ResponseWriter, r *http.Request) {

@@ -190,8 +190,14 @@
     const type = snippet.type
     const procName = `${type}/${type}-${id}`
 
-    const tracesSwimlane = nodes.find(n => n.id === 'swimlane-traces')
-    if (!tracesSwimlane) return
+    // Prefer swimlane of the selected stage; otherwise first available swimlane.
+    const selectedStage = nodes.find(n => n.type === 'stage' && n.selected)
+    const targetSwimlaneId =
+      selectedStage?.parentId ||
+      nodes.find(n => n.type === 'swimlane')?.id ||
+      'swimlane-traces'
+    const targetSwimlane = nodes.find(n => n.id === targetSwimlaneId)
+    if (!targetSwimlane) return
 
     let processor = snippet.processor
     try {
@@ -204,9 +210,9 @@
       // Invalid JSON — use original
     }
 
-    const siblings = nodes.filter(n => n.parentId === 'swimlane-traces' && n.type === 'stage')
+    const siblings = nodes.filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
     const newNode: Node<StageNodeData> = {
-      id, type: 'stage', parentId: 'swimlane-traces',
+      id, type: 'stage', parentId: targetSwimlaneId,
       position: {
         x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + STAGE_GAP_TOTAL : FIRST_STAGE_X,
         y: 35,
@@ -229,9 +235,9 @@
         type: 'straight', markerEnd: { type: MarkerType.ArrowClosed },
       })
     }
-    const swimlaneNode = newNodes.find(n => n.id === 'swimlane-traces')
+    const swimlaneNode = newNodes.find(n => n.id === targetSwimlaneId)
     if (swimlaneNode) {
-      const siblingsAfter = newNodes.filter(n => n.parentId === 'swimlane-traces' && n.type === 'stage')
+      const siblingsAfter = newNodes.filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
       swimlaneNode.width = Math.max(SWIMLANE_MIN_WIDTH, siblingsAfter.length * STAGE_GAP_TOTAL + SWIMLANE_EXTRA)
     }
     nodes = newNodes; edges = newEdges

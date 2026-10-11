@@ -507,3 +507,159 @@ func TestHandlePipelineExport(t *testing.T) {
 		})
 	}
 }
+func TestParsePipelineFromYAMLForSignal_LogsCollectorConfig(t *testing.T) {
+	collectorConfigYAML := `receivers:
+  otlp:
+    protocols:
+      grpc:
+processors:
+  transform/add_env:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["env"], "prod")
+exporters:
+  debug:
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [transform/add_env]
+      exporters: [debug]`
+
+	p, err := parsePipelineFromYAMLForSignal(collectorConfigYAML, "logs")
+	if err != nil {
+		t.Fatalf("expected no error for logs collector config, got %v", err)
+	}
+	if len(p.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %d", len(p.Stages))
+	}
+	if p.Stages[0].ProcessorRef != "transform/add_env" {
+		t.Errorf("processor_ref = %q, want transform/add_env", p.Stages[0].ProcessorRef)
+	}
+
+	// traces-only parse should fail closed for logs-only config
+	if _, err := parsePipelineFromYAML(collectorConfigYAML); err == nil {
+		t.Fatal("expected traces parse to fail for logs-only collector config")
+	}
+}
+
+func TestHandlePipelineValidate_LogsAndMetricsCollectorConfig(t *testing.T) {
+	collectorConfigYAML := `receivers:
+  otlp:
+    protocols:
+      grpc:
+processors:
+  transform/logs:
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["env"], "prod")
+  transform/metrics:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["env"], "prod")
+exporters:
+  debug:
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [transform/logs]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [transform/metrics]
+      exporters: [debug]`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/ottl/pipeline/validate", bytes.NewReader([]byte(collectorConfigYAML)))
+	req.Header.Set("Content-Type", "application/x-yaml")
+	rr := httptest.NewRecorder()
+	s := &Server{pipelineEnabled: true}
+	s.handlePipelineValidate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["valid"] != true {
+		t.Fatalf("valid = %v, want true; body=%s", got["valid"], rr.Body.String())
+	}
+}
+
+func TestHandlePipelineExecute_LogsSignal(t *testing.T) {
+	logData := json.RawMessage(`{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"cap-svc"}}]},"scopeLogs":[{"logRecords":[{"body":{"stringValue":"hello"},"attributes":[{"key":"level","value":{"stringValue":"info"}}]},{"body":{"stringValue":"warn"},"attributes":[{"key":"level","value":{"stringValue":"warn"}}]}]}]}]}`)
+	store := NewRunStore()
+	run := &Run{ID: "run-logs-1", Status: RunStatusCompleted, LogData: &logData}
+	store.Add(run)
+	srv := &Server{store: store, pipelineEnabled: true}
+
+	pipelineYAML := `
+stages:
+  - id: transform-logs
+    type: transform
+    processor_ref: transform-proc
+processors:
+  transform-proc:
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["pipeline"], "applied")
+`
+	req := httptest.NewRequest(http.MethodPost, "/api/ottl/pipeline/execute?run_id="+run.ID+"&signal=logs", bytes.NewReader([]byte(pipelineYAML)))
+	req.Header.Set("Content-Type", "application/x-yaml")
+	rr := httptest.NewRecorder()
+	srv.handlePipelineExecute(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("execute logs: status %d, body: %s", rr.Code, rr.Body.String())
+	}
+	var result ottl.PipelineResult
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(result.Stages) != 1 {
+		t.Fatalf("stages = %d, want 1", len(result.Stages))
+	}
+	if result.FinalSpanCount != 2 {
+		t.Fatalf("FinalSpanCount = %d, want 2", result.FinalSpanCount)
+	}
+}
+
+func TestHandlePipelineExecute_MetricsSignal(t *testing.T) {
+	metricData := json.RawMessage(`{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"cap-svc"}}]},"scopeMetrics":[{"metrics":[{"name":"cap.counter","sum":{"dataPoints":[{"asInt":"1","attributes":[{"key":"env","value":{"stringValue":"dev"}}]},{"asInt":"2","attributes":[{"key":"env","value":{"stringValue":"prod"}}]}],"aggregationTemporality":"AGGREGATION_TEMPORALITY_CUMULATIVE","isMonotonic":true}}]}]}]}`)
+	store := NewRunStore()
+	run := &Run{ID: "run-metrics-1", Status: RunStatusCompleted, MetricData: &metricData}
+	store.Add(run)
+	srv := &Server{store: store, pipelineEnabled: true}
+
+	pipelineYAML := `
+stages:
+  - id: transform-metrics
+    type: transform
+    processor_ref: transform-proc
+processors:
+  transform-proc:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["pipeline"], "applied")
+`
+	req := httptest.NewRequest(http.MethodPost, "/api/ottl/pipeline/execute?run_id="+run.ID+"&signal=metrics", bytes.NewReader([]byte(pipelineYAML)))
+	req.Header.Set("Content-Type", "application/x-yaml")
+	rr := httptest.NewRecorder()
+	srv.handlePipelineExecute(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("execute metrics: status %d, body: %s", rr.Code, rr.Body.String())
+	}
+	var result ottl.PipelineResult
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.FinalSpanCount != 2 {
+		t.Fatalf("FinalSpanCount = %d, want 2", result.FinalSpanCount)
+	}
+}

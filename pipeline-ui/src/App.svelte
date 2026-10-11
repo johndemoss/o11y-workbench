@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Pipeline, PipelineResult, Stage, ProcessorConfig, PipelinesBySignal } from './lib/types'
+  import type { Pipeline, PipelineResult, Stage, ProcessorConfig, PipelinesBySignal, SignalType } from './lib/types'
   import Layout from './lib/Layout.svelte'
   import PipelineBuilder from './lib/PipelineBuilder.svelte'
   import SwimlaneFlowBuilder from './lib/SwimlaneFlowBuilder.svelte'
@@ -14,16 +14,17 @@
   import yaml from 'js-yaml'
   import { onDestroy } from 'svelte'
 
-  let pipeline: Pipeline = $state({ stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
   let pipelinesBySignal: PipelinesBySignal = $state({
     traces: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
     logs: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
     metrics: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] }
   })
+  let selectedSignal: SignalType = $state('traces')
+  let pipeline = $derived(pipelinesBySignal[selectedSignal] || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
   let originalData: unknown = $state(null)
-  let selectedRunTraceData: unknown = $state(null)
+  let selectedRunPayload: unknown = $state(null)
   let showImport: boolean = $state(false)
   let pipelineYaml: string = $state('')
   let activeTab: 'quick' | 'pipeline' | 'graph' = $state('graph')
@@ -33,7 +34,6 @@
   let isCollapsed = $state(false)
   let isMaximized = $state(false)
   let savedHeight = $state(300)
-  let currentPipeline = $derived(pipelinesBySignal.traces || { stages: [], processors: {}, receivers: [], exporters: [] })
 
   function toggleCollapse() {
     if (!isCollapsed) { savedHeight = isMaximized ? savedHeight : panelHeight; isCollapsed = true; if (isMaximized) isMaximized = false }
@@ -69,24 +69,36 @@
   function handleNodeSelected(nodeId: string | null) { selectedNodeId = nodeId }
   async function handleExport() { downloadYaml('pipeline-config.yaml', await exportPipelinesToYaml(pipelinesBySignal)) }
   function handleValidate(p: Pipeline) {
-    pipelineYaml = yamlStringify(p)
-    fetch('/api/ottl/pipeline/validate', { method: 'POST', headers: { 'Content-Type': 'application/x-yaml' }, body: pipelineYaml })
+    const body = activeTab === 'graph' ? pipelineYaml : yamlStringify(p)
+    const url = activeTab === 'graph'
+      ? '/api/ottl/pipeline/validate'
+      : `/api/ottl/pipeline/validate?signal=${encodeURIComponent(selectedSignal)}`
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-yaml' }, body })
       .then(r => r.json()).then(d => alert(d.valid ? 'Pipeline is valid!' : 'Validation errors:\n' + (d.errors || []).join('\n')))
       .catch(e => alert('Validation failed: ' + e.message))
   }
-  function handleRunSelect(_runId: string, traceData: unknown) {
-    selectedRunTraceData = traceData
+  function handleRunSelect(_runId: string, payload: unknown, sig?: SignalType) {
+    selectedRunPayload = payload
+    if (sig) selectedSignal = sig
   }
-  function handleExecuteResult(r: PipelineResult | null, err?: string, _runId?: string, originalTrace?: unknown) {
+  function handleExecuteResult(r: PipelineResult | null, err?: string, _runId?: string, originalPayload?: unknown) {
     result = r
     resultError = err
     if (!r) return
     // Prefer select-time cache (Item 5B); never post-execute Get solely for originalData
-    originalData = originalTrace !== undefined ? originalTrace : selectedRunTraceData
+    originalData = originalPayload !== undefined ? originalPayload : selectedRunPayload
   }
   function handleImport(p: PipelinesBySignal) {
-    pipelinesBySignal = p; pipeline = p.traces || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] }
-    showImport = false; if (activeTab !== 'graph') activeTab = 'pipeline'
+    pipelinesBySignal = {
+      traces: p.traces || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+      logs: p.logs || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+      metrics: p.metrics || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+    }
+    // Prefer first signal that has stages after import.
+    const withStages = (['traces', 'logs', 'metrics'] as SignalType[]).find(s => (pipelinesBySignal[s]?.stages?.length ?? 0) > 0)
+    if (withStages) selectedSignal = withStages
+    showImport = false
+    if (activeTab !== 'graph') activeTab = 'graph'
   }
   function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig }) { editingStage = data }
   function getSignalForStage(stageId: string): keyof PipelinesBySignal | null {
@@ -96,16 +108,14 @@
     return null
   }
   function handleStageUpdate(s: Stage) {
-    const sig = getSignalForStage(editingStage!.stage.id)
-    if (!sig) return
+    const sig = getSignalForStage(editingStage!.stage.id) || selectedSignal
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: { ...pipelinesBySignal[sig], stages: pipelinesBySignal[sig].stages.map(st => st.id === editingStage!.stage.id ? s : st) }
     }
   }
   function handleStageProcessorUpdate(c: ProcessorConfig) {
-    const sig = getSignalForStage(editingStage!.stage.id)
-    if (!sig) return
+    const sig = getSignalForStage(editingStage!.stage.id) || selectedSignal
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: { ...pipelinesBySignal[sig], processors: { ...pipelinesBySignal[sig].processors, [editingStage!.stage.processor_ref]: c } }
@@ -129,8 +139,8 @@
   let yamlVersion = 0
 
   const debouncedFetchExportYaml = debounce(
-    (ver: number, tab: string, pipelines: PipelinesBySignal, singlePipeline: Pipeline) => {
-      void fetchExportYaml(ver, tab, pipelines, singlePipeline)
+    (ver: number, tab: string, pipelines: PipelinesBySignal, sig: SignalType, singlePipeline: Pipeline) => {
+      void fetchExportYaml(ver, tab, pipelines, sig, singlePipeline)
     },
     400,
   )
@@ -139,6 +149,7 @@
   $effect(() => {
     const tab = activeTab
     const pipelines = pipelinesBySignal
+    const sig = selectedSignal
     const singlePipeline = pipeline
 
     const ver = ++yamlVersion
@@ -151,21 +162,23 @@
     }
 
     // Debounced API upgrade — POST /api/ottl/pipeline/export (single owner)
-    debouncedFetchExportYaml(ver, tab, pipelines, singlePipeline)
+    debouncedFetchExportYaml(ver, tab, pipelines, sig, singlePipeline)
   })
 
   async function fetchExportYaml(
     ver: number,
     tab: string,
     pipelines: PipelinesBySignal,
+    sig: SignalType,
     singlePipeline: Pipeline
   ) {
+    const empty = { stages: [], processors: {} as Record<string, ProcessorConfig>, receivers: ['otlp'], exporters: ['debug'] }
     const payload = tab === 'graph'
       ? pipelines
       : {
-          traces: singlePipeline,
-          logs: { stages: [], processors: {} as Record<string, ProcessorConfig>, receivers: ['otlp'], exporters: ['debug'] },
-          metrics: { stages: [], processors: {} as Record<string, ProcessorConfig>, receivers: ['otlp'], exporters: ['debug'] }
+          traces: sig === 'traces' ? singlePipeline : empty,
+          logs: sig === 'logs' ? singlePipeline : empty,
+          metrics: sig === 'metrics' ? singlePipeline : empty,
         }
 
     try {
@@ -205,7 +218,7 @@
           </div>
           {#if !isCollapsed}
             <div class="panel-content">
-              <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
+              <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
               <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>
             </div>
           {/if}
@@ -213,8 +226,16 @@
       </div>
     </div>
   {:else}
+    <div class="signal-bar">
+      <label for="signal-select">Signal</label>
+      <select id="signal-select" bind:value={selectedSignal}>
+        <option value="traces">traces</option>
+        <option value="logs">logs</option>
+        <option value="metrics">metrics</option>
+      </select>
+    </div>
     <PipelineBuilder {pipeline} onValidate={handleValidate} onImport={() => showImport = true} />
-    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
+    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
   {/if}
   {#if activeTab !== 'graph'}
     <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} /></section>
@@ -249,6 +270,8 @@
 </Layout>
 
 <style>
+  .signal-bar { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; color: var(--color-text,#f1f5f9); }
+  .signal-bar select { padding: .35rem .6rem; border-radius: 6px; border: 1px solid var(--color-border,#334155); background: var(--color-surface,#1e293b); color: inherit; }
   .execution-section, .results-section { margin-top: var(--space-xl,2rem); padding-top: var(--space-md,1rem); border-top: 1px solid var(--color-border,#334155); }
   .execution-section h2, .results-section h2 { font-size: var(--font-size-lg,1.1rem); font-weight: 600; margin: 0 0 .75rem 0; color: var(--color-text,#f1f5f9); }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }

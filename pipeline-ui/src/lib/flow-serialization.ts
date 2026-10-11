@@ -123,7 +123,7 @@ export function pipelinesToFlow(
 			style: { width: `${swimlaneWidth}px` },
 			draggable: false,
 			selectable: false,
-			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1), disabled: signal !== 'traces' },
+			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1), disabled: false },
 		} as any);
 
 		for (let i = 0; i < stageCount; i++) {
@@ -139,7 +139,7 @@ export function pipelinesToFlow(
 				width: 160,
 				draggable: false,
 				zIndex: 10,
-				data: { stage, processor, stageIndex: i, disabled: signal !== 'traces' } as StageNodeData,
+				data: { stage, processor, stageIndex: i, disabled: false } as StageNodeData,
 			} as any);
 
 			if (i > 0) {
@@ -169,7 +169,7 @@ export function pipelinesToFlow(
 				data: {
 					label: recv.toUpperCase(),
 					type: 'receiver' as const,
-					disabled: signal !== 'traces',
+					disabled: false,
 				},
 			} as any);
 		}
@@ -189,7 +189,7 @@ export function pipelinesToFlow(
 				data: {
 					label: exp.toUpperCase(),
 					type: 'exporter' as const,
-					disabled: signal !== 'traces',
+					disabled: false,
 				},
 			} as any);
 		}

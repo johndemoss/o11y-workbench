@@ -527,6 +527,27 @@ describe('pipelinesToFlow', () => {
     expect(rNode).toBeDefined()
     expect(eNode).toBeDefined()
   })
+
+  it('enables logs and metrics swimlanes (not disabled stubs)', () => {
+    const p: PipelinesBySignal = {
+      traces: { stages: [{ id: 't1', type: 'transform', processor_ref: 'pt' }], processors: { pt: {} } },
+      logs: { stages: [{ id: 'l1', type: 'transform', processor_ref: 'pl' }], processors: { pl: {} } },
+      metrics: { stages: [{ id: 'm1', type: 'filter', processor_ref: 'pm' }], processors: { pm: {} } },
+    }
+    const { nodes } = pipelinesToFlow(p)
+    for (const signal of ['traces', 'logs', 'metrics'] as const) {
+      const swimlane = nodes.find(n => n.id === `swimlane-${signal}`)
+      expect(swimlane).toBeDefined()
+      expect((swimlane!.data as any).disabled).toBe(false)
+      const stages = nodes.filter(n => n.parentId === `swimlane-${signal}` && n.type === 'stage')
+      expect(stages.length).toBe(1)
+      expect((stages[0].data as any).disabled).toBe(false)
+      const infra = nodes.filter(n => n.parentId === `swimlane-${signal}` && n.type === 'infra')
+      for (const node of infra) {
+        expect((node.data as any).disabled).toBe(false)
+      }
+    }
+  })
 })
 
 // ===== flowToPipelines (multi-swimlane) =====

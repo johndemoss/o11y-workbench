@@ -1,25 +1,47 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { PipelineResult } from './types'
+  import type { PipelineResult, SignalType } from './types'
 
   interface Run {
     id: string
     status: string
     span_count: number
+    has_trace_data?: boolean
+    has_log_data?: boolean
+    has_metric_data?: boolean
   }
 
-  let { pipelineYaml = '', onresult, onrunselect }: {
+  let {
+    pipelineYaml = '',
+    signal = $bindable('traces' as SignalType),
+    onresult,
+    onrunselect,
+  }: {
     pipelineYaml: string
-    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalTrace?: unknown) => void
-    onrunselect?: (runId: string, traceData: unknown) => void
+    signal?: SignalType
+    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalData?: unknown) => void
+    onrunselect?: (runId: string, data: unknown, signal: SignalType) => void
   } = $props()
 
   let runs: Run[] = $state([])
   let selectedRunId: string = $state('')
-  let selectedRunTraceData: unknown = $state(null)
-  let traceFetch: Promise<void> | null = null
+  let selectedRunPayload: unknown = $state(null)
+  let payloadFetch: Promise<void> | null = null
   let loading: boolean = $state(false)
   let error: string = $state('')
+
+  const signals: SignalType[] = ['traces', 'logs', 'metrics']
+
+  function payloadKey(sig: SignalType): string {
+    switch (sig) {
+      case 'logs':
+        return 'log_data'
+      case 'metrics':
+        return 'metric_data'
+      default:
+        return 'trace_data'
+    }
+  }
 
   onMount(async () => {
     try {
@@ -35,13 +57,14 @@
     }
   })
 
-  // Get-by-id once on select; cache trace_data for execute→originalData (Item 5B)
+  // Get-by-id once on select/signal change; cache payload for execute→originalData
   $effect(() => {
     const id = selectedRunId
+    const sig = signal
     if (!id) {
-      selectedRunTraceData = null
-      traceFetch = null
-      onrunselect?.('', null)
+      selectedRunPayload = null
+      payloadFetch = null
+      onrunselect?.('', null, sig)
       return
     }
     let cancelled = false
@@ -51,16 +74,16 @@
         if (!res.ok || cancelled) return
         const data = await res.json()
         if (cancelled) return
-        selectedRunTraceData = data.trace_data ?? null
-        onrunselect?.(id, selectedRunTraceData)
+        selectedRunPayload = data[payloadKey(sig)] ?? null
+        onrunselect?.(id, selectedRunPayload, sig)
       } catch {
         if (!cancelled) {
-          selectedRunTraceData = null
-          onrunselect?.(id, null)
+          selectedRunPayload = null
+          onrunselect?.(id, null, sig)
         }
       }
     })()
-    traceFetch = p
+    payloadFetch = p
     return () => { cancelled = true }
   })
 
@@ -72,7 +95,6 @@
       const newRuns: Run[] = Array.isArray(data) ? data : (data.runs || [])
       const prevId = selectedRunId
       runs = newRuns
-      // Preserve selected run if still in list
       if (prevId && newRuns.some(r => r.id === prevId)) {
         selectedRunId = prevId
       } else if (newRuns.length > 0) {
@@ -87,18 +109,20 @@
     loading = true
     error = ''
     try {
-      // Ensure select-time Get finished so stage-0 baseline is available
-      if (traceFetch) await traceFetch
-      const res = await fetch(`/api/ottl/pipeline/execute?run_id=${encodeURIComponent(selectedRunId)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-yaml' },
-        body: pipelineYaml
-      })
+      if (payloadFetch) await payloadFetch
+      const res = await fetch(
+        `/api/ottl/pipeline/execute?run_id=${encodeURIComponent(selectedRunId)}&signal=${encodeURIComponent(signal)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-yaml' },
+          body: pipelineYaml,
+        },
+      )
       const data = await res.json()
       if (!res.ok) {
         onresult?.(null, data.error || 'Execution failed')
       } else {
-        onresult?.(data as PipelineResult, undefined, selectedRunId, selectedRunTraceData)
+        onresult?.(data as PipelineResult, undefined, selectedRunId, selectedRunPayload)
       }
     } catch (e: unknown) {
       onresult?.(null, e instanceof Error ? e.message : 'Network error')
@@ -116,6 +140,12 @@
   {/if}
 
   <div class="controls">
+    <select bind:value={signal} disabled={loading} title="Signal to execute">
+      {#each signals as sig}
+        <option value={sig}>{sig}</option>
+      {/each}
+    </select>
+
     <select bind:value={selectedRunId} disabled={loading}>
       {#each runs as run (run.id)}
         <option value={run.id}>
@@ -164,6 +194,10 @@
     border: 1px solid var(--color-border, #334155);
     border-radius: var(--radius-sm, 4px);
     font-size: 0.875rem;
+  }
+  select:first-of-type {
+    flex: 0 0 auto;
+    min-width: 6.5rem;
   }
   button {
     display: flex;
