@@ -29,11 +29,6 @@ type Server struct {
 	remotetap       *RemotetapManager
 	engines         *ottlengine.Registry
 	engineStops     []func() error
-
-	evaluation    *evaluation.Coordinator
-	evalStore     *evaluation.Store
-	evalInventory *evaluation.BuildInventory
-	evalLibrary   []evaluation.LibraryEntry
 }
 
 type serverConfig struct {
@@ -142,6 +137,10 @@ func (s *Server) Store() *RunStore { return s.store }
 func (s *Server) Close() error {
 	if s == nil {
 		return nil
+	}
+	if s.evalSequence != nil {
+		s.evalSequence.Close()
+		s.evalSequence = nil
 	}
 	if s.evaluation != nil {
 		s.evaluation.Close()
