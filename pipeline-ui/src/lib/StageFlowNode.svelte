@@ -4,7 +4,7 @@
   import type { StageNodeData } from './flow-sync'
   import { STAGE_COLORS } from './types'
 
-  let { data }: NodeProps<Node<StageNodeData>> = $props()
+  let { data, selected }: NodeProps<Node<StageNodeData>> = $props()
 
   let requestDelete = getContext<(id: string) => void>('requestDelete')
   let moveStage = getContext<(id: string, dir: 'up' | 'down') => void>('moveStage')
@@ -21,165 +21,160 @@
     if (slashIdx >= 0) return ref.slice(slashIdx + 1)
     return ref
   })
+
+  let indexLabel = $derived(
+    typeof data.stageIndex === 'number'
+      ? String(data.stageIndex + 1).padStart(2, '0')
+      : '··',
+  )
+
+  let contextLabel = $derived(
+    data.signal === 'logs' ? 'log' : data.signal === 'metrics' ? 'datapoint' : 'span',
+  )
+
+  let border = $derived(STAGE_COLORS[data.stage.type]?.border ?? '#334155')
 </script>
 
 <div
-  class="node-card"
+  class="node-card node {data.stage.type}"
   class:disabled={data.disabled}
-  style="border-color: {STAGE_COLORS[data.stage.type]?.border ?? '#334155'}"
+  class:selected
+  style="border-top-color: {border}"
+  aria-pressed={selected}
 >
-  <Handle type="target" position={Position.Left} />
+  <Handle type="target" position={Position.Left} style="top: 40px" />
 
-  <div
-    class="card-header"
-    style="background: {STAGE_COLORS[data.stage.type]?.bg ?? '#1e293b'}; border-bottom: 2px solid {STAGE_COLORS[data.stage.type]?.border ?? '#334155'}"
-  >
-    <span class="type-label">{data.stage.type}</span>
-  </div>
-
-  <div class="card-body">
-    <span class="node-name">{displayName}</span>
-  </div>
-
-  <button class="delete-btn nodrag" onclick={(e) => handleDelete(e)} aria-label="Delete stage">×</button>
-
-  <div class="move-controls nodrag">
+  <div class="card-actions nodrag" aria-label="Stage actions">
     <button
-      class="move-btn move-up"
+      type="button"
+      class="icon-btn"
       onclick={(e) => { e.stopPropagation(); moveStage(data.stage.id, 'up') }}
       title="Move left"
       aria-label="Move stage left"
     >◀</button>
     <button
-      class="move-btn move-down"
+      type="button"
+      class="icon-btn"
       onclick={(e) => { e.stopPropagation(); moveStage(data.stage.id, 'down') }}
       title="Move right"
       aria-label="Move stage right"
     >▶</button>
+    <button
+      type="button"
+      class="icon-btn delete"
+      onclick={(e) => handleDelete(e)}
+      aria-label="Delete stage"
+    >×</button>
   </div>
 
-  <Handle type="source" position={Position.Right} />
+  <small class="kind">{indexLabel} · {data.stage.type}</small>
+  <strong class="node-name">{displayName}</strong>
+  <small class="meta">{contextLabel} · {data.stage.error_mode ?? 'default'}</small>
+
+  <Handle type="source" position={Position.Right} style="top: 40px" />
 </div>
 
 <style>
   .node-card {
     display: flex;
     flex-direction: column;
-    width: 160px;
+    justify-content: flex-start;
+    gap: 0;
+    width: 164px;
+    min-height: 80px;
     height: 80px;
+    padding: 10px 12px;
     border-radius: 8px;
-    border: 1px solid;
-    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-top-width: 3px;
+    background: var(--color-surface);
     position: relative;
-    box-shadow: var(--shadow-md, 0 4px 6px rgba(0, 0, 0, 0.4));
-    font-family: var(--font-family, inherit);
-    transition: box-shadow 150ms ease, transform 150ms ease;
+    box-shadow: var(--shadow-sm);
+    font-family: var(--font-family);
+    text-align: left;
+    box-sizing: border-box;
+    transition: border-color var(--transition-fast, 120ms ease), background var(--transition-fast, 120ms ease);
   }
 
   .node-card:hover {
-    box-shadow: var(--shadow-lg, 0 8px 12px rgba(0, 0, 0, 0.5));
-    transform: translateY(-1px);
+    border-color: var(--color-text-secondary);
+    background: var(--color-surface-hover);
   }
 
-  .card-header {
-    height: 25%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2px 4px;
+  .node-card.selected,
+  .node-card[aria-pressed='true'] {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    background: var(--color-surface-hover);
   }
 
-  .type-label {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #fff;
-  }
-
-  .card-body {
-    height: 75%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    background: rgba(30, 41, 59, 0.95);
+  .kind,
+  .meta {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+    display: block;
   }
 
   .node-name {
-    font-size: 0.65rem;
+    font: 12px/1.4 var(--font-mono);
+    display: block;
+    margin: 4px 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
     font-weight: 600;
-    color: #f1f5f9;
-    text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  /* ── Delete button (hidden by default, visible on hover) ── */
-  .delete-btn {
+  .card-actions {
     position: absolute;
-    top: 2px;
-    right: 2px;
-    z-index: 2;
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.4);
-    cursor: pointer;
-    font-size: 0.8rem;
-    padding: 1px 5px;
-    border-radius: var(--radius-sm, 4px);
-    line-height: 1;
+    top: 6px;
+    right: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--color-surface) 88%, transparent);
+    border: 1px solid transparent;
     opacity: 0;
-    transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+    pointer-events: none;
+    transition: opacity var(--transition-fast, 120ms ease), border-color var(--transition-fast, 120ms ease);
   }
 
-  .node-card:hover .delete-btn {
+  .node-card:hover .card-actions,
+  .node-card.selected .card-actions,
+  .node-card[aria-pressed='true'] .card-actions,
+  .card-actions:focus-within {
     opacity: 1;
+    pointer-events: auto;
+    border-color: var(--color-border);
   }
 
-  .delete-btn:hover {
-    background: rgba(0, 0, 0, 0.25);
-    color: #fff;
+  .icon-btn {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .icon-btn:hover {
+    color: var(--color-text);
+    background: var(--color-bg);
+  }
+
+  .icon-btn.delete:hover {
+    color: var(--color-error-text);
+    background: var(--color-error-bg);
   }
 
   .node-card.disabled {
-    opacity: 0.4;
-    filter: grayscale(0.7);
-  }
-
-  /* ── Move controls ── */
-  .move-controls {
-    position: absolute;
-    bottom: 2px;
-    left: 2px;
-    right: 2px;
-    display: flex;
-    justify-content: space-between;
-    z-index: 2;
-    opacity: 0.5;
-    transition: opacity 150ms ease;
-  }
-
-  .node-card:hover .move-controls {
-    opacity: 1;
-  }
-
-  .move-btn {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.85);
-    cursor: pointer;
-    font-size: 0.75rem;
-    padding: 2px 5px;
-    border-radius: 4px;
-    line-height: 1;
-    transition: background 150ms ease, color 150ms ease, opacity 150ms ease, border-color 150ms ease;
-  }
-
-  .move-btn:hover {
-    background: rgba(0, 0, 0, 0.5);
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.3);
+    opacity: 0.45;
   }
 </style>

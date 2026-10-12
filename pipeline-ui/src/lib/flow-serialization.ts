@@ -1,7 +1,9 @@
-import { type Edge, MarkerType, type Node } from "@xyflow/svelte";
+import { type Edge, type Node } from "@xyflow/svelte";
 import type { Pipeline, PipelinesBySignal, ProcessorConfig, SignalType, Stage } from "./types";
+import { signalEdgeProps } from "./types";
 import type { StageNodeData } from "./flow-graph";
 import { topologicalSort } from "./flow-graph";
+import { NODE_HEIGHT, NODE_Y, SWIMLANE_HEIGHT } from "./svg-utils";
 
 /**
  * Converts a Pipeline model into Svelte Flow nodes and edges.
@@ -36,7 +38,7 @@ export function pipelineToFlow(pipeline: Pipeline): {
 			source,
 			target,
 			type: "straight",
-			markerEnd: { type: MarkerType.ArrowClosed },
+			...signalEdgeProps("traces"),
 		});
 	}
 
@@ -102,6 +104,9 @@ export function pipelinesToFlow(
 
 	const signals: SignalType[] = ["traces", "logs", "metrics"];
 
+	const receiverSharedCount = (name: string): number =>
+		signals.filter((sig) => (pipelines[sig]?.receivers ?? ['otlp']).includes(name)).length;
+
 	for (const signal of signals) {
 		const pipeline = pipelines[signal];
 		if (!pipeline) continue;
@@ -110,8 +115,23 @@ export function pipelinesToFlow(
 		const defaultExporters = pipeline.exporters ?? ['debug'];
 
 		const stageCount = pipeline.stages.length;
-		const swimlaneWidth = Math.max(640, stageCount * 210 + 430);
-		const swimlaneHeight = 150;
+		const stageWidth = 164;
+		const stageGap = 48;
+		const infraWidth = 110;
+		const leftPad = 20;
+		const rightPad = 20;
+		const nodeY = NODE_Y;
+		const nodeHeight = NODE_HEIGHT;
+		const firstStageX = leftPad + infraWidth + stageGap; // 178
+		// Pack receiver → stages → exporter with fixed 48px edge slots (design plan).
+		// Extra swimlane width (min 640) stays AFTER the exporter — never stretches edges.
+		const exporterX =
+			stageCount > 0
+				? firstStageX + (stageCount - 1) * (stageWidth + stageGap) + stageWidth + stageGap
+				: firstStageX;
+		const contentWidth = exporterX + infraWidth + rightPad;
+		const swimlaneWidth = Math.max(640, contentWidth);
+		const swimlaneHeight = SWIMLANE_HEIGHT;
 
 		const swimlaneId = `swimlane-${signal}`;
 		nodes.push({
@@ -135,11 +155,15 @@ export function pipelinesToFlow(
 				type: "stage",
 				parentId: swimlaneId,
 				extent: "parent" as const,
-				position: { x: 230 + i * Math.max(210, (swimlaneWidth - 640) / Math.max(1, stageCount - 1)), y: 35 },
-				width: 160,
+				position: {
+					x: firstStageX + i * (stageWidth + stageGap),
+					y: nodeY,
+				},
+				width: stageWidth,
+				height: nodeHeight,
 				draggable: false,
 				zIndex: 10,
-				data: { stage, processor, stageIndex: i, disabled: false } as StageNodeData,
+				data: { stage, processor, stageIndex: i, signal, disabled: false } as StageNodeData,
 			} as any);
 
 			if (i > 0) {
@@ -149,7 +173,7 @@ export function pipelinesToFlow(
 					source: prevStage.id,
 					target: stage.id,
 					type: "straight",
-					markerEnd: { type: MarkerType.ArrowClosed },
+					...signalEdgeProps(signal),
 				});
 			}
 		}
@@ -161,33 +185,34 @@ export function pipelinesToFlow(
 				type: 'infra',
 				parentId: swimlaneId,
 				extent: 'parent' as const,
-				position: { x: 20, y: 35 + i * 90 },
-				width: 160,
-				height: 80,
+				position: { x: leftPad, y: nodeY + i * (nodeHeight + 8) },
+				width: infraWidth,
+				height: nodeHeight,
 				draggable: false,
-				selectable: false,
+				selectable: true,
 				data: {
-					label: recv.toUpperCase(),
+					label: recv,
 					type: 'receiver' as const,
 					disabled: false,
+					sharedCount: receiverSharedCount(recv),
 				},
 			} as any);
 		}
 
-		// Infra exporter nodes (positioned at right edge, stacked vertically)
+		// Infra exporter nodes — packed after last stage (or after receiver when empty)
 		for (const [i, exp] of defaultExporters.entries()) {
 			nodes.push({
 				id: `infra-${signal}-exporter-${exp}`,
 				type: 'infra',
 				parentId: swimlaneId,
 				extent: 'parent' as const,
-				position: { x: swimlaneWidth - 180 - 20, y: 35 + i * 90 },
-				width: 160,
-				height: 80,
+				position: { x: exporterX, y: nodeY + i * (nodeHeight + 8) },
+				width: infraWidth,
+				height: nodeHeight,
 				draggable: false,
 				selectable: false,
 				data: {
-					label: exp.toUpperCase(),
+					label: exp,
 					type: 'exporter' as const,
 					disabled: false,
 				},
@@ -207,7 +232,7 @@ export function pipelinesToFlow(
 					source: recvId,
 					target: firstStage.id,
 					type: 'straight',
-					markerEnd: { type: MarkerType.ArrowClosed },
+					...signalEdgeProps(signal),
 				});
 			}
 
@@ -218,15 +243,15 @@ export function pipelinesToFlow(
 					source: lastStage.id,
 					target: expId,
 					type: 'straight',
-					markerEnd: { type: MarkerType.ArrowClosed },
+					...signalEdgeProps(signal),
 				});
 			}
 		}
 	}
 
 	// Position swimlanes vertically (no dagre needed — they have no edges between them)
-	const swimlaneHeight = 150;
-	const swimlaneGap = 20;
+	const swimlaneHeight = SWIMLANE_HEIGHT;
+	const swimlaneGap = 24;
 	let yOffset = 0;
 	for (const node of nodes) {
 		if (node.type === "swimlane") {

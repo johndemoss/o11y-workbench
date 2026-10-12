@@ -34,9 +34,10 @@
   .swimlane {
     position: relative;
     border-radius: 8px;
-    padding: 24px 12px 12px;
-    min-height: 100px;
+    padding: 28px 16px 16px;
+    min-height: 148px;
     width: 100%;
+    box-sizing: border-box;
   }
 
   .swimlane-tag {

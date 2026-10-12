@@ -506,6 +506,36 @@ describe('pipelinesToFlow', () => {
     expect(swimlane!.width).toBeGreaterThanOrEqual(640)
   })
 
+  it('packs nodes with fixed 48px edge slots and exporter after last stage', () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 'a', type: 'transform', processor_ref: 'p1' },
+          { id: 'b', type: 'filter', processor_ref: 'p2' },
+        ],
+        processors: { p1: {}, p2: {} },
+        receivers: ['otlp'],
+        exporters: ['debug'],
+      },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes } = pipelinesToFlow(p)
+    const recv = nodes.find(n => n.id === 'infra-traces-receiver-otlp')!
+    const a = nodes.find(n => n.id === 'a')!
+    const b = nodes.find(n => n.id === 'b')!
+    const exp = nodes.find(n => n.id === 'infra-traces-exporter-debug')!
+    const stageW = 164
+    const infraW = 110
+    const gap = 48
+    expect(a.position.x - (recv.position.x + infraW)).toBe(gap)
+    expect(b.position.x - (a.position.x + stageW)).toBe(gap)
+    expect(exp.position.x - (b.position.x + stageW)).toBe(gap)
+    expect(a.position.y).toBe(recv.position.y)
+    expect(b.position.y).toBe(recv.position.y)
+    expect(exp.position.y).toBe(recv.position.y)
+  })
+
   it('infra nodes for receivers and exporters', () => {
     const p: PipelinesBySignal = {
       traces: {

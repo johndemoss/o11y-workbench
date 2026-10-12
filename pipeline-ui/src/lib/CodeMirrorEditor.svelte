@@ -4,8 +4,8 @@
   import { EditorState } from '@codemirror/state'
   import { basicSetup } from 'codemirror'
   import { yaml } from '@codemirror/lang-yaml'
-  import { oneDark } from '@codemirror/theme-one-dark'
-  import { yamlLinter, lintGutter } from './yaml-linter'
+  import { tokyoNight } from '@uiw/codemirror-theme-tokyo-night'
+  import { yamlLinter } from './yaml-linter'
 
   let {
     value = '',
@@ -25,17 +25,35 @@
       extensions: [
         basicSetup,
         yaml(),
-        oneDark,
+        tokyoNight,
         yamlLinter,
-        lintGutter(),
         EditorView.updateListener.of((update: ViewUpdate) => {
           if (update.docChanged && !isDebounceEdit) {
             onchange?.(update.state.doc.toString())
           }
         }),
         EditorView.theme({
-          '&': { height: '100%' },
-          '.cm-scroller': { overflow: 'auto' },
+          '&': {
+            height: '100%',
+            fontSize: '12px',
+            backgroundColor: '#1a1b26',
+          },
+          '.cm-scroller': {
+            overflow: 'auto',
+            fontFamily: 'var(--font-mono)',
+            lineHeight: '1.7',
+          },
+          '.cm-content': {
+            caretColor: '#c0caf5',
+          },
+          '.cm-gutters': {
+            backgroundColor: '#1a1b26',
+            color: '#565f89',
+            borderRight: '1px solid #24283b',
+          },
+          '&.cm-focused': {
+            outline: 'none',
+          },
         }),
       ],
     })
@@ -95,8 +113,9 @@
   .codemirror-editor {
     height: 100%;
     width: 100%;
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-md, 6px);
+    border: 1px solid #24283b;
+    border-radius: 0 0 var(--radius-md, 6px) var(--radius-md, 6px);
     overflow: hidden;
+    background: #1a1b26;
   }
 </style>

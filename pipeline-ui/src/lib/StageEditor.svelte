@@ -1,275 +1,325 @@
 <script lang="ts">
-import type { Stage, ErrorMode, StageType, ProcessorConfig } from './types'
-import yaml from 'js-yaml'
+import type { Stage, ErrorMode, StageType, ProcessorConfig, SignalType } from './types'
+import { extractOttlLines, buildProcessorFromOttlLines } from './snippets'
+import { withCollectorVersion } from './collector-version'
 
 let {
   stage,
   processor,
+  signal = 'traces',
+  pipelineYaml = '',
   onupdate,
-  onupdateProcessor
+  onupdateProcessor,
+  onvalidate,
 }: {
   stage: Stage
   processor: ProcessorConfig
+  signal?: SignalType
+  /** Full pipeline YAML for Collector validation when available. */
+  pipelineYaml?: string
   onupdate: (s: Stage) => void
   onupdateProcessor?: (config: ProcessorConfig) => void
+  onvalidate?: () => void
 } = $props()
 
-let yamlText = $state('')
-let yamlError = $state<string | null>(null)
+let statementText = $state('')
+let diagnostic = $state('Not checked. OTTL validation uses the Collector backend.')
+let diagnosticKind = $state<'idle' | 'ok' | 'error' | 'warn'>('idle')
+let validating = $state(false)
 
 $effect(() => {
-  try {
-    yamlText = yaml.dump(processor, { indent: 2, noRefs: true, sortKeys: false })
-  } catch {
-    yamlText = JSON.stringify(processor, null, 2)
-  }
+  statementText = extractOttlLines(stage.type, processor as Record<string, unknown>)
 })
 
-let typeLabel = $derived(stage.type === 'transform' ? 'transform' : 'filter')
+let statementLabel = $derived(
+  stage.type === 'filter' ? 'OTTL drop conditions' : 'OTTL statements',
+)
 
-let pipelineYamlPreview = $derived.by(() => {
-  const lines: string[] = []
-  lines.push('stages:')
-  lines.push(`  - id: ${stage.id}`)
-  lines.push(`    type: ${stage.type}`)
-  lines.push(`    processor_ref: ${stage.processor_ref}`)
-  if (stage.error_mode) lines.push(`    error_mode: ${stage.error_mode}`)
-  lines.push('processors:')
-  lines.push(`  ${stage.processor_ref}:`)
-  try {
-    const yamlStr = yaml.dump(processor, { indent: 2, noRefs: true, sortKeys: false })
-    const procLines = yamlStr.trimEnd().split('\n')
-    for (const l of procLines) {
-      lines.push(`    ${l}`)
-    }
-  } catch {
-    lines.push('    {}')
-  }
-  return lines.join('\n')
-})
+let contextLabel = $derived(
+  signal === 'logs' ? 'log' : signal === 'metrics' ? 'datapoint' : 'span',
+)
 
-function handleIdChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  onupdate({ ...stage, id: target.value })
-}
+let signalLabel = $derived(signal.charAt(0).toUpperCase() + signal.slice(1))
+
+let statementHelp = $derived(
+  stage.type === 'filter'
+    ? `True condition drops the ${contextLabel}. Multiple lines are ORed.`
+    : `Statements run in order in ${contextLabel} context.`,
+)
+
+let docsHref = $derived(
+  stage.type === 'filter'
+    ? 'https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/filterprocessor'
+    : 'https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/transformprocessor',
+)
 
 function handleTypeToggle() {
   const newType: StageType = stage.type === 'transform' ? 'filter' : 'transform'
+  const next = buildProcessorFromOttlLines(
+    newType,
+    signal,
+    statementText,
+    processor as Record<string, unknown>,
+  )
   onupdate({ ...stage, type: newType })
+  onupdateProcessor?.(next)
+  diagnostic = 'Draft changed locally. Re-run Collector validation.'
+  diagnosticKind = 'warn'
 }
 
 function handleErrorModeChange(e: Event) {
-  const val = (e.target as HTMLSelectElement).value
-  onupdate({ ...stage, error_mode: (val || undefined) as ErrorMode | undefined })
+  const val = (e.target as HTMLSelectElement).value as ErrorMode | ''
+  const mode = (val || 'ignore') as ErrorMode
+  onupdate({ ...stage, error_mode: mode })
+  const next = {
+    ...buildProcessorFromOttlLines(
+      stage.type === 'filter' ? 'filter' : 'transform',
+      signal,
+      statementText,
+      processor as Record<string, unknown>,
+    ),
+    error_mode: mode,
+  }
+  onupdateProcessor?.(next)
 }
 
-function handleYamlEdit(e: Event) {
+function handleStatementInput(e: Event) {
   const val = (e.target as HTMLTextAreaElement).value
-  yamlText = val
+  statementText = val
+  const next = buildProcessorFromOttlLines(
+    stage.type === 'filter' ? 'filter' : 'transform',
+    signal,
+    val,
+    {
+      ...(processor as Record<string, unknown>),
+      error_mode: stage.error_mode ?? 'ignore',
+    },
+  )
+  onupdateProcessor?.(next)
+  diagnostic = 'Draft changed locally. Check with Collector to validate.'
+  diagnosticKind = 'warn'
+}
+
+async function handleCheck() {
+  if (onvalidate) {
+    onvalidate()
+    return
+  }
+  if (!statementText.trim()) {
+    diagnostic = 'Statement required before Collector validation.'
+    diagnosticKind = 'error'
+    return
+  }
+  if (!pipelineYaml.trim()) {
+    diagnostic = 'Pipeline YAML unavailable. Collector validation cannot run yet.'
+    diagnosticKind = 'error'
+    return
+  }
+  validating = true
+  diagnostic = 'Validating with Collector…'
+  diagnosticKind = 'idle'
   try {
-    const parsed = yaml.load(val)
-    if (parsed && typeof parsed === 'object') {
-      yamlError = null
-      onupdateProcessor?.(parsed as ProcessorConfig)
+    const res = await fetch(withCollectorVersion('/api/ottl/pipeline/validate'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-yaml' },
+      body: pipelineYaml,
+    })
+    const data = await res.json()
+    if (data.valid) {
+      diagnostic = 'Collector validation passed for the current pipeline YAML.'
+      diagnosticKind = 'ok'
+    } else {
+      diagnostic = 'Collector validation errors:\n' + (data.errors || []).join('\n')
+      diagnosticKind = 'error'
     }
   } catch (e) {
-    yamlError = e instanceof Error ? e.message : 'Invalid YAML'
+    diagnostic = 'Collector validation failed: ' + (e instanceof Error ? e.message : String(e))
+    diagnosticKind = 'error'
+  } finally {
+    validating = false
   }
 }
 </script>
 
-<div class="stage-editor">
-  <div class="stage-header">
-    <span class="stage-id">{stage.id}</span>
-    <span class="badge badge--{stage.type}">{typeLabel}</span>
-    {#if stage.error_mode}
-      <span class="badge badge--mode">{stage.error_mode}</span>
-    {/if}
+<div class="stage-editor" data-od-id="stage-editor-body">
+  <h3 id="stage-name" class="stage-name">{stage.processor_ref || stage.id}</h3>
+  <p class="tiny muted" id="stage-context">{signalLabel} / {contextLabel} context</p>
+
+  <div class="meta-row">
+    <label for="error-mode">Error mode</label>
+    <button
+      id="stage-type-toggle"
+      type="button"
+      class="ghost type-switch"
+      onclick={handleTypeToggle}
+      title="Switch stage type"
+    >{stage.type} ⇄</button>
   </div>
-  <div class="stage-body">
-    <div class="field">
-      <label for="stage-id">ID</label>
-      <input
-        id="stage-id"
-        type="text"
-        value={stage.id}
-        oninput={handleIdChange}
-      />
-    </div>
+  <select
+    id="error-mode"
+    data-od-id="stage-error-mode"
+    value={stage.error_mode ?? 'ignore'}
+    onchange={handleErrorModeChange}
+  >
+    <option value="ignore">ignore</option>
+    <option value="silent">silent</option>
+    <option value="propagate">propagate</option>
+  </select>
 
-    <div class="field">
-      <label for="stage-type-toggle">Type</label>
-      <button id="stage-type-toggle" class="toggle-type" onclick={handleTypeToggle}>
-        {stage.type === 'transform' ? 'filter' : 'transform'}
-      </button>
-      <span class="current-type">{stage.type}</span>
-    </div>
+  <label for="statement" id="statement-label">{statementLabel}</label>
+  <p id="statement-help" class="tiny muted help" data-od-id="ottl-context-help">{statementHelp}</p>
+  <textarea
+    id="statement"
+    class="yaml-editor"
+    rows="5"
+    spellcheck="false"
+    aria-describedby="statement-help statement-format"
+    data-od-id="stage-statement"
+    value={statementText}
+    oninput={handleStatementInput}
+    placeholder={stage.type === 'filter'
+      ? 'kind == SPAN_KIND_INTERNAL'
+      : 'set(attributes["env"], "prod")'}
+  ></textarea>
+  <p id="statement-format" class="tiny muted format-note">
+    Native Collector OTTL · one expression per line.
+  </p>
+  <a
+    id="ottl-docs"
+    class="docs-link"
+    href={docsHref}
+    target="_blank"
+    rel="noopener noreferrer"
+    data-od-id="ottl-reference"
+  >Collector OTTL reference ↗</a>
 
-    <div class="field">
-      <label for="error-mode">Error Mode</label>
-      <select
-        id="error-mode"
-        value={stage.error_mode ?? ''}
-        onchange={handleErrorModeChange}
-      >
-        <option value="">default</option>
-        <option value="ignore">ignore</option>
-        <option value="silent">silent</option>
-        <option value="propagate">propagate</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label for="yaml-editor">Processor Config</label>
-      <textarea
-        id="yaml-editor"
-        class="yaml-editor"
-        class:error={yamlError !== null}
-        rows="6"
-        value={yamlText}
-        oninput={handleYamlEdit}
-      ></textarea>
-      {#if yamlError}
-        <div class="yaml-error-message">{yamlError}</div>
-      {/if}
-    </div>
-
-    <div class="field">
-      <span class="field-label">Pipeline YAML Preview</span>
-      <pre class="yaml-preview">{pipelineYamlPreview}</pre>
-    </div>
+  <div class="toolbar">
+    <button
+      type="button"
+      id="check"
+      data-od-id="check-stage-draft"
+      onclick={handleCheck}
+      disabled={validating}
+    >{validating ? 'Checking…' : 'Check with Collector'}</button>
   </div>
+
+  <div
+    class="status"
+    class:ok={diagnosticKind === 'ok'}
+    class:error={diagnosticKind === 'error'}
+    class:warn={diagnosticKind === 'warn'}
+    id="diagnostic"
+    role="status"
+    aria-live="polite"
+  >{diagnostic}</div>
 </div>
 
 <style>
   .stage-editor {
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-md, 6px);
-    background: var(--color-surface, #1e293b);
-    margin-bottom: var(--space-sm, 0.5rem);
+    border: 0;
+    background: transparent;
+    margin: 0;
   }
 
-  .stage-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm, 0.5rem);
-    padding: var(--space-sm, 0.5rem) 0.75rem;
-    font-size: 0.875rem;
+  .stage-name {
+    font: 14px var(--font-mono);
+    margin: 0 0 2px;
+    overflow-wrap: anywhere;
   }
 
-  .stage-id {
-    font-weight: 600;
-    font-family: var(--font-mono, monospace);
+  .tiny { font-size: 12px; }
+  .muted { color: var(--color-text-secondary); }
+
+  #stage-context {
+    margin: 0 0 10px;
   }
 
-  .badge {
-    font-size: 0.75rem;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
+  label {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 4px;
+    font-size: 12px;
     font-weight: 500;
+    color: var(--color-text-secondary);
   }
 
-  .badge--transform {
-    background: var(--color-primary, #3b82f6);
-    color: var(--color-text, #f1f5f9);
-  }
-
-  .badge--filter {
-    background: var(--color-warning, #f59e0b);
-    color: var(--color-text, #f1f5f9);
-  }
-
-  .badge--mode {
-    background: var(--color-surface-hover, #334155);
-    color: var(--color-text-secondary, #94a3b8);
-  }
-
-  .stage-body {
-    padding: 0.75rem;
-    border-top: 1px solid var(--color-border, #334155);
+  .meta-row {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
   }
 
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs, 0.25rem);
+  .meta-row label {
+    margin-top: 0;
   }
 
-  .field label,
-  .field .field-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--color-text-secondary, #94a3b8);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  .type-switch {
+    min-height: 28px;
+    padding: 2px 8px;
+    font: 11px var(--font-mono);
+    color: var(--color-text-secondary);
   }
 
-  .field input[type="text"],
-  .field select {
-    padding: 0.375rem var(--space-sm, 0.5rem);
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-sm, 4px);
-    font-size: 0.875rem;
+  .help {
+    margin: 0 0 6px;
   }
 
-  .toggle-type {
-    padding: var(--space-xs, 0.25rem) var(--space-sm, 0.5rem);
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-sm, 4px);
-    background: var(--color-surface, #1e293b);
-    cursor: pointer;
-    font-size: 0.75rem;
-    align-self: flex-start;
-  }
-
-  .toggle-type:hover {
-    background: var(--color-surface-hover, #334155);
-  }
-
-  .current-type {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary, #94a3b8);
-    margin-left: var(--space-xs, 0.25rem);
+  .format-note {
+    margin: 6px 0 0;
   }
 
   .yaml-editor {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.8125rem;
-    padding: var(--space-sm, 0.5rem);
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-sm, 4px);
-    resize: vertical;
-    line-height: 1.4;
-    tab-size: 2;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    min-height: 108px;
+    line-height: 1.45;
+    background: var(--color-bg);
   }
 
-  .yaml-editor.error {
-    border-color: var(--color-error, #ef4444);
+  .docs-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-link);
   }
 
-  .yaml-error-message {
-    color: var(--color-error, #ef4444);
-    font-size: 0.75rem;
-    margin-top: 0.25rem;
-    padding: 0.25rem 0.5rem;
-    background: rgba(239, 68, 68, 0.1);
-    border-radius: 4px;
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
   }
 
-  .yaml-preview {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.8125rem;
-    padding: var(--space-sm, 0.5rem);
-    border: 1px solid var(--color-border, #334155);
-    border-radius: var(--radius-sm, 4px);
-    background: var(--color-surface, #1e293b);
-    line-height: 1.4;
-    tab-size: 2;
-    overflow-x: auto;
-    white-space: pre;
-    margin: 0;
+  .toolbar button {
+    min-height: 36px;
+    font-size: 12px;
+  }
+
+  .status {
+    padding: 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    white-space: pre-wrap;
+  }
+
+  .status.warn {
+    background: var(--color-warning-bg);
+    color: var(--color-warning-text);
+  }
+
+  .status.error {
+    background: var(--color-error-bg);
+    color: var(--color-error-text);
+  }
+
+  .status.ok {
+    background: var(--color-success-bg);
+    color: var(--color-success-text);
   }
 </style>

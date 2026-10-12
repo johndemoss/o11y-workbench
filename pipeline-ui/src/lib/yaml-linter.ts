@@ -1,4 +1,4 @@
-import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
+import { linter, type Diagnostic } from '@codemirror/lint'
 import yaml from 'js-yaml'
 
 export const yamlLinter = linter(
@@ -27,4 +27,3 @@ export const yamlLinter = linter(
   { delay: 500, autoPanel: true }
 )
 
-export { lintGutter }

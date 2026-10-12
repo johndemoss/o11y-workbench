@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { SNIPPETS } from '../snippets'
+import {
+  SNIPPETS,
+  extractOttlLines,
+  buildProcessorFromOttlLines,
+} from '../snippets'
 
 describe('snippet templates', () => {
   it('has at least 5 snippets', () => {
@@ -21,10 +25,25 @@ describe('snippet templates', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('each snippet has trace_statements in processor', () => {
+  it('transform snippets use trace_statements; filter snippets use drop conditions', () => {
     for (const s of SNIPPETS) {
-      expect(s.processor.trace_statements).toBeDefined()
-      expect(Array.isArray(s.processor.trace_statements)).toBe(true)
+      if (s.type === 'transform') {
+        expect(s.processor.trace_statements).toBeDefined()
+        expect(Array.isArray(s.processor.trace_statements)).toBe(true)
+      } else {
+        const traces = s.processor.traces as { span?: unknown[] }
+        expect(Array.isArray(traces?.span)).toBe(true)
+        expect((traces.span ?? []).length).toBeGreaterThan(0)
+      }
     }
+  })
+
+  it('extract/build round-trip OTTL lines for transform and filter', () => {
+    const transformLines = 'set(attributes["env"], "prod")'
+    const filterLines = 'kind == SPAN_KIND_INTERNAL'
+    const t = buildProcessorFromOttlLines('transform', 'traces', transformLines)
+    const f = buildProcessorFromOttlLines('filter', 'traces', filterLines)
+    expect(extractOttlLines('transform', t)).toBe(transformLines)
+    expect(extractOttlLines('filter', f)).toBe(filterLines)
   })
 })

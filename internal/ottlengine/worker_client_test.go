@@ -70,6 +70,42 @@ func TestWorkerClientExecutePipeline(t *testing.T) {
 	}
 }
 
+func TestWorkerClientImportCollectorConfig(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/pipeline/import-config", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ConfigYAML string `json:"config_yaml"`
+			Config     string `json:"config"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.ConfigYAML) == "" {
+			http.Error(w, `{"error":"config_yaml is required"}`, http.StatusBadRequest)
+			return
+		}
+		if !strings.Contains(req.ConfigYAML, "service:") {
+			http.Error(w, `{"error":"config missing 'service' section"}`, http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(ottl.PipelinesBySignal{
+			"traces": &ottl.Pipeline{Receivers: []string{"otlp"}, Exporters: []string{"debug"}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewWorkerClient("0.162.0", "1.68.0", srv.URL)
+	got, err := c.ImportCollectorConfig("service:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: []\n      exporters: [debug]\n")
+	if err != nil {
+		t.Fatalf("ImportCollectorConfig: %v", err)
+	}
+	if got["traces"] == nil || len(got["traces"].Receivers) != 1 || got["traces"].Receivers[0] != "otlp" {
+		t.Fatalf("unexpected pipelines: %+v", got)
+	}
+}
+
 func TestWorkerClientNon2xx(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/validate", func(w http.ResponseWriter, r *http.Request) {

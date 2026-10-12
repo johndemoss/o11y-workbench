@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/johndemoss/o11y-workbench/workers/ottl-0.162/engine"
 )
@@ -206,13 +207,23 @@ func handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 
 func handlePipelineImportConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config string `json:"config"`
+		// WorkerClient posts config_yaml; keep config as a compatibility alias.
+		ConfigYAML string `json:"config_yaml"`
+		Config     string `json:"config"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	pipelines, err := engine.ImportCollectorConfig(req.Config)
+	configYAML := req.ConfigYAML
+	if configYAML == "" {
+		configYAML = req.Config
+	}
+	if strings.TrimSpace(configYAML) == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("config_yaml is required"))
+		return
+	}
+	pipelines, err := engine.ImportCollectorConfig(configYAML)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return

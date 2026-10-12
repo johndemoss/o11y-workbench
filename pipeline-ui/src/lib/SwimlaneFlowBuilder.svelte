@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { MarkerType } from '@xyflow/svelte'
   import type { Node, Edge } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
   import {
@@ -17,11 +16,43 @@
     PipelinesBySignal,
     Stage,
     StageType,
+    SignalType,
     ProcessorConfig,
     PipelineResult,
     SnippetTemplate,
   } from './types'
-  import { getPipelinesHash, STAGE_WIDTH, MIN_GAP, SWIMLANE_MIN_WIDTH, SWIMLANE_EXTRA } from './svg-utils'
+  import { signalEdgeProps } from './types'
+  import {
+    getPipelinesHash,
+    STAGE_WIDTH,
+    MIN_GAP,
+    FIRST_STAGE_X,
+    NODE_Y,
+    swimlaneWidthForStageCount,
+    exporterXForStageCount,
+  } from './svg-utils'
+
+  function packSwimlane(flowNodes: Node<StageNodeData>[], parentId: string) {
+    const stages = flowNodes
+      .filter((n) => n.parentId === parentId && n.type === 'stage')
+      .sort((a, b) => a.position.x - b.position.x)
+    for (let i = 0; i < stages.length; i++) {
+      stages[i].position = { x: FIRST_STAGE_X + i * (STAGE_WIDTH + MIN_GAP), y: NODE_Y }
+    }
+    const expX = exporterXForStageCount(stages.length)
+    for (const n of flowNodes) {
+      if (n.parentId !== parentId || n.type !== 'infra') continue
+      const kind = (n.data as { type?: string })?.type
+      if (kind === 'exporter') n.position = { ...n.position, x: expX, y: NODE_Y }
+      if (kind === 'receiver') n.position = { ...n.position, y: NODE_Y }
+    }
+    const swimlaneNode = flowNodes.find((n) => n.id === parentId)
+    if (swimlaneNode) {
+      const w = swimlaneWidthForStageCount(stages.length)
+      swimlaneNode.width = w
+      swimlaneNode.style = `width: ${w}px`
+    }
+  }
 
   // ─── Props ────────────────────────────────────────────────────────────────
   let {
@@ -36,7 +67,10 @@
   onPipelinesChange,
   onNodeSelected,
   onResultClear,
+  onShowYaml,
+  yamlOpen = true,
   selectedNodeId = $bindable(''),
+  highlightedReceiver = null,
   result = null,
 }: {
   pipelines: PipelinesBySignal
@@ -45,9 +79,13 @@
     onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig }) => void
     onPipelinesChange?: (p: PipelinesBySignal) => void
     onNodeSelected?: (nodeId: string | null) => void
-    selectedNodeId?: string
-    result?: PipelineResult | null
     onResultClear?: () => void
+    /** Reveal Pipeline YAML after hide (graph header, design pattern). */
+    onShowYaml?: () => void
+    yamlOpen?: boolean
+    selectedNodeId?: string
+    highlightedReceiver?: string | null
+    result?: PipelineResult | null
   } = $props()
 
   // ─── State ────────────────────────────────────────────────────────────────
@@ -139,6 +177,99 @@
     snippetModal = true
   }
 
+  function addStageToSignal(opts: {
+    type: StageType
+    signal: import('./types').SignalType
+    snippet?: SnippetTemplate
+  }) {
+    onResultClear?.()
+    const type = opts.type
+    const id = `stage-${nodeIdCounter++}`
+    const procName = opts.snippet
+      ? `${type}/${opts.snippet.id}-${nodeIdCounter}`
+      : `${type}/${type}-${id}`
+    const parentId = `swimlane-${opts.signal}`
+    let currentNodes = [...nodes]
+    if (!currentNodes.some((n) => n.id === parentId)) {
+      const initial = pipelinesToFlow(pipelines)
+      currentNodes = initial.nodes as Node<StageNodeData>[]
+      edges = initial.edges
+    }
+    const siblings = currentNodes.filter((n) => n.parentId === parentId && n.type === 'stage')
+    const receiverNodes = currentNodes.filter(
+      (n) => n.parentId === parentId && n.type === 'infra' && (n.data as any)?.type === 'receiver',
+    )
+    const receiverRight = receiverNodes.length > 0
+      ? receiverNodes[0].position.x + (receiverNodes[0].width || STAGE_WIDTH)
+      : 180
+    const firstStageX = receiverRight + MIN_GAP
+    const position = {
+      x: siblings.length > 0
+        ? siblings[siblings.length - 1].position.x + STAGE_WIDTH + MIN_GAP
+        : firstStageX,
+      y: NODE_Y,
+    }
+    const processor = (opts.snippet?.processor ?? {}) as ProcessorConfig
+    const newNode: Node<StageNodeData> = {
+      id,
+      type: 'stage',
+      parentId,
+      position,
+      zIndex: 10,
+      draggable: false,
+      data: {
+        stage: { id, type, processor_ref: procName, error_mode: (processor.error_mode as any) || 'ignore' },
+        processor,
+        stageIndex: siblings.length,
+        signal: opts.signal,
+      },
+    }
+    const newNodes = [...currentNodes, newNode]
+    const newEdges = [...edges]
+    if (siblings.length > 0) {
+      const lastSibling = siblings[siblings.length - 1]
+      newEdges.push({
+        id: `e-${lastSibling.id}-${id}`,
+        source: lastSibling.id,
+        target: id,
+        type: 'straight',
+        ...signalEdgeProps(opts.signal),
+      })
+    }
+    packSwimlane(newNodes, parentId)
+    nodes = newNodes
+    edges = newEdges
+    onNodeSelected?.(id)
+    onNodeEdit?.({ stage: newNode.data.stage, processor })
+  }
+
+  // Highlight all shared receiver references when one is selected
+  function classStr(value: unknown): string {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) return value.filter((x) => typeof x === 'string').join(' ')
+    return ''
+  }
+
+  $effect(() => {
+    const name = highlightedReceiver
+    const selected = selectedNodeId
+    untrack(() => {
+      nodes = nodes.map((n) => {
+        const base = classStr(n.class).replace(/\bshared-highlight\b/g, '').trim()
+        if (n.type !== 'infra' || (n.data as any)?.type !== 'receiver') {
+          return { ...n, class: base }
+        }
+        const label = String((n.data as any)?.label ?? '')
+        const on = !!name && label === name
+        return {
+          ...n,
+          selected: on || n.id === selected,
+          class: on ? `${base} shared-highlight`.trim() : base,
+        }
+      })
+    })
+  })
+
   // ─── Drag-over (allow drop) ───────────────────────────────────────────────
   function handleDragOver(event: DragEvent) {
     event.preventDefault()
@@ -215,7 +346,7 @@
       x: siblings.length > 0
         ? siblings[siblings.length - 1].position.x + STAGE_WIDTH + MIN_GAP
         : firstStageX,
-      y: 35,
+      y: NODE_Y,
     }
 
     const newNode: Node<StageNodeData> = {
@@ -229,6 +360,7 @@
         stage: { id, type, processor_ref: procName },
         processor: snippetData ? JSON.parse(snippetData).processor ?? {} : {},
         stageIndex: siblings.length,
+        signal: (parentId?.replace('swimlane-', '') as any) || 'traces',
       },
     }
 
@@ -237,89 +369,158 @@
 
     if (siblings.length > 0) {
       const lastSibling = siblings[siblings.length - 1]
+      const signal = ((parentId?.replace('swimlane-', '') as SignalType) || 'traces')
       newEdges.push({
         id: `e-${lastSibling.id}-${id}`,
         source: lastSibling.id,
         target: id,
         type: 'straight',
-        markerEnd: { type: MarkerType.ArrowClosed },
+        // No arrowheads — directional dashed stroke only (design contract).
+        ...signalEdgeProps(signal),
       })
     }
 
-    const swimlaneNode = newNodes.find(n => n.id === (parentId || 'swimlane-traces'))
-    if (swimlaneNode) {
-      const siblingsAfter = newNodes.filter(n => n.parentId === swimlaneNode.id && n.type === 'stage')
-      const newWidth = Math.max(SWIMLANE_MIN_WIDTH, siblingsAfter.length * (STAGE_WIDTH + MIN_GAP) + SWIMLANE_EXTRA)
-      swimlaneNode.width = newWidth
-      swimlaneNode.style = `width: ${newWidth}px`
-
-      const stageCount = siblingsAfter.length
-      if (stageCount > 1) {
-        const totalStageWidth = stageCount * STAGE_WIDTH
-        const gap = Math.max(MIN_GAP, (newWidth - 200 - MIN_GAP - firstStageX - totalStageWidth) / (stageCount - 1))
-        for (let i = 0; i < stageCount; i++) {
-          siblingsAfter[i].position.x = firstStageX + i * (STAGE_WIDTH + gap)
-        }
-      }
-    }
+    if (parentId) packSwimlane(newNodes, parentId)
 
     nodes = newNodes
     edges = newEdges
   }
 </script>
 
-<div class="flow-container">
-  <header class="builder-header">
-    <h1>Pipeline Graph</h1>
-  </header>
-
-  <div class="flow-layout">
-    <StagePalette {onImport} onSnippetView={handleSnippetView} />
-    <SwimlaneRow
-      bind:nodes
-      bind:edges
-      bind:snippetConfig
-      bind:snippetModal
-      nodeTypes={{ stage: StageFlowNode, swimlane: SwimlaneNode, infra: InfraNode }}
-      {pipelineVersion}
-      hasStages={nodes.some(n => n.type === 'stage')}
-      {onNodeEdit}
-      {onNodeSelected}
-      {onResultClear}
-      ondragover={handleDragOver}
-      ondrop={handleDrop}
-    />
+<section class="flow-container panel" data-od-id="signal-graph">
+  <div class="panel-head builder-header">
+    <h2>Pipeline flow</h2>
+    <div class="toolbar">
+      {#if !yamlOpen}
+        <button
+          type="button"
+          id="show-yaml"
+          data-od-id="show-yaml"
+          onclick={() => onShowYaml?.()}
+        >Show YAML</button>
+      {/if}
+      {#if onExport}
+        <button type="button" id="export-yaml" data-od-id="export-yaml" onclick={() => onExport?.()}>Export YAML</button>
+      {/if}
+      {#if onImport}
+        <button type="button" class="ghost" onclick={() => onImport?.()}>Import YAML</button>
+      {/if}
+    </div>
   </div>
-</div>
+
+  <div class="graph-workspace flow-layout">
+    <StagePalette {onImport} {onExport} onSnippetView={handleSnippetView} onAddStage={addStageToSignal} />
+    <div class="graph-area">
+      <p class="graph-help tiny muted">Drag cards to reorder · drop between nodes to insert · select to edit</p>
+      <SwimlaneRow
+        bind:nodes
+        bind:edges
+        bind:snippetConfig
+        bind:snippetModal
+        nodeTypes={{ stage: StageFlowNode, swimlane: SwimlaneNode, infra: InfraNode }}
+        {pipelineVersion}
+        hasStages={nodes.some(n => n.type === 'stage')}
+        {onNodeEdit}
+        {onNodeSelected}
+        {onResultClear}
+        ondragover={handleDragOver}
+        ondrop={handleDrop}
+      />
+      <p class="graph-feedback tiny muted" role="status" aria-live="polite">
+        Animated connections show direction only. No telemetry is running until you execute.
+      </p>
+    </div>
+  </div>
+</section>
 
 <style>
   .flow-container {
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: var(--color-bg, #0f172a);
+    min-height: 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
   }
 
-  .builder-header {
+  .panel-head {
     display: flex;
     align-items: center;
-    gap: var(--space-sm, 0.5rem);
-    padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
-    background: var(--color-surface, #1e293b);
-    border-bottom: 1px solid var(--color-border, #334155);
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    min-height: 58px;
     flex-shrink: 0;
   }
 
-  .builder-header h1 {
-    font-size: 1rem;
+  .builder-header h2 {
+    font-size: 14px;
     font-weight: 600;
     margin: 0;
-    color: var(--color-text, #f1f5f9);
+    color: var(--color-text);
   }
 
-  .flow-layout {
+  .toolbar {
     display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .toolbar button {
+    font-size: 12px;
+    min-height: 44px;
+  }
+
+  .toolbar .ghost {
+    background: transparent;
+  }
+
+  .graph-workspace,
+  .flow-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
     flex: 1;
+    min-height: 0;
     overflow: hidden;
+  }
+
+  .graph-area {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .graph-help,
+  .graph-feedback {
+    padding: 12px;
+    margin: 0;
+    flex-shrink: 0;
+  }
+
+  .tiny {
+    font-size: 12px;
+  }
+
+  .muted {
+    color: var(--color-text-secondary);
+  }
+
+  .graph-area :global(.swimlane-row),
+  .graph-area :global(.svelte-flow) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  @media (max-width: 960px) {
+    .graph-workspace,
+    .flow-layout {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

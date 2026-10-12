@@ -1,0 +1,92 @@
+/* Source root copied verbatim from source_examples/pipeline/app.css.
+   Following aliases are source-backed or documented accessibility adaptations. */
+:root {
+  /* Colors */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #7c3aed;
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-hover: #334155;
+  --color-text: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-border: #334155;
+  --color-error: #ef4444;
+  --color-error-bg: #7f1d1d;
+  --color-success: #22c55e;
+  --color-success-bg: #14532d;
+  --color-warning: #f59e0b;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+  --font-size-sm: 0.8rem;
+  --font-size-md: 0.9rem;
+  --font-size-lg: 1.1rem;
+
+  /* Borders */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+
+  /* Layout */
+  --max-width: 1200px;
+}
+
+:root {
+ --color-surface-2:#162032; --color-body:#e2e8f0;
+ --color-info-bg:#1e3a5f; --color-info-text:#93c5fd;
+ --color-warning-bg:#78350f; --color-warning-text:#fcd34d;
+ --color-success-text:#86efac; --color-error-text:#fca5a5;
+ --dashboard-traces:#3b82f6; --dashboard-logs:#8b5cf6; --dashboard-metrics:#22c55e;
+ --graph-traces:#f59e0b; --graph-logs:#34d399; --graph-metrics:#38bdf8;
+ --stage-transform:#7c3aed; --stage-filter:#d97706; --stage-receiver:#059669;
+ --stage-exporter:#dc2626; --stage-connector:#6366f1;
+ --pressure-cool:#3ecfcf; --pressure-amber:#f0a202; --pressure-heat:#ff5a36;
+ --space-dense:12px; --radius-dialog:10px; --shadow-dialog:0 20px 60px rgba(0,0,0,.5);
+ --font-display:var(--font-family); --font-body:var(--font-family);
+ --action-bg:var(--color-primary-hover); --action-fg:var(--color-text);
+ --action-hover:oklch(from var(--action-bg) calc(l - .07) c h);
+ --text-link:var(--color-info-text); --focus:var(--color-info-text);
+}
+* {box-sizing:border-box}
+body {margin:0;background:var(--color-bg);color:var(--color-text);font:14px/1.5 var(--font-family);-webkit-font-smoothing:antialiased}
+h1,h2,h3 {line-height:1.3;font-family:var(--font-display);text-wrap:balance}
+h1 {font-size:24px;font-weight:600;margin:0 0 8px} h2 {font-size:18px;margin:0 0 16px} h3 {font-size:14px;margin:0 0 8px}
+p {margin:0 0 12px;text-wrap:pretty} a {color:var(--text-link);text-underline-offset:4px}
+code,pre,.mono {font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+pre {white-space:pre-wrap;overflow-wrap:anywhere;margin:0;line-height:1.6}
+.muted {color:var(--color-text-secondary)}
+button,input,select,textarea {font:inherit}
+button,a,input,select,textarea,summary {touch-action:manipulation}
+:focus-visible {outline:2px solid var(--focus);outline-offset:3px}
+button {min-height:44px;border:1px solid var(--color-border);border-radius:var(--radius-md);padding:8px 14px;background:var(--color-surface-hover);color:var(--color-text);cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast)}
+button:hover {border-color:var(--color-text-secondary);background:var(--color-surface);color:var(--color-text)}
+button.primary {background:var(--action-bg);color:var(--action-fg);border-color:var(--action-bg)}
+button.primary:hover {background:var(--action-hover);border-color:var(--action-hover);color:var(--action-fg)}
+button.ghost {background:transparent;color:var(--color-text)} button.ghost:hover {background:var(--color-surface-hover)}
+button:disabled {opacity:.5;cursor:not-allowed}
+input,select,textarea {min-height:44px;max-width:100%;width:100%;padding:8px 12px;background:var(--color-bg);color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-md);font-family:var(--font-mono)}
+textarea {resize:vertical;line-height:1.6} input::placeholder,textarea::placeholder {color:var(--color-text-secondary)}
+label {display:block;font-size:12px;color:var(--color-text-secondary);margin-bottom:6px}
+.badge {display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font:12px var(--font-mono);background:var(--color-info-bg);color:var(--color-info-text)}
+.badge.warn {background:var(--color-warning-bg);color:var(--color-warning-text)}
+.badge.ok {background:var(--color-success-bg);color:var(--color-success-text)}
+.badge.err {background:var(--color-error-bg);color:var(--color-error-text)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

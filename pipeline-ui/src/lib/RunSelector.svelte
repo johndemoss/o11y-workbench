@@ -133,101 +133,173 @@
       loading = false
     }
   }
+
+  let selectedRun = $derived(runs.find((r) => r.id === selectedRunId) ?? null)
 </script>
 
-<div class="run-selector">
-  <h3>Select Run</h3>
-
+<div class="run-selector" data-od-id="execution-controls">
   {#if error}
-    <div class="error">{error}</div>
+    <div class="error" role="alert">{error}</div>
   {/if}
 
-  <div class="controls">
-    <select bind:value={signal} disabled={loading} title="Signal to execute">
-      {#each signals as sig}
-        <option value={sig}>{sig}</option>
-      {/each}
-    </select>
+  <div
+    class="pill-toggle"
+    role="radiogroup"
+    aria-label="Signal"
+    title={selectedRun ? `${selectedRun.status} · ${selectedRun.span_count} spans` : 'Signal'}
+  >
+    {#each signals as sig}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={signal === sig}
+        class:active={signal === sig}
+        disabled={loading}
+        onclick={() => signal = sig}
+      >{sig}</button>
+    {/each}
+  </div>
 
-    <select bind:value={selectedRunId} disabled={loading}>
+  <div class="run-controls">
+    <select id="execute-run" aria-label="Run" bind:value={selectedRunId} disabled={loading || runs.length === 0}>
+      {#if runs.length === 0}
+        <option value="">No runs available</option>
+      {/if}
       {#each runs as run (run.id)}
         <option value={run.id}>
-          {run.id} — {run.status} ({run.span_count} spans)
+          {run.id} — {run.status} ({run.span_count})
         </option>
       {/each}
     </select>
-
-    <button onclick={execute} disabled={loading || !selectedRunId}>
-      {#if loading}
-        <span class="spinner"></span>
-        Executing...
-      {:else}
-        Execute Pipeline
-      {/if}
-    </button>
-
-    <button onclick={refreshRuns} disabled={loading} title="Refresh runs">
-      ↻
-    </button>
+    <button type="button" class="ghost-icon" onclick={refreshRuns} disabled={loading} title="Refresh runs" aria-label="Refresh runs">↻</button>
   </div>
+
+  <button type="button" class="execute-btn" onclick={execute} disabled={loading || !selectedRunId}>
+    {#if loading}
+      <span class="spinner" aria-hidden="true"></span>
+      Executing…
+    {:else}
+      Execute
+    {/if}
+  </button>
 </div>
 
 <style>
   .run-selector {
-    margin-bottom: var(--space-md, 1rem);
-  }
-  h3 {
-    font-size: var(--font-size-md, 0.9rem);
-    font-weight: 600;
-    margin-bottom: var(--space-sm, 0.5rem);
-  }
-  .error {
-    color: var(--color-error, #ef4444);
-    font-size: 0.875rem;
-    margin-bottom: var(--space-sm, 0.5rem);
-  }
-  .controls {
     display: flex;
-    gap: var(--space-sm, 0.5rem);
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .error {
+    color: var(--color-error-text, #ef4444);
+    background: var(--color-error-bg, transparent);
+    border: 1px solid var(--color-error, #ef4444);
+    border-radius: var(--radius-sm, 4px);
+    font-size: 12px;
+    padding: 8px;
+  }
+
+  .pill-toggle {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+  }
+
+  .pill-toggle button {
+    min-height: 28px;
+    padding: 2px 4px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: capitalize;
+  }
+
+  .pill-toggle button.active,
+  .pill-toggle button[aria-checked='true'] {
+    background: var(--action-bg);
+    color: var(--action-fg);
+  }
+
+  .pill-toggle button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .run-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    gap: 6px;
     align-items: center;
   }
+
   select {
-    flex: 1;
-    padding: var(--space-sm, 0.5rem);
+    width: 100%;
+    min-height: 36px;
+    padding: 4px 8px;
     border: 1px solid var(--color-border, #334155);
     border-radius: var(--radius-sm, 4px);
-    font-size: 0.875rem;
+    background: var(--color-bg, transparent);
+    color: var(--color-text, inherit);
+    font-size: 12px;
   }
-  select:first-of-type {
-    flex: 0 0 auto;
-    min-width: 6.5rem;
+
+  .ghost-icon {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--color-bg);
+    color: var(--color-text-secondary);
+    cursor: pointer;
   }
-  button {
-    display: flex;
+
+  .ghost-icon:hover:not(:disabled) {
+    color: var(--color-text);
+  }
+
+  .execute-btn {
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.4rem;
-    padding: var(--space-sm, 0.5rem) var(--space-md, 1rem);
-    background: var(--color-primary, #3b82f6);
-    color: var(--color-text, #f1f5f9);
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 12px;
+    background: var(--action-bg, var(--color-primary, #3b82f6));
+    color: var(--action-fg, var(--color-text, #f1f5f9));
     border: none;
     border-radius: var(--radius-sm, 4px);
-    font-size: 0.875rem;
+    font-size: 13px;
     cursor: pointer;
     white-space: nowrap;
   }
-  button:disabled {
-    background: var(--color-text-secondary, #94a3b8);
+
+  .execute-btn:disabled {
+    opacity: 0.55;
     cursor: not-allowed;
   }
+
   .spinner {
     display: inline-block;
     width: 0.875rem;
     height: 0.875rem;
     border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: var(--color-text, #f1f5f9);
+    border-top-color: currentColor;
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
   }
+
   @keyframes spin {
     to { transform: rotate(360deg); }
   }

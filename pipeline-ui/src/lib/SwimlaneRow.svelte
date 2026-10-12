@@ -7,24 +7,29 @@
     Background,
     BackgroundVariant,
     MiniMap,
-    MarkerType,
   } from '@xyflow/svelte'
+  import HorizontalEdge from './HorizontalEdge.svelte'
+
+  const edgeTypes = { straight: HorizontalEdge }
   import type { Node, Edge, Connection } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
   import { wouldCreateCycle, reorderStage } from './flow-sync'
   import type {
     StageType,
+    SignalType,
     ProcessorConfig,
     PipelineResult,
     SnippetTemplate,
   } from './types'
+  import { signalEdgeProps } from './types'
   import {
     STAGE_WIDTH,
     MIN_GAP,
     STAGE_GAP_TOTAL,
     FIRST_STAGE_X,
-    SWIMLANE_MIN_WIDTH,
-    SWIMLANE_EXTRA,
+    NODE_Y,
+    swimlaneWidthForStageCount,
+    exporterXForStageCount,
   } from './svg-utils'
 
   // ─── Props (from SwimlaneFlowBuilder) ────────────────────────────────────
@@ -126,6 +131,7 @@
       setTimeout(() => { connectError = null }, 2500)
       return
     }
+    const signal = (sourceNode?.parentId?.replace('swimlane-', '') || 'traces') as SignalType
     edges = [
       ...edges,
       {
@@ -133,13 +139,17 @@
         source: connection.source,
         target: connection.target,
         type: 'straight',
-        markerEnd: { type: MarkerType.ArrowClosed },
+        ...signalEdgeProps(signal),
       },
     ]
   }
 
-  // ─── Node click → open StageEditor ──────────────────────────────────────
-  function handleNodeClick({ node, event }: { node: Node<StageNodeData>; event: MouseEvent | TouchEvent }) {
+  // ─── Node click → inspector (stage or shared receiver) ───────────────────
+  function handleNodeClick({ node }: { node: Node<StageNodeData>; event: MouseEvent | TouchEvent }) {
+    if (node.type === 'infra' && (node.data as any)?.type === 'receiver') {
+      onNodeSelected?.(node.id)
+      return
+    }
     if (node.type !== 'stage') return
     onNodeSelected?.(node.id)
     onNodeEdit?.({ stage: node.data.stage, processor: node.data.processor })
@@ -190,32 +200,19 @@
     const type = snippet.type
     const procName = `${type}/${type}-${id}`
 
-    // Prefer swimlane of the selected stage; otherwise first available swimlane.
-    const selectedStage = nodes.find(n => n.type === 'stage' && n.selected)
-    const targetSwimlaneId =
-      selectedStage?.parentId ||
-      nodes.find(n => n.type === 'swimlane')?.id ||
-      'swimlane-traces'
-    const targetSwimlane = nodes.find(n => n.id === targetSwimlaneId)
+    // Library entries use span/trace context → Traces lane.
+    const targetSwimlane =
+      nodes.find(n => n.id === 'swimlane-traces') || nodes.find(n => n.type === 'swimlane')
     if (!targetSwimlane) return
-
-    let processor = snippet.processor
-    try {
-      const configTextarea = document.getElementById('snippet-config-textarea') as HTMLTextAreaElement
-      if (configTextarea && configTextarea.value) {
-        const parsed = JSON.parse(configTextarea.value)
-        processor = parsed
-      }
-    } catch {
-      // Invalid JSON — use original
-    }
+    const targetSwimlaneId = targetSwimlane.id
+    const processor = snippet.processor
 
     const siblings = nodes.filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
     const newNode: Node<StageNodeData> = {
       id, type: 'stage', parentId: targetSwimlaneId,
       position: {
         x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + STAGE_GAP_TOTAL : FIRST_STAGE_X,
-        y: 35,
+        y: NODE_Y,
       },
       width: STAGE_WIDTH,
       draggable: false,
@@ -223,6 +220,7 @@
         stage: { id, type: type as StageType, processor_ref: procName },
         processor,
         stageIndex: siblings.length,
+        signal: (targetSwimlaneId.replace('swimlane-', '') as any) || 'traces',
       } as any,
     }
 
@@ -232,13 +230,28 @@
       const last = siblings[siblings.length - 1]
       newEdges.push({
         id: `e-${last.id}-${id}`, source: last.id, target: id,
-        type: 'straight', markerEnd: { type: MarkerType.ArrowClosed },
+        type: 'straight',
+        ...signalEdgeProps((targetSwimlaneId.replace('swimlane-', '') as SignalType) || 'traces'),
       })
+    }
+    const stages = newNodes
+      .filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
+      .sort((a, b) => a.position.x - b.position.x)
+    for (let i = 0; i < stages.length; i++) {
+      stages[i].position = { x: FIRST_STAGE_X + i * STAGE_GAP_TOTAL, y: NODE_Y }
+    }
+    const expX = exporterXForStageCount(stages.length)
+    for (const n of newNodes) {
+      if (n.parentId !== targetSwimlaneId || n.type !== 'infra') continue
+      const kind = (n.data as { type?: string })?.type
+      if (kind === 'exporter') n.position = { ...n.position, x: expX, y: NODE_Y }
+      if (kind === 'receiver') n.position = { ...n.position, y: NODE_Y }
     }
     const swimlaneNode = newNodes.find(n => n.id === targetSwimlaneId)
     if (swimlaneNode) {
-      const siblingsAfter = newNodes.filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
-      swimlaneNode.width = Math.max(SWIMLANE_MIN_WIDTH, siblingsAfter.length * STAGE_GAP_TOTAL + SWIMLANE_EXTRA)
+      const w = swimlaneWidthForStageCount(stages.length)
+      swimlaneNode.width = w
+      swimlaneNode.style = `width: ${w}px`
     }
     nodes = newNodes; edges = newEdges
     snippetModal = false
@@ -268,11 +281,13 @@
     {#key pipelineVersion}
     <SvelteFlow
       {nodeTypes}
+      {edgeTypes}
       bind:nodes
       bind:edges
       fitView
       minZoom={0.10}
       fitViewOptions={{ padding: 0.3 }}
+      defaultEdgeOptions={{ type: 'straight' }}
       onconnect={handleConnect}
       onnodeclick={handleNodeClick}
       onnodedragstop={handleNodeDragStop}
@@ -306,18 +321,19 @@
       role="dialog"
       aria-modal="true"
       tabindex="-1"
+      data-od-id="template-preview"
       onclick={(e) => { if (e.target === e.currentTarget) { snippetModal = false; snippetConfig = null } }}
       onkeydown={(e) => { if (e.key === 'Escape') { snippetModal = false; snippetConfig = null } }}
     >
       <div class="snippet-modal">
         <h3>{snippetConfig.name}</h3>
-        <p class="modal-hint">Type: <strong>{snippetConfig.type}</strong></p>
+        <p class="modal-hint">Library · <strong>{snippetConfig.type}</strong></p>
         <p class="modal-hint">{snippetConfig.description}</p>
-        <label class="modal-label" for="snippet-config-textarea">Processor Configuration (edit before applying):</label>
-        <textarea id="snippet-config-textarea" class="modal-textarea" rows="10">{JSON.stringify(snippetConfig.processor, null, 2)}</textarea>
+        <label class="modal-label" for="snippet-config-textarea">Configuration preview</label>
+        <pre id="snippet-config-textarea" class="modal-textarea preview-pre">{JSON.stringify(snippetConfig.processor, null, 2)}</pre>
         <div class="modal-actions">
           <button class="confirm-btn confirm-btn-secondary" onclick={() => { snippetModal = false; snippetConfig = null }}>Cancel</button>
-          <button class="confirm-btn confirm-btn-primary" onclick={handleSnippetApply}>Apply to Pipeline</button>
+          <button class="confirm-btn confirm-btn-primary" onclick={handleSnippetApply}>Add to lane</button>
         </div>
       </div>
     </div>

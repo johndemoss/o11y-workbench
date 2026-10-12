@@ -3,8 +3,9 @@ export type { StageNodeData } from "./flow-graph";
 export { topologicalSort, wouldCreateCycle } from "./flow-graph";
 export { pipelineToFlow, flowToPipeline, pipelinesToFlow, flowToPipelines } from "./flow-serialization";
 
-import { type Edge, MarkerType, type Node } from "@xyflow/svelte";
-import type { StageResult } from "./types";
+import { type Edge, type Node } from "@xyflow/svelte";
+import type { SignalType, StageResult } from "./types";
+import { signalEdgeProps } from "./types";
 import type { StageNodeData } from "./flow-graph";
 
 /**
@@ -77,13 +78,14 @@ export function reorderStage(
 	const swimlaneIds = new Set(allInLane.map((n) => n.id));
 	const remainingEdges = edges.filter((e) => !(swimlaneIds.has(e.source) && swimlaneIds.has(e.target)));
 
+	const signal = ((parentId ?? "").replace("swimlane-", "") || "traces") as SignalType;
 	for (let i = 1; i < allInLane.length; i++) {
 		remainingEdges.push({
 			id: `e-${allInLane[i - 1].id}-${allInLane[i].id}`,
 			source: allInLane[i - 1].id,
 			target: allInLane[i].id,
 			type: "straight",
-			markerEnd: { type: MarkerType.ArrowClosed },
+			...signalEdgeProps(signal),
 		});
 	}
 

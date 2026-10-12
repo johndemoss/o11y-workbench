@@ -87,6 +87,14 @@ export const SIGNAL_COLORS: Record<SignalType, { border: string; bg: string; tag
   metrics: { border: '#38BDF8', bg: 'rgba(56, 189, 248, 0.05)', tag: '#38BDF8', label: 'Metrics' },
 }
 
+/** Edge class + stroke matching the lane boundary (--graph-* / SIGNAL_COLORS). */
+export function signalEdgeProps(signal: SignalType): { class: string; style: string } {
+  return {
+    class: `edge-signal-${signal}`,
+    style: `stroke: ${SIGNAL_COLORS[signal].border}`,
+  }
+}
+
 export const STAGE_COLORS: Record<StageType, { badge: string; bg: string; border: string }> = {
   transform: { badge: '#7c3aed', bg: 'rgba(124, 58, 237, 0.08)', border: '#7c3aed' },
   filter:    { badge: '#d97706', bg: 'rgba(217, 119, 6, 0.08)', border: '#d97706' },

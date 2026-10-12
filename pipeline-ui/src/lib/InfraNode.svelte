@@ -7,84 +7,154 @@
     label: string
     type: 'receiver' | 'exporter' | 'connector'
     disabled?: boolean
+    sharedCount?: number
     [key: string]: unknown
   }
 
-  let { data }: NodeProps<Node<InfraData>> = $props()
+  let { data, selected }: NodeProps<Node<InfraData>> = $props()
+
+  let border = $derived(STAGE_COLORS[data.type]?.border ?? '#64748b')
+  let sharedCount = $derived(
+    data.type === 'receiver' && typeof data.sharedCount === 'number' ? data.sharedCount : null,
+  )
 </script>
 
 <div
-  class="node-card"
+  class="node-card node {data.type}"
   class:disabled={data.disabled}
-  style="border-color: {STAGE_COLORS[data.type]?.border ?? '#64748b'}"
+  class:selected
+  class:receiver={data.type === 'receiver'}
+  style="border-top-color: {border}"
+  aria-pressed={selected}
+  data-receiver={data.type === 'receiver' ? data.label : undefined}
 >
-  <!-- Receiver: source handle on right (edge goes FROM receiver to stage) -->
   {#if data.type === 'receiver'}
-    <Handle type="source" position={Position.Right} style="opacity: 0; width: 8px; height: 8px; top: 50%" />
+    <Handle type="source" position={Position.Right} style="top: 40px" />
   {/if}
-
-  <!-- Exporter: target handle on left (edge comes from stage to exporter) -->
   {#if data.type === 'exporter'}
-    <Handle type="target" position={Position.Left} style="opacity: 0; width: 8px; height: 8px; top: 50%" />
+    <Handle type="target" position={Position.Left} style="top: 40px" />
   {/if}
-  <div
-    class="card-header"
-    style="background: {STAGE_COLORS[data.type]?.bg ?? 'rgba(100,116,139,0.08)'}; border-bottom: 2px solid {STAGE_COLORS[data.type]?.border ?? '#64748b'}"
-  >
-    <span class="type-label">{data.type}</span>
-  </div>
 
-  <div class="card-body">
-    <span class="node-name">{data.label}</span>
+  <div class="title-row">
+    <small class="kind">{data.type}</small>
+    {#if sharedCount !== null}
+      <span
+        class="shared-badge"
+        title="Referenced by {sharedCount} pipelines"
+        aria-label="Shared by {sharedCount} pipelines"
+      >
+        <span class="shared-rings" aria-hidden="true"></span>
+        <span class="shared-count">{sharedCount}</span>
+      </span>
+    {/if}
   </div>
+  <strong class="node-name">{data.label}</strong>
+  {#if sharedCount !== null}
+    <small class="meta">shared</small>
+  {:else if data.type === 'exporter'}
+    <small class="meta">export</small>
+  {:else}
+    <small class="meta">&nbsp;</small>
+  {/if}
 </div>
 
 <style>
   .node-card {
     display: flex;
     flex-direction: column;
-    width: 160px;
+    justify-content: flex-start;
+    gap: 0;
+    width: 110px;
+    min-height: 80px;
     height: 80px;
+    padding: 10px 8px;
     border-radius: 8px;
-    border: 2px solid;
-    overflow: hidden;
-    background: rgba(30, 41, 59, 0.95);
-    cursor: default;
-    user-select: none;
+    border: 1px solid var(--color-border);
+    border-top-width: 3px;
+    background: var(--color-surface);
+    box-sizing: border-box;
+    text-align: left;
+    box-shadow: var(--shadow-sm);
+    font-family: var(--font-family);
+    transition: border-color var(--transition-fast, 120ms ease), background var(--transition-fast, 120ms ease);
   }
 
-  .card-header {
-    height: 25%;
+  .node-card:hover {
+    border-color: var(--color-text-secondary);
+    background: var(--color-surface-hover);
+  }
+
+  .node-card.selected,
+  .node-card[aria-pressed='true'] {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    background: var(--color-surface-hover);
+  }
+
+  .title-row {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 2px 4px;
+    justify-content: space-between;
+    gap: 4px;
+    min-width: 0;
   }
 
-  .type-label {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #fff;
+  .kind,
+  .meta {
+    display: block;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+    min-width: 0;
   }
 
-  .card-body {
-    height: 75%;
-    display: flex;
+  .shared-badge {
+    flex-shrink: 0;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 4px;
+    gap: 4px;
+    min-height: 18px;
+    padding: 1px 6px 1px 4px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--focus) 50%, var(--color-border));
+    background: color-mix(in oklab, var(--focus) 16%, var(--color-bg));
+    color: var(--color-info-text, var(--color-text));
+  }
+
+  /* Two overlapping rings — compact "shared/link" mark without emoji. */
+  .shared-rings {
+    position: relative;
+    width: 10px;
+    height: 8px;
+    flex-shrink: 0;
+  }
+
+  .shared-rings::before,
+  .shared-rings::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 7px;
+    height: 7px;
+    border: 1.5px solid currentColor;
+    border-radius: 50%;
+    box-sizing: border-box;
+  }
+
+  .shared-rings::before { left: 0; opacity: 0.85; }
+  .shared-rings::after { left: 3px; opacity: 1; }
+
+  .shared-count {
+    font: 600 10px/1 var(--font-mono);
   }
 
   .node-name {
-    font-size: 0.75rem;
+    font: 12px/1.4 var(--font-mono);
+    color: var(--color-text);
+    overflow-wrap: anywhere;
     font-weight: 600;
-    color: #f1f5f9;
-    text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    margin: 4px 0;
+    display: block;
   }
 
   .node-card.disabled {

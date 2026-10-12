@@ -1,5 +1,5 @@
 import { type Edge, type Node } from "@xyflow/svelte";
-import type { ProcessorConfig, Stage, StageResult } from "./types";
+import type { ProcessorConfig, SignalType, Stage, StageResult } from "./types";
 
 /**
  * Data type stored in each Svelte Flow node representing a pipeline stage.
@@ -8,6 +8,8 @@ export interface StageNodeData extends Record<string, unknown> {
 	stage: Stage;
 	processor: ProcessorConfig;
 	stageIndex: number;
+	/** Signal lane this stage belongs to (traces/logs/metrics). */
+	signal?: SignalType;
 	results?: StageResult;
 }
 
