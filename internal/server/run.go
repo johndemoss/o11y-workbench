@@ -88,6 +88,7 @@ type Run struct {
 	GeneratorStats *gen.Stats         `json:"generator_stats,omitempty"`
 	cancel         context.CancelFunc // not exported, not json
 	pauseCh        chan struct{}      // nil when running; non-nil live channel when paused; not exported
+	routes         []region.Region    // immutable per-run destinations, never process-global
 }
 
 func (r *Run) Pause() {
@@ -391,11 +392,15 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 	if cfg.Scenario != "" {
 		scenario = cfg.Scenario
 	}
-	epCopy := append([]string(nil), endpoints...)
+	routes := routesForEndpoints(endpoints)
+	epCopy := make([]string, len(routes))
+	for i, route := range routes {
+		epCopy[i] = route.Endpoint
+	}
 	run := &Run{
 		ID: id, Status: RunStatusPending, Config: cfg,
 		Scenario: scenario, StartedAt: time.Now(), TraceCount: cfg.TraceCount,
-		Endpoints: epCopy, Insecure: insecure, Output: output,
+		Endpoints: epCopy, Insecure: insecure, Output: output, routes: routes,
 	}
 	if cfg.IncludesLogs() {
 		run.LogCount = cfg.LogConfig.LogCount
@@ -578,6 +583,27 @@ func buildRunPayloads(spans []*tracev1.ResourceSpans, logs []*logsv1.ResourceLog
 	return
 }
 
+// routesForEndpoints snapshots defaults or constructs run-local routing. The first
+// custom route is local so flat evidence payloads without cloud.region also reach
+// the first destination. No request changes CLI process defaults.
+func routesForEndpoints(endpoints []string) []region.Region {
+	var routes []region.Region
+	if len(endpoints) == 0 {
+		for _, name := range region.All() {
+			routes = append(routes, region.Region{Name: name, Endpoint: region.GetEndpoint(name)})
+		}
+		return routes
+	}
+	for i, endpoint := range endpoints {
+		name := region.Name(fmt.Sprintf("endpoint-%d", i))
+		if i == 0 {
+			name = region.RegionLocal
+		}
+		routes = append(routes, region.Region{Name: name, Endpoint: endpoint})
+	}
+	return routes
+}
+
 func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Context) {
 	defer func() {
 		run.mu.Lock()
@@ -597,6 +623,14 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	logBuf := &bufferLogExporter{}
 	metricBuf := &bufferMetricExporter{}
 	var traceErr, logErr, metricErr error
+	routes := run.routes
+	if len(routes) == 0 { // Direct engine/test call rather than StartRun.
+		routes = routesForEndpoints(run.Endpoints)
+	}
+	names := make([]region.Name, len(routes))
+	for i, route := range routes {
+		names[i] = route.Name
+	}
 
 	// Determine which signals to generate.
 	doTraces := cfg.IncludesTraces()
@@ -608,8 +642,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		exp := export.TraceExporter(buf)
 		if run.Output == "otlp" {
 			otlpExporters := make(map[region.Name]export.TraceExporter)
-			for _, reg := range region.All() {
-				ep := region.GetEndpoint(reg)
+			for _, route := range routes {
+				reg, ep := route.Name, route.Endpoint
 				otlpExp, err := export.NewOTLPExporter(ep, run.Insecure, nil)
 				if err != nil {
 					run.mu.Lock()
@@ -621,6 +655,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 					run.mu.Unlock()
 					return
 				}
+				// Close every successfully constructed connection, including partial setup failures.
+				defer func() { _ = otlpExp.Shutdown(context.Background()) }()
 				// Wrap exporter to use fresh context with timeout for each export
 				otlpExporters[reg] = export.WithExportTimeout(otlpExp, 30*time.Second)
 			}
@@ -629,6 +665,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 
 		g := gen.NewGenerator(cfg)
+		g.Regions = names
 		g.OnProgress = func(completed, total int) {
 			run.mu.Lock()
 			run.TraceCountCompleted = completed
@@ -661,8 +698,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		logExp := export.LogExporter(logBuf)
 		if run.Output == "otlp" {
 			otlpLogExporters := make(map[region.Name]export.LogExporter)
-			for _, reg := range region.All() {
-				ep := region.GetEndpoint(reg)
+			for _, route := range routes {
+				reg, ep := route.Name, route.Endpoint
 				otlpLogExp, err := export.NewOTLPLogExporter(ep, run.Insecure, nil)
 				if err != nil {
 					run.mu.Lock()
@@ -674,6 +711,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 					run.mu.Unlock()
 					return
 				}
+				defer func() { _ = otlpLogExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
 				// Wrap log exporter to use fresh context with timeout for each export
 				otlpLogExporters[reg] = export.WithLogExportTimeout(otlpLogExp, 30*time.Second)
 			}
@@ -682,6 +720,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 
 		lg := gen.NewLogGenerator(cfg.LogConfig)
+		lg.Regions = names
 		lg.OnProgress = func(completed, total int) {
 			run.mu.Lock()
 			run.LogCountCompleted = completed
@@ -710,8 +749,8 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		metricExp := export.MetricExporter(metricBuf)
 		if run.Output == "otlp" {
 			otlpMetricExporters := make(map[region.Name]export.MetricExporter)
-			for _, reg := range region.All() {
-				ep := region.GetEndpoint(reg)
+			for _, route := range routes {
+				reg, ep := route.Name, route.Endpoint
 				otlpMetricExp, err := export.NewOTLPMetricExporter(ep, run.Insecure, nil)
 				if err != nil {
 					run.mu.Lock()
@@ -723,6 +762,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 					run.mu.Unlock()
 					return
 				}
+				defer func() { _ = otlpMetricExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
 				// Wrap metric exporter to use fresh context with timeout for each export
 				otlpMetricExporters[reg] = export.WithMetricExportTimeout(otlpMetricExp, 30*time.Second)
 			}
@@ -731,6 +771,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 
 		mg := gen.NewMetricGenerator(cfg.MetricConfig)
+		mg.Regions = names
 		mg.OnProgress = func(completed, total int) {
 			run.mu.Lock()
 			run.MetricCountCompleted = completed

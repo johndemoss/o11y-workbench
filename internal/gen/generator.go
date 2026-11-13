@@ -190,6 +190,9 @@ type Generator struct {
 	config     Config
 	stats      statsCounters
 	OnProgress func(completed, total int)
+	// Regions pins routing labels for this instance. Nil uses CLI process defaults.
+	// Set before Run and do not mutate while generation is active.
+	Regions []region.Name
 }
 
 func NewGenerator(config Config) *Generator {
@@ -318,7 +321,10 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 			spansByService = map[string][]*tracev1.Span{g.config.ServiceName: spans}
 		}
 
-		endpoints := region.All()
+		endpoints := g.Regions
+		if len(endpoints) == 0 {
+			endpoints = region.All()
+		}
 		if len(endpoints) == 0 {
 			continue
 		}

@@ -98,6 +98,8 @@ var defaultLogMessages = []string{
 type LogGenerator struct {
 	Config     LogConfig
 	OnProgress func(completed, total int)
+	// Regions is immutable while Run is active; nil uses CLI process defaults.
+	Regions []region.Name
 }
 
 // NewLogGenerator creates a LogGenerator with the given config.
@@ -174,7 +176,10 @@ func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter, traceSpa
 	logsGenerated := 0
 	exportBatch := make([]*logsv1.LogRecord, 0, 100)
 
-	endpoints := region.All()
+	endpoints := g.Regions
+	if len(endpoints) == 0 {
+		endpoints = region.All()
+	}
 	if len(endpoints) == 0 {
 		return fmt.Errorf("no endpoints configured")
 	}

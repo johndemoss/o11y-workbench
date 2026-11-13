@@ -55,6 +55,8 @@ var defaultMetricNames = []string{
 type MetricGenerator struct {
 	Config     MetricConfig
 	OnProgress func(completed, total int)
+	// Regions is immutable while Run is active; nil uses CLI process defaults.
+	Regions []region.Name
 }
 
 // NewMetricGenerator creates a MetricGenerator with the given config.
@@ -76,7 +78,10 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 	metricsGenerated := 0
 	exportBatch := make([]*metricspb.Metric, 0, 100)
 
-	endpoints := region.All()
+	endpoints := g.Regions
+	if len(endpoints) == 0 {
+		endpoints = region.All()
+	}
 	if len(endpoints) == 0 {
 		return fmt.Errorf("no endpoints configured")
 	}

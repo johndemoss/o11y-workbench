@@ -17,8 +17,8 @@ Only the current main branch is maintained; there is no supported-release SLA.
   Do not grant access to untrusted clients or import untrusted collector configs.
 - Several request bodies and generation parameters lack comprehensive budgets.
   Run the workbench with restricted network access and OS resource limits.
-- Concurrent web jobs currently share mutable endpoint routing. Do not rely on
-  destination isolation across overlapping runs.
+- Per-run destinations are isolated, but the service still lacks multi-user
+  authorization, quotas and complete server-wide shutdown ownership. do not infer multi-tenant safety from routing isolation.
 - Use synthetic telemetry. Real traces, logs, attributes, headers, imported
   configurations, TAP captures, evaluation artifacts, screenshots and terminal
   output can contain credentials or personal/customer data. Do not commit them.

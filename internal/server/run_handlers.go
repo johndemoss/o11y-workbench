@@ -8,7 +8,6 @@ import (
 
 	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/logging"
-	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
@@ -47,15 +46,6 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	endpoints := body.Endpoints
-	if len(endpoints) > 0 {
-		region.SetEndpoints(endpoints)
-	} else {
-		region.SetEndpoints(nil)
-		endpoints = make([]string, len(region.All()))
-		for i, reg := range region.All() {
-			endpoints[i] = region.GetEndpoint(reg)
-		}
-	}
 
 	// Normalize signal selection: prefer new Signals format, fall back to SignalType
 	signals := body.Signals
