@@ -2,16 +2,18 @@
   <img src="assets/logo.svg" alt="o11y workbench" width="500">
 </div>
 
-**Deterministic mock OTLP telemetry generator** for testing distributed system scenarios, trace-ID-aware load balancing, [OpenTelemetry Transformation Language (OTTL)](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) prototyping, and pipeline authoring.
+**Seeded mock OTLP telemetry generator and local development workbench** for testing distributed system scenarios, trace-ID-aware load balancing, [OpenTelemetry Transformation Language (OTTL)](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) prototyping, and pipeline authoring.
 
-Generate structurally valid OTLP traces, logs, and metrics with reproducible output — feed them into any collector (Jaeger, Datadog, Grafana, etc.), inspect locally as JSON/protobuf files, or prototype collector pipelines in the browser.
+Generate structurally valid OTLP traces with the CLI, or traces, logs, and metrics in the web dashboard. Feed them into a collector (Jaeger, Datadog, Grafana, etc.), inspect locally as JSON/protobuf files, or prototype collector pipelines in the browser. Seeds reproduce generation choices, not byte-identical telemetry: normal runs use fresh IDs and wall-clock timestamps.
 
-Agent and contributor workflow lives in [AGENTS.md](AGENTS.md).
+This is an **unauthenticated, trusted single-user development tool**, not a public HTTP service. Keep it on loopback and use synthetic data. Read [SECURITY.md](SECURITY.md) before using real captures or changing network bindings.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for verified build/check commands, [AGENTS.md](AGENTS.md) for architecture rules. Project-owned code is [MIT licensed](LICENSE); third-party material retains its own terms.
 
 ## Features
 
-- **Deterministic generation** — same seed always produces identical traces, logs, and metrics. Reproduce bugs, share test cases.
-- **Multi-signal** — generate traces, logs, and metrics together or independently, all in OTLP wire format.
+- **Seeded generation** — reproduce topology and workload choices; normal runs retain fresh IDs and timestamps rather than byte-identical output.
+- **Multi-signal web workflow** — generate traces, logs, and metrics together or independently, all in OTLP wire format. The batch CLI generates traces only.
 - **Multiple topologies** — flat, branching, split trace shapes.
 - **Built-in scenarios** — microservice, monolith, 3-tier-web-app, event-driven architectures with realistic service graphs.
 - **User-defined scenarios** — define custom service graphs in YAML/JSON.
@@ -28,7 +30,9 @@ Agent and contributor workflow lives in [AGENTS.md](AGENTS.md).
 
 ## Quick Start
 
-### CLI
+Prerequisites: Go **1.26.11+** for the CLI; Node.js **22** and npm also required for the web UIs.
+
+### CLI (traces only)
 
 ```bash
 # Generate 5 flat-topology traces, output as JSON files
@@ -40,9 +44,6 @@ go run ./cmd/o11y-workbench --scenario microservice --output otlp --endpoint loc
 # Load a user-defined scenario file
 go run ./cmd/o11y-workbench --scenario my-app --scenario-file ./scenarios.yaml
 
-# Generate traces + logs + metrics together
-go run ./cmd/o11y-workbench --traces 3 --scenario microservice \
-  --signal-type both --log-count 20 --metric-count 30
 ```
 
 ### Web Dashboard
@@ -73,7 +74,7 @@ Open [http://localhost:18080/pipeline/](http://localhost:18080/pipeline/) for th
 ```bash
 docker build -f Dockerfile.web -t o11y-workbench-web .
 # Host 18080 → container 8080 (avoids clash with a local process on :8080)
-docker run -p 18080:8080 o11y-workbench-web
+docker run -p 127.0.0.1:18080:8080 o11y-workbench-web
 ```
 
 Docker Compose profiles are also available for local development with OTel Desktop Viewer:
@@ -96,8 +97,9 @@ Usage: o11y-workbench [flags]
 Flags:
       --config string            Config file path (YAML, JSON, or TOML)
       --seed int                 RNG seed for deterministic generation (default 42)
-      --traces int               Number of traces to generate (default 1)
-      --rate int                 Target traces per second (0 = unlimited)
+      --traces int               Number of traces (0 = unlimited; mutually exclusive with --duration)
+      --duration int             Maximum duration in seconds (default 10; mutually exclusive with --traces)
+      --rate int                 Target traces per second (0 = unlimited, default 1)
       --topology string          Trace shape: flat, branching, split (default "flat")
       --scenario string          Named scenario: microservice, monolith, 3-tier-web-app,
                                  event-driven, or a user-defined scenario
@@ -106,10 +108,6 @@ Flags:
       --span-count int           Target spans per trace (default 10)
       --max-depth int            Maximum span depth in branching/split topologies (default 5)
       --service-name string      Service name for resource attributes (default "mock-service")
-      --signal-type string       Signals to generate: "traces", "logs", "metrics", "both" (default "traces")
-      --log-count int            Number of log records to generate (default 10)
-      --logs-per-span int        Log records per span (default 3)
-      --metric-count int         Number of metric data points to generate (default 20)
       --output string            Output mode: file, otlp (default "file")
       --format string            Output format for file mode: json, protobuf (default "json")
       --output-dir string        Output directory for file mode (default "./traces")
@@ -125,7 +123,7 @@ Precedence: CLI flag > environment variable (`O11Y_WORKBENCH_*`) > config file >
 Usage: o11y-workbench-web [flags]
 
 Flags:
-      --addr string              HTTP listen address (default ":18080")
+      --addr string              HTTP listen address (default "127.0.0.1:18080")
       --jobs string              Path to JSON file with startup job definitions
       --scenario-file string     Path to YAML/JSON with user-defined scenario definitions
       --pipeline-prototyper      Enable the pipeline prototyper UI and API
@@ -230,7 +228,7 @@ The **Pipeline Prototyper** is a visual pipeline builder (Svelte SPA) that mirro
 
 ### Build Prerequisites
 
-- Node.js 18+ required for building the pipeline UI
+- Node.js 22 required for building the pipeline UI
 - The `./scripts/serve.sh` command handles frontend builds automatically
 
 ## Scenarios

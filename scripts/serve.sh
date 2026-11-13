@@ -39,7 +39,7 @@ trap cleanup EXIT
 if ! $SKIP_BUILD; then
   if [ -d "$PROJECT_DIR/pipeline-ui" ]; then
     echo "==> Building pipeline-ui (frontend)..."
-    (cd "$PROJECT_DIR/pipeline-ui" && npm install --silent && npm run build) || {
+    (cd "$PROJECT_DIR/pipeline-ui" && npm ci --silent && npm run build) || {
       echo "ERROR: pipeline-ui build failed" >&2
       exit 1
     }
@@ -51,7 +51,7 @@ if ! $SKIP_BUILD; then
 
   if [ -d "$PROJECT_DIR/capacity-ui" ]; then
     echo "==> Building capacity-ui (frontend)..."
-    (cd "$PROJECT_DIR/capacity-ui" && npm install --silent && npm run build) || {
+    (cd "$PROJECT_DIR/capacity-ui" && npm ci --silent && npm run build) || {
       echo "ERROR: capacity-ui build failed" >&2
       exit 1
     }

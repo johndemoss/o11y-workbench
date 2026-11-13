@@ -6,12 +6,12 @@ ottl-workers:
 	cd workers/ottl-0.162 && go build -o ../../bin/ottl-worker-0.162.0 .
 
 build-pipeline-ui:
-	cd pipeline-ui && npm install && npm run build
+	cd pipeline-ui && npm ci && npm run build
 	rm -rf internal/server/pipeline-ui/dist
 	cp -r pipeline-ui/dist internal/server/pipeline-ui/dist
 
 build-capacity-ui:
-	cd capacity-ui && npm install && npm run build
+	cd capacity-ui && npm ci && npm run build
 	rm -rf internal/server/capacity-ui/dist
 	cp -r capacity-ui/dist internal/server/capacity-ui/dist
 

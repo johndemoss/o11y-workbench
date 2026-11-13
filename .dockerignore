@@ -38,7 +38,13 @@ docs/
 
 # Config files that shouldn't be in container
 .env
-.env.local
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.cursor/
+.sisyphus/
 
 # Claude plans
 .claude/

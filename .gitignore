@@ -5,6 +5,17 @@
 bin/
 *.test
 
+# Local credentials and runtime/session state (synthetic fixtures need explicit review)
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+/tmp/
+
 # Graphify knowledge-graph output
 graphify-out/
 
