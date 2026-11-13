@@ -51,9 +51,9 @@ func NewOTLPExporter(endpoint string, insecure bool, headers map[string]string) 
 		creds = credentials.NewTLS(nil)
 	}
 
-	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(creds))
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", endpoint, err)
+		return nil, fmt.Errorf("create client for %s: %w", endpoint, err)
 	}
 
 	return &OTLPExporter{
@@ -72,9 +72,9 @@ func NewOTLPLogExporter(endpoint string, insecure bool, headers map[string]strin
 		creds = credentials.NewTLS(nil)
 	}
 
-	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(creds))
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", endpoint, err)
+		return nil, fmt.Errorf("create client for %s: %w", endpoint, err)
 	}
 
 	return &OTLPLogExporter{
@@ -93,9 +93,9 @@ func NewOTLPMetricExporter(endpoint string, insecure bool, headers map[string]st
 		creds = credentials.NewTLS(nil)
 	}
 
-	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(creds))
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", endpoint, err)
+		return nil, fmt.Errorf("create client for %s: %w", endpoint, err)
 	}
 
 	return &OTLPMetricExporter{

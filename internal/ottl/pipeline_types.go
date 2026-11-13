@@ -26,11 +26,11 @@ type ProcessorConfig map[string]interface{}
 
 // Stage represents a single pipeline stage referencing a processor.
 type Stage struct {
-	ID           string          `yaml:"id" json:"id"`
-	Type         StageType       `yaml:"type" json:"type"`
-	ErrorMode    ErrorMode       `yaml:"error_mode,omitempty" json:"error_mode,omitempty"`
-	Signals      []string        `yaml:"signals,omitempty" json:"signals,omitempty"`
-	ProcessorRef string          `yaml:"processor_ref" json:"processor_ref"`
+	ID           string    `yaml:"id" json:"id"`
+	Type         StageType `yaml:"type" json:"type"`
+	ErrorMode    ErrorMode `yaml:"error_mode,omitempty" json:"error_mode,omitempty"`
+	Signals      []string  `yaml:"signals,omitempty" json:"signals,omitempty"`
+	ProcessorRef string    `yaml:"processor_ref" json:"processor_ref"`
 }
 
 // Pipeline is a complete pipeline definition with stages and processor configs.

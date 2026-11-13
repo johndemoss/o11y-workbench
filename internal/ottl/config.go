@@ -8,8 +8,8 @@ import (
 )
 
 type TransformConfig struct {
-	TraceStatements []ContextStatements `yaml:"trace_statements"`
-	LogStatements   []ContextStatements `yaml:"log_statements"`
+	TraceStatements  []ContextStatements `yaml:"trace_statements"`
+	LogStatements    []ContextStatements `yaml:"log_statements"`
 	MetricStatements []ContextStatements `yaml:"metric_statements"`
 }
 
@@ -20,8 +20,8 @@ type ContextStatements struct {
 }
 
 type FilterConfig struct {
-	Traces TraceFilters   `yaml:"traces"`
-	Logs   LogFilters     `yaml:"logs"`
+	Traces  TraceFilters     `yaml:"traces"`
+	Logs    LogFilters       `yaml:"logs"`
 	Metrics DataPointFilters `yaml:"metrics"`
 }
 
@@ -341,4 +341,3 @@ func parseLines(s string) []string {
 	}
 	return out
 }
-

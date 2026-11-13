@@ -88,12 +88,12 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 	cfg := gen.Config{
 		Seed: body.Seed, TraceCount: body.TraceCount, Rate: body.Rate,
-		Duration:  time.Duration(body.Duration) * time.Second,
+		Duration: time.Duration(body.Duration) * time.Second,
 		Topology: topoType, SpanCount: body.SpanCount, MaxDepth: body.MaxDepth,
-		ServiceName: body.ServiceName,
-		BaseTime:    time.Now(),
+		ServiceName:   body.ServiceName,
+		BaseTime:      time.Now(),
 		TraceDuration: 5 * time.Second,
-		Scenario: body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
+		Scenario:      body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
 		Signals:      *signals,
 		SignalType:   gen.DeriveSignalType(*signals), // for backwards compat in responses
 		LogConfig:    body.LogConfig,
@@ -182,24 +182,23 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
 }
 
-
 // workloadRequest is the dashboard/API shape for WorkloadProfile overlays.
 // Burst on/off are seconds (not Go Duration nanoseconds).
 type workloadRequest struct {
-	ExperimentID               string  `json:"experiment_id"`
-	ItemsPerRequest            int     `json:"items_per_request"`
-	AttributeCount             int     `json:"attribute_count"`
-	AttributeValueBytes        int     `json:"attribute_value_bytes"`
-	Cardinality                int     `json:"cardinality"`
-	Mode                       string  `json:"mode"`
-	RateItemsPerSec            float64 `json:"rate_items_per_sec"`
-	RequestsPerSec             float64 `json:"requests_per_sec"`
-	ContinueOnExportErr        bool    `json:"continue_on_export_err"`
-	SingleResource             bool    `json:"single_resource"`
-	Shape                      string  `json:"shape"`
-	BurstOnS                   float64 `json:"burst_on_s"`
-	BurstOffS                  float64 `json:"burst_off_s"`
-	BurstPeakRateItemsPerSec   float64 `json:"burst_peak_rate_items_per_sec"`
+	ExperimentID             string  `json:"experiment_id"`
+	ItemsPerRequest          int     `json:"items_per_request"`
+	AttributeCount           int     `json:"attribute_count"`
+	AttributeValueBytes      int     `json:"attribute_value_bytes"`
+	Cardinality              int     `json:"cardinality"`
+	Mode                     string  `json:"mode"`
+	RateItemsPerSec          float64 `json:"rate_items_per_sec"`
+	RequestsPerSec           float64 `json:"requests_per_sec"`
+	ContinueOnExportErr      bool    `json:"continue_on_export_err"`
+	SingleResource           bool    `json:"single_resource"`
+	Shape                    string  `json:"shape"`
+	BurstOnS                 float64 `json:"burst_on_s"`
+	BurstOffS                float64 `json:"burst_off_s"`
+	BurstPeakRateItemsPerSec float64 `json:"burst_peak_rate_items_per_sec"`
 }
 
 func workloadFromRequest(req *workloadRequest) gen.WorkloadProfile {

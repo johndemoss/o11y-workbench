@@ -15,27 +15,27 @@ func TestHandleStartRun_WorkloadOverlays(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := json.Marshal(map[string]any{
-		"seed":        7,
-		"trace_count": 1,
-		"rate":        0,
-		"duration":    1,
-		"topology":    "flat",
-		"span_count":  2,
-		"max_depth":   3,
+		"seed":         7,
+		"trace_count":  1,
+		"rate":         0,
+		"duration":     1,
+		"topology":     "flat",
+		"span_count":   2,
+		"max_depth":    3,
 		"service_name": "dash",
-		"output":      "file",
-		"signals":     map[string]bool{"traces": true},
+		"output":       "file",
+		"signals":      map[string]bool{"traces": true},
 		"workload": map[string]any{
-			"single_resource":       true,
-			"items_per_request":     2,
-			"experiment_id":         "exp-dash",
-			"attribute_count":       1,
-			"attribute_value_bytes": 2,
-			"cardinality":           3,
-			"continue_on_export_err": true,
-			"mode":                  "burst",
-			"burst_on_s":            1.5,
-			"burst_off_s":           0.5,
+			"single_resource":               true,
+			"items_per_request":             2,
+			"experiment_id":                 "exp-dash",
+			"attribute_count":               1,
+			"attribute_value_bytes":         2,
+			"cardinality":                   3,
+			"continue_on_export_err":        true,
+			"mode":                          "burst",
+			"burst_on_s":                    1.5,
+			"burst_off_s":                   0.5,
 			"burst_peak_rate_items_per_sec": 100,
 		},
 	})
@@ -94,7 +94,6 @@ func TestHandleStartRun_FlatShapeSkipsTopologyParse(t *testing.T) {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
 }
-
 
 func TestHandleStartRun_ScenarioWorkload(t *testing.T) {
 	s, err := New(":0", false)

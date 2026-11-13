@@ -98,9 +98,9 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 		"endpoints": endpoints, "insecure": true,
 		"signal_type": "traces",
 		"log_config": map[string]any{
-			"enabled":      logDef.Enabled,
+			"enabled":       logDef.Enabled,
 			"logs_per_span": logDef.LogsPerSpan,
-			"log_count":    logDef.LogCount,
+			"log_count":     logDef.LogCount,
 			"severity_dist": map[string]int{
 				"info":  logDef.SeverityDist.Info,
 				"warn":  logDef.SeverityDist.Warn,
@@ -111,13 +111,13 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 			"attributes":    []gen.LogAttribute{},
 		},
 		"metric_config": map[string]any{
-			"enabled":       false,
-			"metric_count":  20,
-			"gauge_ratio":   0.4,
-			"sum_ratio":     0.4,
-			"value_min":     0,
-			"value_max":     100,
-			"attributes":    []gen.MetricAttribute{},
+			"enabled":      false,
+			"metric_count": 20,
+			"gauge_ratio":  0.4,
+			"sum_ratio":    0.4,
+			"value_min":    0,
+			"value_max":    100,
+			"attributes":   []gen.MetricAttribute{},
 		},
 	})
 }

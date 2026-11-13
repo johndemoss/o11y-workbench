@@ -203,15 +203,6 @@ func sortedKeys(cfg ProcessorConfig) []string {
 	return keys
 }
 
-func sortedMapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func spaces(n int) string {
 	if n <= 0 {
 		return ""

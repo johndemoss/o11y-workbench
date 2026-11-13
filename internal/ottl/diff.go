@@ -124,14 +124,6 @@ func extractSpansFromData(data json.RawMessage) ([]map[string]interface{}, error
 	return spans, nil
 }
 
-func extractSpanCount(data json.RawMessage) int {
-	spans, err := extractSpansFromData(data)
-	if err != nil {
-		return 0
-	}
-	return len(spans)
-}
-
 func getStringField(m map[string]interface{}, keys ...string) string {
 	for _, key := range keys {
 		if v, ok := m[key].(string); ok {
@@ -306,12 +298,6 @@ func computeSpanChanges(before, after map[string]interface{}) []SpanChange {
 		}
 	}
 
-	bAttrs2, aAttrs2 := normalizeAttrs(getField(before, "attributes")), normalizeAttrs(getField(after, "attributes"))
-	for key := range bAttrs2 {
-		if _, exists := aAttrs2[key]; !exists {
-		}
-	}
-
 	return changes
 }
 
@@ -373,15 +359,6 @@ func highlightJSON(data json.RawMessage) string {
 		return string(data)
 	}
 	b, _ := json.MarshalIndent(m, "", "  ")
-	return string(b)
-}
-
-func formatJSON(data json.RawMessage) string {
-	var m interface{}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return string(data)
-	}
-	b, _ := json.Marshal(m)
 	return string(b)
 }
 

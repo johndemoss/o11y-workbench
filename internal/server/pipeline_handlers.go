@@ -107,23 +107,6 @@ func parsePipelineRequestBody(r *http.Request) (pipelineYAML, runID, signal stri
 	return req.PipelineYAML, runID, signal, nil
 }
 
-// parsePipelineFromRequest reads and parses pipeline YAML from the request body.
-// Supports:
-//   - Content-Type: application/x-yaml or text/yaml (raw YAML body)
-//   - Content-Type: application/json (JSON with pipeline_yaml field)
-//
-// Optional signal query/JSON field selects which collector pipeline to extract.
-func parsePipelineFromRequest(r *http.Request) (*ottl.Pipeline, error) {
-	pipelineYAML, _, signal, err := parsePipelineRequestBody(r)
-	if err != nil {
-		return nil, err
-	}
-	if signal == "" {
-		signal = "traces"
-	}
-	return parsePipelineFromYAMLForSignal(pipelineYAML, signal)
-}
-
 func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) {
 	pipelineYAML, _, signal, err := parsePipelineRequestBody(r)
 	if err != nil {

@@ -136,22 +136,20 @@ func TestSeededRNG_DifferentSeeds(t *testing.T) {
 	}
 }
 
-func TestSeededRNG_TraceID_Length(t *testing.T) {
+func TestSeededRNG_TraceID_Nonzero(t *testing.T) {
 	rng := gen.NewSeededRNG(42)
 	for i := 0; i < 10; i++ {
-		id := rng.TraceID()
-		if len(id) != 16 {
-			t.Errorf("TraceID length: got %d, want 16", len(id))
+		if id := rng.TraceID(); id == ([16]byte{}) {
+			t.Error("TraceID must not be all zero")
 		}
 	}
 }
 
-func TestSeededRNG_SpanID_Length(t *testing.T) {
+func TestSeededRNG_SpanID_Nonzero(t *testing.T) {
 	rng := gen.NewSeededRNG(42)
 	for i := 0; i < 10; i++ {
-		id := rng.SpanID()
-		if len(id) != 8 {
-			t.Errorf("SpanID length: got %d, want 8", len(id))
+		if id := rng.SpanID(); id == ([8]byte{}) {
+			t.Error("SpanID must not be all zero")
 		}
 	}
 }
@@ -1126,7 +1124,7 @@ func TestGenerator_TopologyExported(t *testing.T) {
 						t.Error("ScopeSpans.Scope.Name should not be empty")
 					}
 				}
-				if rs.ScopeSpans[0].Spans == nil || len(rs.ScopeSpans[0].Spans) == 0 {
+				if len(rs.ScopeSpans[0].Spans) == 0 {
 					t.Error("ScopeSpans.Spans should not be empty")
 				}
 

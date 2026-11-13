@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 func attrString(spanAttr []*commonv1.KeyValue, key string) string {

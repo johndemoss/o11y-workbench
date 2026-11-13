@@ -65,5 +65,3 @@ func MarshalTracesToJSON(traces ptrace.Traces) (json.RawMessage, error) {
 
 	return export.FixTraceSpanIDsForMarshal(data)
 }
-
-

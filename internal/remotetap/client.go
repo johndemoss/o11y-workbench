@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"sync"
 
-	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collectorslogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 )

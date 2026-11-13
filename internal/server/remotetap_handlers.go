@@ -28,10 +28,10 @@ const (
 // sampler implements sampling strategies for remotetap data
 type sampler struct {
 	mu           sync.Mutex
-	samplingType string   // "head", "tail", "random", "none"
-	samplingRate float64  // For head: count limit; tail: every Nth; random: probability
-	count        int      // For head sampling: how many kept so far
-	offset       int      // For tail sampling: current position in sequence
+	samplingType string  // "head", "tail", "random", "none"
+	samplingRate float64 // For head: count limit; tail: every Nth; random: probability
+	count        int     // For head sampling: how many kept so far
+	offset       int     // For tail sampling: current position in sequence
 }
 
 // newSampler creates a new sampler
@@ -39,8 +39,8 @@ func newSampler(samplingType string, samplingRate float64) *sampler {
 	return &sampler{
 		samplingType: samplingType,
 		samplingRate: samplingRate,
-		count:         0,
-		offset:        0,
+		count:        0,
+		offset:       0,
 	}
 }
 
@@ -77,12 +77,12 @@ func (s *sampler) ShouldSample() bool {
 
 // ringBuffer implements bounded storage with FIFO eviction
 type ringBuffer struct {
-	mu            sync.Mutex
-	items         []*tracev1.ResourceSpans
-	maxSpans      int
-	maxBytes      int
-	currentBytes  int
-	evictedCount  int
+	mu           sync.Mutex
+	items        []*tracev1.ResourceSpans
+	maxSpans     int
+	maxBytes     int
+	currentBytes int
+	evictedCount int
 }
 
 func newRingBuffer(maxSpans, maxBytes int) *ringBuffer {
@@ -153,10 +153,10 @@ func estimateSize(rs *tracev1.ResourceSpans) int {
 
 type RemotetapFilters struct {
 	// Attribute filters
-	Services      []string          // Empty = all
-	SpanKinds     []string          // Empty = all (SERVER, CLIENT, PRODUCER, CONSUMER, INTERNAL)
-	ResourceAttrs map[string]string // Empty = all (key=value pairs)
-	MinLogSeverity string           // Empty = all (DEBUG, INFO, WARN, ERROR)
+	Services       []string          // Empty = all
+	SpanKinds      []string          // Empty = all (SERVER, CLIENT, PRODUCER, CONSUMER, INTERNAL)
+	ResourceAttrs  map[string]string // Empty = all (key=value pairs)
+	MinLogSeverity string            // Empty = all (DEBUG, INFO, WARN, ERROR)
 
 	// Sampling
 	SamplingType string  // "head", "tail", "random", "none"
@@ -504,7 +504,7 @@ func severityFromString(s string) logsv1.SeverityNumber {
 
 func (s *Server) handleRemotetapConnect(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Endpoint string            `json:"endpoint"`
+		Endpoint string           `json:"endpoint"`
 		Filters  RemotetapFilters `json:"filters"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

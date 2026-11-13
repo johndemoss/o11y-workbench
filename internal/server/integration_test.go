@@ -367,13 +367,13 @@ func TestIntegration_RunDuration(t *testing.T) {
 	store := NewRunStore()
 
 	cfg := gen.Config{
-		Seed:       42,
-		TraceCount: 0, // infinite — duration should stop it
-		Rate:       100,
-		Duration:   500 * time.Millisecond,
-		SpanCount:  5,
-		MaxDepth:   3,
-		Topology:   gen.TopologyFlat,
+		Seed:        42,
+		TraceCount:  0, // infinite — duration should stop it
+		Rate:        100,
+		Duration:    500 * time.Millisecond,
+		SpanCount:   5,
+		MaxDepth:    3,
+		Topology:    gen.TopologyFlat,
 		ServiceName: "test-duration",
 		BaseTime:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}

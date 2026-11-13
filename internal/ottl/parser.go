@@ -15,9 +15,9 @@ import (
 
 // ValidateResult holds the result of validating one or more OTTL statements.
 type ValidateResult struct {
-	Valid    bool     `json:"valid"`
-	Errors   []string `json:"errors,omitempty"`
-	Parsed   int      `json:"statements_parsed"`
+	Valid  bool     `json:"valid"`
+	Errors []string `json:"errors,omitempty"`
+	Parsed int      `json:"statements_parsed"`
 }
 
 // ValidateStatements parses and validates OTTL statements without executing them.

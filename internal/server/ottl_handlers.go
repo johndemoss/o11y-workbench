@@ -49,7 +49,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RunID            string       `json:"run_id"`
 		Config           string       `json:"config"`
-		Statements       []string     `json:"statements"` // backward compat
+		Statements       []string     `json:"statements"`  // backward compat
 		SignalType       string       `json:"signal_type"` // DEPRECATED: use Signals
 		Signals          *gen.Signals `json:"signals"`
 		CollectorVersion string       `json:"collector_version"`
@@ -229,8 +229,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, ottl.TransformResult{
-			Valid:                 true,
-			MetricTransformedData: &transformed,
+			Valid:                  true,
+			MetricTransformedData:  &transformed,
 			MetricStatementsParsed: len(statements),
 		})
 		return
@@ -271,13 +271,13 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		RunID            string         `json:"run_id"`
-		Config           string         `json:"config"`
+		RunID            string          `json:"run_id"`
+		Config           string          `json:"config"`
 		Mode             ottl.FilterMode `json:"mode"`
-		Conditions       []string       `json:"conditions"` // backward compat
-		SignalType       string         `json:"signal_type"` // DEPRECATED: use Signals
-		Signals          *gen.Signals   `json:"signals"`
-		CollectorVersion string         `json:"collector_version"`
+		Conditions       []string        `json:"conditions"`  // backward compat
+		SignalType       string          `json:"signal_type"` // DEPRECATED: use Signals
+		Signals          *gen.Signals    `json:"signals"`
+		CollectorVersion string          `json:"collector_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -495,7 +495,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Config           string       `json:"config"`
-		Conditions       []string     `json:"conditions"` // backward compat
+		Conditions       []string     `json:"conditions"`  // backward compat
 		SignalType       string       `json:"signal_type"` // DEPRECATED: use Signals
 		Signals          *gen.Signals `json:"signals"`
 		CollectorVersion string       `json:"collector_version"`

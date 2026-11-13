@@ -177,19 +177,19 @@ func TransformSpans(traces ptrace.Traces, statements []string, errorMode ErrorMo
 
 // TransformResult holds the outcome of a transform request.
 type TransformResult struct {
-	Valid                bool             `json:"valid"`
-	Errors               []string         `json:"errors,omitempty"`
-	OriginalData            *json.RawMessage `json:"original_data,omitempty"`
-	TransformedData         *json.RawMessage `json:"transformed_data,omitempty"`
-	StatementsParsed        int              `json:"statements_parsed,omitempty"`
-	SpanCount               int              `json:"span_count,omitempty"`
-	TransformedCount        int              `json:"transformed_count,omitempty"`
-	LogOriginalData         *json.RawMessage `json:"log_original_data,omitempty"`
-	LogTransformedData      *json.RawMessage `json:"log_transformed_data,omitempty"`
-	LogStatementsParsed     int              `json:"log_statements_parsed,omitempty"`
-	LogTransformedCount     int              `json:"log_transformed_count,omitempty"`
-	MetricOriginalData      *json.RawMessage `json:"metric_original_data,omitempty"`
-	MetricTransformedData   *json.RawMessage `json:"metric_transformed_data,omitempty"`
-	MetricStatementsParsed  int              `json:"metric_statements_parsed,omitempty"`
-	MetricTransformedCount  int              `json:"metric_transformed_count,omitempty"`
+	Valid                  bool             `json:"valid"`
+	Errors                 []string         `json:"errors,omitempty"`
+	OriginalData           *json.RawMessage `json:"original_data,omitempty"`
+	TransformedData        *json.RawMessage `json:"transformed_data,omitempty"`
+	StatementsParsed       int              `json:"statements_parsed,omitempty"`
+	SpanCount              int              `json:"span_count,omitempty"`
+	TransformedCount       int              `json:"transformed_count,omitempty"`
+	LogOriginalData        *json.RawMessage `json:"log_original_data,omitempty"`
+	LogTransformedData     *json.RawMessage `json:"log_transformed_data,omitempty"`
+	LogStatementsParsed    int              `json:"log_statements_parsed,omitempty"`
+	LogTransformedCount    int              `json:"log_transformed_count,omitempty"`
+	MetricOriginalData     *json.RawMessage `json:"metric_original_data,omitempty"`
+	MetricTransformedData  *json.RawMessage `json:"metric_transformed_data,omitempty"`
+	MetricStatementsParsed int              `json:"metric_statements_parsed,omitempty"`
+	MetricTransformedCount int              `json:"metric_transformed_count,omitempty"`
 }

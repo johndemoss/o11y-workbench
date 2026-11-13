@@ -189,16 +189,6 @@ func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter, traceSpa
 			svcName = pairs[0].svcName
 		}
 
-		attrs := make([]*commonv1.KeyValue, 0)
-		for _, attr := range g.Config.Attributes {
-			attrs = append(attrs, &commonv1.KeyValue{
-				Key: attr.Key,
-				Value: &commonv1.AnyValue{
-					Value: &commonv1.AnyValue_StringValue{StringValue: attr.Value},
-				},
-			})
-		}
-
 		sl := &logsv1.ScopeLogs{
 			Scope: &commonv1.InstrumentationScope{
 				Name:    "o11y-workbench",

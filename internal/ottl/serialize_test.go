@@ -7,8 +7,8 @@ import (
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func TestSerializeRoundTrip(t *testing.T) {

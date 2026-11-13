@@ -236,4 +236,3 @@ func computeAcceptKey(key string) string {
 	h.Write([]byte(websocketGUID))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
-

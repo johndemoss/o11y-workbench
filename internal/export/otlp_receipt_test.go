@@ -41,7 +41,7 @@ func newBufOTLPTraces(t *testing.T, srv collectortracev1.TraceServiceServer) (*T
 	gs := grpc.NewServer()
 	collectortracev1.RegisterTraceServiceServer(gs, srv)
 	go func() { _ = gs.Serve(lis) }()
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)

@@ -8,8 +8,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )
@@ -474,5 +474,3 @@ func TestFilterSpans_ErrorModeIgnore(t *testing.T) {
 		t.Errorf("kept = %d, want 0 (all spans should be dropped due to eval errors)", kept)
 	}
 }
-
-

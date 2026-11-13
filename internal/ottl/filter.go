@@ -405,21 +405,21 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 
 // FilterResult holds the outcome of a filter request.
 type FilterResult struct {
-	Valid              bool             `json:"valid"`
-	Errors             []string         `json:"errors,omitempty"`
-	OriginalData          *json.RawMessage `json:"original_data,omitempty"`
-	FilteredData          *json.RawMessage `json:"filtered_data,omitempty"`
-	ConditionsParsed      int              `json:"conditions_parsed,omitempty"`
-	TotalSpanCount        int              `json:"total_span_count,omitempty"`
-	FilteredSpanCount     int              `json:"filtered_span_count,omitempty"`
-	LogOriginalData       *json.RawMessage `json:"log_original_data,omitempty"`
-	LogFilteredData       *json.RawMessage `json:"log_filtered_data,omitempty"`
-	LogConditionsParsed   int              `json:"log_conditions_parsed,omitempty"`
-	TotalLogCount         int              `json:"total_log_count,omitempty"`
-	FilteredLogCount      int              `json:"filtered_log_count,omitempty"`
-	MetricOriginalData    *json.RawMessage `json:"metric_original_data,omitempty"`
-	MetricFilteredData    *json.RawMessage `json:"metric_filtered_data,omitempty"`
-	MetricConditionsParsed int             `json:"metric_conditions_parsed,omitempty"`
-	TotalMetricCount      int              `json:"total_metric_count,omitempty"`
-	FilteredMetricCount   int              `json:"filtered_metric_count,omitempty"`
+	Valid                  bool             `json:"valid"`
+	Errors                 []string         `json:"errors,omitempty"`
+	OriginalData           *json.RawMessage `json:"original_data,omitempty"`
+	FilteredData           *json.RawMessage `json:"filtered_data,omitempty"`
+	ConditionsParsed       int              `json:"conditions_parsed,omitempty"`
+	TotalSpanCount         int              `json:"total_span_count,omitempty"`
+	FilteredSpanCount      int              `json:"filtered_span_count,omitempty"`
+	LogOriginalData        *json.RawMessage `json:"log_original_data,omitempty"`
+	LogFilteredData        *json.RawMessage `json:"log_filtered_data,omitempty"`
+	LogConditionsParsed    int              `json:"log_conditions_parsed,omitempty"`
+	TotalLogCount          int              `json:"total_log_count,omitempty"`
+	FilteredLogCount       int              `json:"filtered_log_count,omitempty"`
+	MetricOriginalData     *json.RawMessage `json:"metric_original_data,omitempty"`
+	MetricFilteredData     *json.RawMessage `json:"metric_filtered_data,omitempty"`
+	MetricConditionsParsed int              `json:"metric_conditions_parsed,omitempty"`
+	TotalMetricCount       int              `json:"total_metric_count,omitempty"`
+	FilteredMetricCount    int              `json:"filtered_metric_count,omitempty"`
 }

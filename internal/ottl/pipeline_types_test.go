@@ -13,7 +13,7 @@ func TestPipelineRoundTrip(t *testing.T) {
 			{ID: "stage2", Type: StageTypeFilter, ProcessorRef: "filter/keep_errors"},
 		},
 		Processors: map[string]ProcessorConfig{
-			"transform/add_env": {"trace_statements": []interface{}{map[string]interface{}{"context": "span", "statements": []interface{}{`set(attributes["env"], "prod")`}}}},
+			"transform/add_env":  {"trace_statements": []interface{}{map[string]interface{}{"context": "span", "statements": []interface{}{`set(attributes["env"], "prod")`}}}},
 			"filter/keep_errors": {"traces": map[string]interface{}{"span": []interface{}{`status.code == 2`}}},
 		},
 	}
