@@ -2,7 +2,7 @@
 # scripts/serve.sh — Reliable o11y-workbench-web server launcher for agents.
 set -euo pipefail
 
-ADDR=":18080"
+ADDR="127.0.0.1:18080"
 SKIP_BUILD=false
 WAIT_SECONDS=30
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -157,8 +157,13 @@ SERVER_PID=$!
 echo "$SERVER_PID" > "$PIDFILE"
 disown "$SERVER_PID" 2>/dev/null || true
 
-HOST="localhost${ADDR}"
-HEALTH_URL="http://${HOST#:}/api/health"
+HEALTH_ADDR="$ADDR"
+case "$ADDR" in
+  :*) HEALTH_ADDR="127.0.0.1$ADDR" ;;
+  0.0.0.0:*) HEALTH_ADDR="127.0.0.1:${ADDR##*:}" ;;
+  \[::\]:*) HEALTH_ADDR="[::1]:${ADDR##*:}" ;;
+esac
+HEALTH_URL="http://${HEALTH_ADDR}/api/health"
 echo "==> Waiting for server (PID $SERVER_PID) to accept connections (up to ${WAIT_SECONDS}s)..."
 START_TIME=$SECONDS
 while true; do

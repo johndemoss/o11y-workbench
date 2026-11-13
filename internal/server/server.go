@@ -173,9 +173,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return first
 }
 
+func (s *Server) newHTTPServer() *http.Server {
+	return &http.Server{
+		Addr:              s.addr,
+		Handler:           http.NewCrossOriginProtection().Handler(s.mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
 func (s *Server) ListenAndServe() error {
 	log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
-	s.httpSrv = &http.Server{Addr: s.addr, Handler: s.mux}
+	s.httpSrv = s.newHTTPServer()
 	err := s.httpSrv.ListenAndServe()
 	// If Shutdown already ran Close, this is a no-op; otherwise reclaim workers
 	// when ListenAndServe returns for any reason.
@@ -189,7 +198,7 @@ func (s *Server) ListenAndServe() error {
 // ListenAndServeContext serves until ctx is cancelled, then shuts down HTTP + workers.
 func (s *Server) ListenAndServeContext(ctx context.Context) error {
 	log.Printf("Starting o11y-workbench web dashboard on %s", s.addr)
-	s.httpSrv = &http.Server{Addr: s.addr, Handler: s.mux}
+	s.httpSrv = s.newHTTPServer()
 
 	errCh := make(chan error, 1)
 	go func() {
