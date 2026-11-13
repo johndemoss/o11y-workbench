@@ -65,29 +65,29 @@ type Run struct {
 	MetricCountCompleted int        `json:"metric_count_completed,omitempty"`
 	// Computed breakdowns — populated during finalization so the backend is the single source of truth.
 	// These replace client-side aggregation previously done in scripts.js.
-	ResourceSpanCount int                `json:"resource_span_count,omitempty"`
-	LogRecordCount    int                `json:"log_record_count,omitempty"`
-	LogSeverityCounts map[string]int     `json:"log_severity_counts,omitempty"`
-	MetricRecordCount int                `json:"metric_record_count,omitempty"`
-	MetricSeriesCount int                `json:"metric_series_count,omitempty"`
-	MetricTypes       []string           `json:"metric_types,omitempty"`
-	MetricData        *json.RawMessage   `json:"metric_data,omitempty"`
-	Scenario          string             `json:"scenario,omitempty"`
-	Source            string             `json:"source,omitempty"`
-	Error             string             `json:"error,omitempty"`
-	TraceData         *json.RawMessage   `json:"trace_data,omitempty"`
-	LogData           *json.RawMessage   `json:"log_data,omitempty"`
+	ResourceSpanCount int              `json:"resource_span_count,omitempty"`
+	LogRecordCount    int              `json:"log_record_count,omitempty"`
+	LogSeverityCounts map[string]int   `json:"log_severity_counts,omitempty"`
+	MetricRecordCount int              `json:"metric_record_count,omitempty"`
+	MetricSeriesCount int              `json:"metric_series_count,omitempty"`
+	MetricTypes       []string         `json:"metric_types,omitempty"`
+	MetricData        *json.RawMessage `json:"metric_data,omitempty"`
+	Scenario          string           `json:"scenario,omitempty"`
+	Source            string           `json:"source,omitempty"`
+	Error             string           `json:"error,omitempty"`
+	TraceData         *json.RawMessage `json:"trace_data,omitempty"`
+	LogData           *json.RawMessage `json:"log_data,omitempty"`
 	// Has* flags are set from payload pointers so List can omit TraceData/LogData/MetricData
 	// while Jobs List signal filters and detail fetch still know payloads exist.
-	HasTraceData  bool `json:"has_trace_data,omitempty"`
-	HasLogData    bool `json:"has_log_data,omitempty"`
-	HasMetricData bool `json:"has_metric_data,omitempty"`
-	Endpoints     []string `json:"endpoints"`
-	Insecure      bool     `json:"insecure"`
-	Output         string    `json:"output"`
-	GeneratorStats *gen.Stats `json:"generator_stats,omitempty"`
+	HasTraceData   bool               `json:"has_trace_data,omitempty"`
+	HasLogData     bool               `json:"has_log_data,omitempty"`
+	HasMetricData  bool               `json:"has_metric_data,omitempty"`
+	Endpoints      []string           `json:"endpoints"`
+	Insecure       bool               `json:"insecure"`
+	Output         string             `json:"output"`
+	GeneratorStats *gen.Stats         `json:"generator_stats,omitempty"`
 	cancel         context.CancelFunc // not exported, not json
-	pauseCh       chan struct{}      // nil when running; non-nil live channel when paused; not exported
+	pauseCh        chan struct{}      // nil when running; non-nil live channel when paused; not exported
 }
 
 func (r *Run) Pause() {
@@ -163,8 +163,8 @@ func (r *Run) snapshotWithPayloads(includePayloads bool) *Run {
 		HasTraceData:  r.TraceData != nil,
 		HasLogData:    r.LogData != nil,
 		HasMetricData: r.MetricData != nil,
-		Endpoints: append([]string(nil), r.Endpoints...),
-		Insecure:  r.Insecure, Output: r.Output,
+		Endpoints:     append([]string(nil), r.Endpoints...),
+		Insecure:      r.Insecure, Output: r.Output,
 		GeneratorStats: func() *gen.Stats {
 			if r.GeneratorStats == nil {
 				return nil
@@ -417,8 +417,11 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 	run.mu.Lock()
 	run.cancel = cancel
 	run.mu.Unlock()
+	// Return caller-owned state before the worker starts mutating the live run.
+	// In particular, HTTP response encoding must not race with progress updates.
+	response := run.snapshot()
 	go executeRun(run, store, cfg, genCtx)
-	return run, nil
+	return response, nil
 }
 
 func (s *RunStore) StopRun(id string) {
