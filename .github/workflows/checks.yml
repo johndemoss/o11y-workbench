@@ -68,8 +68,9 @@ jobs:
         run: node ../scripts/check-ui-assets.mjs dist /pipeline/
       - run: npm audit --audit-level=moderate
 
-  embedded-ui:
+  embedded-ui-and-browser:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -80,11 +81,23 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - run: node --test scripts/check-ui-assets.test.mjs
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            pipeline-ui/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm audit --audit-level=moderate
+      - name: Install pinned Playwright Chromium and Ubuntu runtime dependencies
+        run: npx playwright install --with-deps chromium
       - name: Build the pipeline UI through go generate
         run: go generate ./cmd/o11y-workbench-web
       - name: Verify actual embedded entry points and assets
         run: O11Y_REQUIRE_BUILT_UI=1 go test ./internal/server -run '^TestEmbeddedUI'
       - run: go build ./cmd/o11y-workbench-web
+      - name: Browser smoke against a freshly built, test-owned foreground server
+        run: npm run test:browser
+      - name: Foreground testing must not create a daemon PID file
+        run: test ! -e /tmp/o11y-workbench-web.pid
       - name: Generated assets must not dirty tracked files
         run: test -z "$(git status --porcelain)"

@@ -4,6 +4,7 @@ set -euo pipefail
 
 ADDR="127.0.0.1:18080"
 SKIP_BUILD=false
+FOREGROUND=false
 WAIT_SECONDS=30
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -14,9 +15,15 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --addr) ADDR="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=true; shift ;;
+    --foreground) FOREGROUND=true; shift ;;
     --wait) WAIT_SECONDS="$2"; shift 2 ;;
     --help)
-      sed -n '3,25p' "$0"
+      printf '%s\n' \
+        'Usage: ./scripts/serve.sh [--addr HOST:PORT] [--wait SECONDS] [--foreground] [--skip-build]' \
+        'Default: rebuild both UIs, Go binary and OTTL workers; start loopback daemon on 127.0.0.1:18080.' \
+        '--foreground: exec the server; caller owns readiness/shutdown. Does not touch the daemon PID file.' \
+        '--skip-build: explicitly trust the existing /tmp/o11y-workbench-web binary and worker binaries.' \
+        '--wait: background-daemon readiness timeout (default 30 seconds).'
       exit 0
       ;;
     *)
@@ -26,7 +33,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# On failure, wipe the pidfile so agents know the server is dead.
+# On background-launch failure, wipe the pidfile so agents know the server is dead.
 # On success (exit 0) we leave it — the agent reads it for cleanup.
 cleanup() {
   local rc=$?
@@ -34,7 +41,9 @@ cleanup() {
     rm -f "$PIDFILE"
   fi
 }
-trap cleanup EXIT
+if ! $FOREGROUND; then
+  trap cleanup EXIT
+fi
 
 if ! $SKIP_BUILD; then
   "$PROJECT_DIR/scripts/build-ui.sh"
@@ -88,24 +97,11 @@ if [ -n "${O11Y_OTTL_WORKERS:-}" ]; then
   echo "==> OTTL workers: $O11Y_OTTL_WORKERS"
 fi
 
-# Pipeline Evaluation Prepare needs a pinned Phase2 collector binary. Inventory
-# is resolved at server start; missing binary yields empty /api/capacity/builds
-# and Prepare fails closed with: build "phase2-admitted" is not admitted.
-PHASE2_BIN="${O11Y_PHASE2_BIN:-}"
-if [ -z "$PHASE2_BIN" ] && [ -n "${O11Y_PHASE2_BASE:-}" ]; then
-  PHASE2_BIN="${O11Y_PHASE2_BASE%/}/bin/otelcol-phase2"
-fi
-if [ -z "$PHASE2_BIN" ]; then
-  PHASE2_BIN="$PROJECT_DIR/internal/capacity/phase2/bin/otelcol-phase2"
-fi
-if [ ! -x "$PHASE2_BIN" ]; then
-  echo "WARNING: pinned Phase2 collector missing at $PHASE2_BIN" >&2
-  echo "WARNING: /api/capacity/builds will be empty; Prepare will fail with" >&2
-  echo "WARNING:   build \"phase2-admitted\" is not admitted" >&2
-  echo "WARNING: fix: make build-otelcol-phase2   # then restart this serve" >&2
-  echo "WARNING: (pipeline prototyper / OTTL still work without it)" >&2
-else
-  echo "==> Phase2 admitted binary: $PHASE2_BIN"
+# Test runners own foreground process groups and SIGTERM/join themselves. Do not
+# read, replace or remove the operator's daemon PID file in this mode.
+if $FOREGROUND; then
+  echo "==> Serving foreground on $ADDR (caller owns shutdown)..."
+  exec "$BINARY" --addr "$ADDR" --pipeline-prototyper
 fi
 
 if [ -f "$PIDFILE" ]; then

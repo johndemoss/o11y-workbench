@@ -1,0 +1,14 @@
+{
+  "name": "o11y-workbench-checks",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test scripts/check-ui-assets.test.mjs",
+    "test:browser": "playwright test --config playwright.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  }
+}

@@ -5,7 +5,8 @@ Load this before serving, Docker, or `pipeline-ui` rebuilds.
 ## Serve
 
 - Always start the local web server with `./scripts/serve.sh` (`make serve` starts containers, not this launcher). It builds the Svelte UI, builds Go, builds OTTL worker binaries (`make ottl-workers`), kills the old process, `nohup`s `/tmp/o11y-workbench-web`, polls `/api/health`.
-- Cleanup: `kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null` — SIGTERM now shuts down HTTP and supervised OTTL workers.
+- Cleanup: `kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null` — SIGTERM shuts down HTTP, cancels/joins generated jobs, finalizes TAP capture and stops supervised OTTL workers.
+- Root browser bootstrap: `npm ci`, `npx playwright install chromium`, then `npm run test:browser`. Playwright owns `./scripts/serve.sh --foreground`, health-checks it and SIGTERM/joins it. Foreground mode never changes the daemon PID file. Tests refuse existing servers on port 18080; stop the daemon explicitly first.
 - The running binary is `/tmp/o11y-workbench-web`, not a tree-local `o11y-workbench-web`.
 - `//go:embed pipeline-ui` — only the parent README.txt is tracked; all `dist/` output is generated. Source-only Go builds return a build-required 503 for the pipeline SPA. Generate assets with `go generate ./cmd/o11y-workbench-web` (or `./scripts/build-ui.sh`), then rebuild Go. Copying dist after Go build does nothing. After UI edits, use `./scripts/serve.sh`.
 - Local Make/serve/go-generate builds share `scripts/build-ui.sh` (`npm ci`, build, entry-asset validation, sync). A rebuild must leave tracked files unchanged. `serve.sh --skip-build` trusts the existing binary without checking freshness; it is not a rebuild shortcut after edits.

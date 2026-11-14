@@ -327,7 +327,7 @@ make build-pipeline-ui
 # Build everything (frontend + Go binary)
 make build-all
 
-# Build + serve with auto-rebuild
+# Build + serve (rerun after edits to rebuild)
 ./scripts/serve.sh
 ```
 
@@ -337,12 +337,18 @@ make build-all
 # Go tests
 go test ./...
 
-# Browser smoke tests (Playwright can start the server)
-npx playwright test --config playwright.config.js
+# Locked browser tooling; installs the Chromium version paired with Playwright
+npm ci
+npx playwright install chromium
+# Stop any existing daemon first; tests build/start/join their own loopback server
+npm run test:browser
 
 # Pipeline UI unit tests
-cd pipeline-ui && npm test
+(cd pipeline-ui && npm ci && npm test)
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#reproducible-browser-smoke-tests) for both-module
+checks, platform/browser prerequisites and fresh-checkout verification.
 
 ### Project Structure
 

@@ -9,7 +9,8 @@ CLI `cmd/o11y-workbench` is traces-only batch generation. Web `cmd/o11y-workbenc
 kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null
 go test ./...
 go test -run TestName ./internal/pkg
-npx playwright test --config playwright.config.js
+npm ci && npx playwright install chromium  # root browser bootstrap
+npm run test:browser                       # owns fresh foreground server; port 18080 must be free
 cd pipeline-ui && npm test
 go run ./cmd/o11y-workbench --traces 3 --topology branching
 ```
@@ -39,7 +40,7 @@ Do not load these unless the task matches. In chat, attach with `@path`.
 
 - JSON APIs, `net/http` Go 1.22+ routes (`GET /api/runs/{id}`), wrap errors with `%w`
 - Go structs win over `pipeline-ui/src/lib/types.ts`
-- Handlers call `store.StartRun()`; do not construct generators in handlers
+- Handlers call `StartRun(ctx, store, cfg, endpoints, insecure, output)`; do not construct generators in handlers
 - Versioned OTTL goes through `internal/ottlengine`; retain worker stoppers from `StartConfiguredWorkers` and stop them on Close/SIGTERM. Pins live in `versions/otel.env` (see `docs/agents/gotchas.md`)
 - Dashboard and Pipeline Prototyper are one product — not two competing apps
 

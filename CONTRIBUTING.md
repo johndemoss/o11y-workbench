@@ -24,7 +24,9 @@ GOTOOLCHAIN=go1.26.11 ./scripts/check-go.sh
 (cd pipeline-ui && npm ci && npm test && npm run build && npm audit --audit-level=moderate)
 ```
 
-Use `npm ci` for builds, not a dependency refresh. Some development dependencies
+npm lockfiles are the sole JavaScript install authority (root tooling plus the
+pipeline UI); the unused, stale pipeline Bun lock was removed. Use `npm ci` for builds, not
+a dependency refresh. Some development dependencies
 currently retain a low-severity upstream `deepmerge` advisory without a compatible
 fix. The audit gate rejects moderate and higher findings; it is not a zero-risk
 claim..
@@ -93,9 +95,35 @@ tracked files. `serve.sh --skip-build` explicitly trusts an already built
 after any source change. Docker validates the pipeline entry-point bundle before
 embedding. CI checks source-only Go behavior and generated, actually embedded assets.
 
-Browser tests use `npx playwright test --config playwright.config.js` after
-installing the matching Playwright browser/runtime dependencies. They are
-additional evidence, not replaced by UI unit tests or the Go race suite.
+### Reproducible browser smoke tests
+
+The root private npm manifest/lock pins Playwright; it is separate from the two
+frontend manifests. Install the matching Chromium after the root `npm ci`:
+
+```bash
+npm ci
+npm test                       # Node asset-validator regressions
+npm audit --audit-level=moderate
+npx playwright install chromium
+# Stop any existing local daemon first: tests refuse to reuse port 18080.
+kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null || true
+npm run test:browser
+```
+
+On supported Ubuntu CI, `npx playwright install --with-deps chromium` also installs
+OS browser libraries (requires apt privileges). On other hosts, use Playwright's
+supported platform prerequisites; do not assume a browser download installs OS
+libraries. Node, npm, Go, Make, Git and the OTTL worker build toolchain must be
+available; the optional Phase2 collector is **not** needed for these smoke tests.
+
+Playwright invokes only `./scripts/serve.sh --foreground`: locked frontend builds,
+Go embedding and workers are rebuilt, then a fresh loopback server is health-checked.
+The runner owns graceful SIGTERM/join, does not replace the operator's daemon PID
+file and uses an isolated synthetic evaluation store. Existing servers are never
+silently accepted. Both SPAs must execute their real embedded bundles; missing
+static assets must return 404 rather than HTML. Reports, traces and screenshots
+stay ignored/local. These tests complement, not replace, UI unit/Go race checks;
+CI runs the full check workflow on every push and pull request.
 
 ## Changes and safety
 
