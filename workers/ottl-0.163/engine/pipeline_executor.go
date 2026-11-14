@@ -83,7 +83,7 @@ func ExecutePipeline(traceData json.RawMessage, pipeline Pipeline) (*PipelineRes
 			}
 		}
 
-		if outputSpanCount == 0 && stageErr == nil {
+		if stage.Type == StageTypeTransform && outputSpanCount == 0 && stageErr == nil {
 			outputSpanCount = inputSpanCount
 		}
 
