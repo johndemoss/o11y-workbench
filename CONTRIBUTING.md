@@ -34,6 +34,27 @@ For intentional lockfile refreshes, npm 10.9.9 was observed to crash with
 compatible update. Do not use `npm audit fix --force` to silently downgrade or
 change major versions. Commit manifests and lockfiles together when needed.
 
+## Local code graph (optional)
+
+Graphify 0.9.108 was verified for local AST refreshes:
+
+```bash
+uv tool upgrade graphifyy     # existing uv-managed install; check graphify --version
+GRAPHIFY_MAX_WORKERS=4 graphify update . --force
+graphify explain routesForEndpoints --graph graphify-out/graph.json
+```
+
+`.graphifyignore` explicitly excludes credentials, local IDE or automation
+session state,
+compiled assets and test scaffolding. Graphify now merges it with `.gitignore`.
+The generated graph/report/HTML stay local in ignored `graphify-out/`;
+review them for sensitive content before sharing. `update` makes no LLM requests;
+it preserves eligible prior semantic nodes but does **not** refresh documentation
+semantics. Do not substitute `graphify extract` without `--code-only` or run
+LLM labeling on private source without reviewing provider/data-sharing settings.
+Historical semantic token counts can remain in the report after a local update;
+they do not represent new model calls by the AST-only refresh.
+
 ## Running and exercising the app
 
 ```bash

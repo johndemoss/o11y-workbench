@@ -1,14 +1,27 @@
-# graphify ignore rules (gitignore syntax).
-# graphify reads this INSTEAD of the root .gitignore, so the .gitignore
-# entries below are mirrored here to preserve exclusion behavior.
+# Graphify 0.9.108+ merges .gitignore with these project-specific rules.
+# Explicit exclusions here also apply to tracked files that Graphify otherwise
+# exempts from .gitignore (for example old embedded bundles).
 
 # Build artifacts
 /o11y-workbench
 /o11y-workbench-web
 bin/
 
+# Credentials and private local/session state must never enter the graph.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.cursor/
+.remember/
+.od-skills/
+tmp/
+
 # Session/planning artifacts
 .sisyphus/
+graphify-out/
 
 # Node.js
 node_modules/
