@@ -9,9 +9,18 @@ Only the current main branch is maintained; there is no supported-release SLA.
 
 - The web binary and local launcher bind to `127.0.0.1:18080` by default.
   Explicit `--addr` overrides are an operator responsibility.
+- The web server accepts only requests whose `Host` header is `localhost`, a
+  loopback literal, the host named by `--addr`, or an exact `--allowed-hosts`
+  entry; everything else is rejected with 403 before routing. It also sends a
+  restricting `Content-Security-Policy` (`script-src 'self'`, no inline
+  scripts) with `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  no-referrer`, and `X-Frame-Options: DENY`. `--allowed-hosts` widens which
+  names reach the workbench; it grants no authorization.
 - Go's `http.CrossOriginProtection` rejects unsafe cross-origin browser requests.
-  This is **not authentication**, an SSRF defense, a DNS-rebinding defense, or a
-  resource quota. Non-browser callers without an Origin header remain allowed.
+  Host validation plus that check reduce DNS-rebinding exposure; neither is
+  **authentication**, an SSRF defense, or a resource quota. Non-browser callers
+  without an Origin header remain allowed, so anyone who can reach the port can
+  use the API.
 - The API can generate traffic, connect to caller-selected OTLP/Remote TAP
   endpoints, process imported data, and invoke configured local OTTL worker
   processes. Do not grant access to untrusted clients or import untrusted
@@ -23,6 +32,12 @@ Only the current main branch is maintained; there is no supported-release SLA.
   and finalizes/closes TAP capture. These lifecycle guarantees do not provide
   multi-user authorization, quotas or comprehensive per-handler budgets; do not
   infer multi-tenant safety from routing isolation.
+- Local launchers (`scripts/serve.sh`, `scripts/demo-sender.sh`) keep built
+  binaries, PID records and locks in the private `./.run/` directory (mode 0700)
+  instead of predictable paths under the system temporary directory. They refuse
+  to run a symlinked binary and verify process identity before stopping a
+  recorded process; on platforms without a race-free process handle they ask you
+  to stop the daemon manually rather than signalling a PID alone.
 - Use synthetic telemetry. Real traces, logs, attributes, headers, imported
   configurations, TAP captures, screenshots and terminal output can contain
   credentials or personal/customer data. Do not commit them.
@@ -41,10 +56,11 @@ Only the current main branch is maintained; there is no supported-release SLA.
 Do **not** include credentials, captured telemetry, private hostnames, customer
 data, or exploit details in a public issue or pull request.
 
-This repository does not currently use [GitHub private vulnerability
-reporting](https://docs.github.com/code-security/security-advisories/working-with-repository-security-advisories/configuring-private-vulnerability-reporting-for-a-repository).
-Ask the maintainer for a private reporting channel without posting sensitive
-details in a public issue or pull request.
+If the advisory form is available, use [GitHub private vulnerability reporting](https://github.com/johndemoss/o11y-workbench/security/advisories/new).
+If it is not, open a plain issue that asks the maintainer for a private channel
+and contains no vulnerability details, reproduction steps, or sensitive values;
+public reports must stay free of credentials, captured telemetry, private
+hostnames, customer data, and exploit detail.
 
 If a credential is discovered in Git, revoke/rotate it first. Removing it from
 the working tree is not sufficient: assess every branch/tag, historical object,

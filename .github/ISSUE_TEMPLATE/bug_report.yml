@@ -1,0 +1,62 @@
+name: Bug report
+description: Report behavior that does not match the documentation or the expected result.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do not paste real telemetry, credentials, private
+        hostnames, customer data, or TAP captures; use synthetic values.
+        Security vulnerabilities belong in the private channel described in
+        [SECURITY.md](https://github.com/johndemoss/o11y-workbench/blob/main/SECURITY.md),
+        not in a public issue.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Exact commands, request bodies, pipeline YAML, scenario files, or UI steps.
+      placeholder: |
+        1. ./scripts/serve.sh
+        2. Open http://127.0.0.1:18080/
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen
+      options:
+        - Web dashboard
+        - Pipeline Prototyper
+        - Batch CLI
+        - Docker or Compose fixtures
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Go and Node versions, and whether you ran the embedded UI or a container fixture.
+      placeholder: |
+        OS: Fedora 45
+        Go: 1.26.11
+        Node: 22
+        Started with: ./scripts/serve.sh
+    validations:
+      required: true

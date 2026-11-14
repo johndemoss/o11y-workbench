@@ -1,0 +1,27 @@
+name: Feature request
+description: Describe a problem or workflow the workbench does not cover yet.
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and where does the current behavior get in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should the workbench do instead?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have tried
+      description: Existing flags, scenarios, pipeline stages, or external tools you used instead.
+    validations:
+      required: false
