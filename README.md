@@ -57,6 +57,13 @@ go run ./cmd/o11y-workbench --scenario my-app --scenario-file ./scenarios.yaml
 
 The dashboard lets you configure telemetry parameters, run generation jobs (including logs and metrics), inspect results, import traces, and experiment with OTTL transform/filter statements.
 
+Compiled SPA assets are generated, not tracked. For a complete web build without
+starting a server, run `go generate ./cmd/o11y-workbench-web` followed by
+`go build ./cmd/o11y-workbench-web` (or `make build-all`). A plain source-only Go
+build keeps dashboard/APIs available but returns an explicit build-required 503
+for `/pipeline/`, rather than serving stale or incomplete bundles.
+See [CONTRIBUTING.md](CONTRIBUTING.md#source-only-versus-distributable-web-builds).
+
 ### Pipeline Prototyper
 
 Enable the visual pipeline builder with the `--pipeline-prototyper` flag:

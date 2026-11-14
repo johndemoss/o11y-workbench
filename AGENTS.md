@@ -14,7 +14,7 @@ cd pipeline-ui && npm test
 go run ./cmd/o11y-workbench --traces 3 --topology branching
 ```
 
-`make serve` / `make test` / `make build-pipeline-ui` wrap the same. Go 1.26+. Dashboard: vanilla JS (no HTMX). Pipeline UI: Svelte 5.
+`make test` and `make build-pipeline-ui` wrap the commands above. `make serve` is containerized; use `./scripts/serve.sh` for the approved local start. Go 1.26.11+. Dashboard: vanilla JS (no HTMX). Pipeline UI: Svelte 5.
 
 ## Read when needed
 
@@ -49,6 +49,6 @@ Do not load these unless the task matches. In chat, attach with `@path`.
 
 - `cmd/o11y-workbench` generates traces only; logs, metrics, OTTL, pipeline, and Remote TAP live in the web binary via `executeRun`. Both share `internal/gen`.
 - Pipeline Prototyper (`/pipeline/`) supports full multi-signal edit/import/export/validate/execute for traces, logs, and metrics; execute selects `TraceData`/`LogData`/`MetricData` via `?signal=`.
-- README CLI flags `--signal-type`, `--log-count`, and `--metric-count` are not in `cmd/o11y-workbench/main.go`.
+- The CLI does not implement `--signal-type`, `--log-count`, or `--metric-count`; keep them out of README examples.
 
 - One generator: `internal/gen`. Shape (topology/scenario) and WorkloadProfile overlays are orthogonal — see `docs/generator-unification-adr.md`.

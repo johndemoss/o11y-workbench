@@ -64,4 +64,27 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Verify generated entry-point assets
+        run: node ../scripts/check-ui-assets.mjs dist /pipeline/
       - run: npm audit --audit-level=moderate
+
+  embedded-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: node --test scripts/check-ui-assets.test.mjs
+      - name: Build the pipeline UI through go generate
+        run: go generate ./cmd/o11y-workbench-web
+      - name: Verify actual embedded entry points and assets
+        run: O11Y_REQUIRE_BUILT_UI=1 go test ./internal/server -run '^TestEmbeddedUI'
+      - run: go build ./cmd/o11y-workbench-web
+      - name: Generated assets must not dirty tracked files
+        run: test -z "$(git status --porcelain)"

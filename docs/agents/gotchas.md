@@ -4,11 +4,11 @@ Load this before serving, Docker, or `pipeline-ui` rebuilds.
 
 ## Serve
 
-- Always start the web server with `./scripts/serve.sh` (or `make serve`). It builds the Svelte UI, builds Go, builds OTTL worker binaries (`make ottl-workers`), kills the old process, `nohup`s `/tmp/o11y-workbench-web`, polls `/api/health`.
+- Always start the local web server with `./scripts/serve.sh` (`make serve` starts containers, not this launcher). It builds the Svelte UI, builds Go, builds OTTL worker binaries (`make ottl-workers`), kills the old process, `nohup`s `/tmp/o11y-workbench-web`, polls `/api/health`.
 - Cleanup: `kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null` — SIGTERM now shuts down HTTP and supervised OTTL workers.
 - The running binary is `/tmp/o11y-workbench-web`, not a tree-local `o11y-workbench-web`.
-- `//go:embed pipeline-ui/dist` — Svelte is baked in at Go build. Copying `internal/server/pipeline-ui/dist/` after the fact does nothing. After `pipeline-ui/` edits, run `./scripts/serve.sh`.
-- `//go:embed capacity-ui/dist` — same bake-in for `/capacity/`. `make build-capacity-ui` runs `capacity-ui` build and syncs into `internal/server/capacity-ui/dist`. `./scripts/serve.sh` also builds/syncs capacity-ui when present.
+- `//go:embed pipeline-ui` — only the parent README.txt is tracked; all `dist/` output is generated. Source-only Go builds return a build-required 503 for the pipeline SPA. Generate assets with `go generate ./cmd/o11y-workbench-web` (or `./scripts/build-ui.sh`), then rebuild Go. Copying dist after Go build does nothing. After UI edits, use `./scripts/serve.sh`.
+- Local Make/serve/go-generate builds share `scripts/build-ui.sh` (`npm ci`, build, entry-asset validation, sync). A rebuild must leave tracked files unchanged. `serve.sh --skip-build` trusts the existing binary without checking freshness; it is not a rebuild shortcut after edits.
 - `--pipeline-prototyper` is **not** default on the binary. `serve.sh` passes it. Direct runs need the flag or `O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true`.
 - Do not hand-edit gitignored `internal/server/pipeline-ui/dist/`.
 
@@ -53,6 +53,6 @@ Vite proxies `/api/*` to `:18080` (default listen addr; override with `--addr` /
 
 ## Docs drift
 
-- README lists CLI `--signal-type`, `--log-count`, `--metric-count`. Those flags are **not** in `@cmd/o11y-workbench/main.go`.
+- The batch CLI is traces-only. Do not reintroduce the nonexistent `--signal-type`, `--log-count`, or `--metric-count` flags into README examples.
 
 - `/capacity/` product workflow is **Pipeline Evaluation**; Assess remains advanced evidence authority inside evaluation, not a peer UI mode. Plan/Run/measured product HTTP routes are retired (T36). Plan-era design docs under `docs/superpowers/specs/` are archive banners only — see `docs/capacity-plan-vs-assess.md`.

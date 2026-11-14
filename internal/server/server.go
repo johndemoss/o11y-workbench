@@ -17,7 +17,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-//go:embed pipeline-ui/dist
+//go:embed pipeline-ui
 var pipelineFS embed.FS
 
 type Server struct {
@@ -99,12 +99,11 @@ func (s *Server) registerRoutes() error {
 		s.mux.HandleFunc("POST /api/ottl/pipeline/would-cycle", s.handleWouldCycle)
 		s.mux.HandleFunc("POST /api/ottl/pipeline/from-yaml", s.handleFromYaml)
 
-		pipelineSub, err := fs.Sub(pipelineFS, "pipeline-ui/dist")
+		pipelineSub, err := fs.Sub(pipelineFS, "pipeline-ui")
 		if err != nil {
 			return fmt.Errorf("embed pipeline ui fs: %w", err)
 		}
-		pipelineServer := http.FileServer(http.FS(pipelineSub))
-		s.mux.Handle("GET /pipeline/", http.StripPrefix("/pipeline/", pipelineServer))
+		s.mux.Handle("GET /pipeline/", embeddedUI(pipelineSub, "/pipeline/"))
 	}
 
 	sub, err := fs.Sub(webFS, "web")

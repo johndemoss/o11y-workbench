@@ -68,11 +68,30 @@ The launcher replaces the instance named in its PID file; do not use it to start
 an independent second server. Do not expose this unauthenticated workbench to
 untrusted users; read [SECURITY.md](SECURITY.md).
 
-`go test ./...` alone omits `workers/ottl-0.162`. A Go build alone also does not
-rebuild the embedded SPAs. For Pipeline Evaluation execution, separately build the
-pinned collector with `make build-otelcol-phase2`; without it, Prepare must fail
-closed. Capacity measurement integration tests may exercise that local collector
-when installed and can take several minutes.
+`go test ./...` alone omits `workers/ottl-0.162`.
+
+### Source-only versus distributable web builds
+
+Compiled SPA assets are **not tracked**. A plain Go build from a fresh checkout
+serves the dashboard/APIs, but `/pipeline/` returns an actionable
+503 until the UI has been generated and the Go binary rebuilt. Missing static
+assets return 404, never an HTML fallback. Do not distribute a source-only binary
+as the complete web product.
+
+```bash
+# The same npm-ci/build/asset-validation/sync path used by Make and serve.sh:
+go generate ./cmd/o11y-workbench-web
+O11Y_REQUIRE_BUILT_UI=1 go test ./internal/server -run '^TestEmbeddedUI'
+go build ./cmd/o11y-workbench-web
+node --test scripts/check-ui-assets.test.mjs
+```
+
+`make build-pipeline-ui` builds the pipeline UI through `scripts/build-ui.sh`;
+`make build-all` builds that UI and the web binary. Rebuilding must not modify
+tracked files. `serve.sh --skip-build` explicitly trusts an already built
+`/tmp/o11y-workbench-web` and does not verify freshness; use the normal launcher
+after any source change. Docker validates the pipeline entry-point bundle before
+embedding. CI checks source-only Go behavior and generated, actually embedded assets.
 
 Browser tests use `npx playwright test --config playwright.config.js` after
 installing the matching Playwright browser/runtime dependencies. They are

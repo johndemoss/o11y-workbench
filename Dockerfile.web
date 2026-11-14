@@ -4,7 +4,8 @@ WORKDIR /src/pipeline-ui
 COPY pipeline-ui/package*.json ./
 RUN npm ci --silent
 COPY pipeline-ui/ ./
-RUN npm run build
+COPY scripts/check-ui-assets.mjs /src/scripts/check-ui-assets.mjs
+RUN npm run build && node ../scripts/check-ui-assets.mjs dist /pipeline/
 
 # Stage 2: Build Go binary + OTTL worker
 FROM golang:1.26.11-alpine AS go-builder

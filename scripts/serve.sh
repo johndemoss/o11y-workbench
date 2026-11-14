@@ -37,28 +37,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! $SKIP_BUILD; then
-  if [ -d "$PROJECT_DIR/pipeline-ui" ]; then
-    echo "==> Building pipeline-ui (frontend)..."
-    (cd "$PROJECT_DIR/pipeline-ui" && npm ci --silent && npm run build) || {
-      echo "ERROR: pipeline-ui build failed" >&2
-      exit 1
-    }
-    # Always sync dist to server - the Go build will embed this content
-    rm -rf "$PROJECT_DIR/internal/server/pipeline-ui/dist"
-    cp -r "$PROJECT_DIR/pipeline-ui/dist" "$PROJECT_DIR/internal/server/pipeline-ui/dist"
-    echo "==> Frontend dist synced to embedded location"
-  fi
-
-  if [ -d "$PROJECT_DIR/capacity-ui" ]; then
-    echo "==> Building capacity-ui (frontend)..."
-    (cd "$PROJECT_DIR/capacity-ui" && npm ci --silent && npm run build) || {
-      echo "ERROR: capacity-ui build failed" >&2
-      exit 1
-    }
-    rm -rf "$PROJECT_DIR/internal/server/capacity-ui/dist"
-    cp -r "$PROJECT_DIR/capacity-ui/dist" "$PROJECT_DIR/internal/server/capacity-ui/dist"
-    echo "==> Capacity UI dist synced to embedded location"
-  fi
+  "$PROJECT_DIR/scripts/build-ui.sh"
 
   echo "==> Building o11y-workbench-web (Go server with embedded assets)..."
   go build -o "$BINARY" "$PROJECT_DIR/cmd/o11y-workbench-web/" || {
@@ -72,22 +51,14 @@ if ! $SKIP_BUILD; then
     echo "ERROR: ottl-workers build failed" >&2
     exit 1
   }
-elif [ -d "$PROJECT_DIR/pipeline-ui" ]; then
-  # Even with --skip-build, check if dist changed and rebuild Go if needed
-  if [ -d "$PROJECT_DIR/pipeline-ui/dist" ] && [ -d "$PROJECT_DIR/internal/server/pipeline-ui/dist" ]; then
-    FRONTEND_HASH=$(find "$PROJECT_DIR/pipeline-ui/dist" -type f -exec stat -c '%Y' {} + 2>/dev/null | sort | tail -1)
-    EMBEDDED_HASH=$(find "$PROJECT_DIR/internal/server/pipeline-ui/dist" -type f -exec stat -c '%Y' {} + 2>/dev/null | sort | tail -1 2>/dev/null || echo "0")
-    if [ "$FRONTEND_HASH" != "$EMBEDDED_HASH" ]; then
-      echo "==> Detected frontend dist changed, rebuilding Go binary..."
-      rm -rf "$PROJECT_DIR/internal/server/pipeline-ui/dist"
-      cp -r "$PROJECT_DIR/pipeline-ui/dist" "$PROJECT_DIR/internal/server/pipeline-ui/dist"
-      go build -o "$BINARY" "$PROJECT_DIR/cmd/o11y-workbench-web/" || {
-        echo "ERROR: Go rebuild failed" >&2
-        exit 1
-      }
-      echo "==> Go binary rebuilt with updated embedded assets"
-    fi
+else
+  # Explicitly trust an existing binary. Timestamps cannot prove its embedded
+  # assets or Go source match this checkout (and stat -c is not portable).
+  if [ ! -x "$BINARY" ]; then
+    echo "ERROR: --skip-build requires an existing executable at $BINARY" >&2
+    exit 1
   fi
+  echo "WARNING: --skip-build reuses $BINARY without checking source/asset freshness" >&2
 fi
 
 # Dual-train pins: in-process default comes from the Go binary (0.151.x);
