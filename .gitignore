@@ -15,6 +15,7 @@ bin/
 *.p12
 *.pfx
 /tmp/
+/.run/
 
 # Graphify knowledge-graph output
 graphify-out/

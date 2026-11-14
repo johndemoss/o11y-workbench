@@ -63,11 +63,13 @@ they do not represent new model calls by the AST-only refresh.
 ./scripts/serve.sh             # builds and embeds both UIs plus OTTL workers
 curl --fail http://127.0.0.1:18080/api/health
 # Open http://127.0.0.1:18080/ in a browser.
-kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null
+./scripts/serve.sh --stop      # safely stops the daemon this checkout started
 ```
 
-The launcher replaces the instance named in its PID file; do not use it to start
-an independent second server. Do not expose this unauthenticated workbench to
+The launcher replaces the instance recorded in its private runtime directory
+(`./.run/`); do not use it to start an independent second server. It never
+signals a process whose identity it cannot verify, so on platforms without a
+race-free process handle it asks you to stop the daemon manually. Do not expose this unauthenticated workbench to
 untrusted users; read [SECURITY.md](SECURITY.md).
 
 For container fixtures, `make dev-remotetap` starts the collector, workbench,
@@ -96,7 +98,7 @@ node --test scripts/check-ui-assets.test.mjs
 `make build-pipeline-ui` builds the pipeline UI through `scripts/build-ui.sh`;
 `make build-all` builds that UI and the web binary. Rebuilding must not modify
 tracked files. `serve.sh --skip-build` explicitly trusts an already built
-`/tmp/o11y-workbench-web` and does not verify freshness; use the normal launcher
+`./.run/o11y-workbench-web` and does not verify freshness; use the normal launcher
 after any source change. Docker validates the pipeline entry-point bundle before
 embedding. CI checks source-only Go behavior and generated, actually embedded assets.
 
@@ -111,7 +113,7 @@ npm test                       # Node asset-validator regressions
 npm audit --audit-level=moderate
 npx playwright install chromium
 # Stop any existing local daemon first: tests refuse to reuse port 18080.
-kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null || true
+./scripts/serve.sh --stop
 npm run test:browser
 ```
 

@@ -6,7 +6,7 @@ CLI `cmd/o11y-workbench` is traces-only batch generation. Web `cmd/o11y-workbenc
 
 ```bash
 ./scripts/serve.sh                         # only approved web start (embeds pipeline-ui)
-kill "$(cat /tmp/o11y-workbench-web.pid)" 2>/dev/null
+./scripts/serve.sh --stop                  # stops the daemon this checkout started
 go test ./...
 go test -run TestName ./internal/pkg
 npm ci && npx playwright install chromium  # root browser bootstrap

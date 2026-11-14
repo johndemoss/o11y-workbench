@@ -101,7 +101,7 @@ jobs:
       - run: go build ./cmd/o11y-workbench-web
       - name: Browser smoke against a freshly built, test-owned foreground server
         run: npm run test:browser
-      - name: Foreground testing must not create a daemon PID file
-        run: test ! -e /tmp/o11y-workbench-web.pid
+      - name: Foreground testing must not create a daemon PID record
+        run: test ! -e .run/o11y-workbench-web.pid
       - name: Generated assets must not dirty tracked files
         run: test -z "$(git status --porcelain)"

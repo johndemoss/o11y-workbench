@@ -30,7 +30,6 @@ serve-stop:
 	@echo "Stopping o11y-workbench-web..."
 	$(COMPOSE) -f docker-compose.yml stop o11y-workbench-web otel-collector 2>/dev/null || true
 	$(COMPOSE) -f docker-compose.yml rm -f o11y-workbench-web otel-collector 2>/dev/null || true
-	@rm -f /tmp/o11y-workbench-web.pid
 	@echo "Web server stopped"
 
 # Show available targets
@@ -170,10 +169,7 @@ dev-remotetap: reclaim-named-containers
 .PHONY: otel-demo-sender
 otel-demo-sender:
 	@echo "Starting o11y-workbench CLI to send traces to otel-desktop-viewer..."
-	go run ./cmd/o11y-workbench --traces 0 --duration 300 --rate 5 --output otlp --endpoint localhost:4317 &
-	@echo "CLI started in background"
-	@echo "PID written to /tmp/o11y-workbench-demo.pid"
-	@echo $$! > /tmp/o11y-workbench-demo.pid
+	./scripts/demo-sender.sh start
 
 # Stop the demo sender
 .PHONY: otel-demo-sender-stop
@@ -181,8 +177,7 @@ otel-demo-sender-stop:
 	@echo "Stopping demo sender..."
 	$(COMPOSE) -f docker-compose.yml --profile dev stop demo-sender 2>/dev/null || true
 	$(COMPOSE) -f docker-compose.yml --profile dev rm -f demo-sender 2>/dev/null || true
-	kill $$(cat /tmp/o11y-workbench-demo.pid 2>/dev/null) 2>/dev/null || true
-	rm -f /tmp/o11y-workbench-demo.pid
+	./scripts/demo-sender.sh stop
 	@echo "Demo sender stopped"
 
 # Stop all containerized services
