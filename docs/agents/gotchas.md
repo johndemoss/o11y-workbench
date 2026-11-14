@@ -55,5 +55,3 @@ Vite proxies `/api/*` to `:18080` (default listen addr; override with `--addr` /
 ## Docs drift
 
 - The batch CLI is traces-only. Do not reintroduce the nonexistent `--signal-type`, `--log-count`, or `--metric-count` flags into README examples.
-
-- `/capacity/` product workflow is **Pipeline Evaluation**; Assess remains advanced evidence authority inside evaluation, not a peer UI mode. Plan/Run/measured product HTTP routes are retired (T36). Plan-era design docs under `docs/superpowers/specs/` are archive banners only — see `docs/capacity-plan-vs-assess.md`.

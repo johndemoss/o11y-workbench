@@ -8,7 +8,7 @@ Generate structurally valid OTLP traces with the CLI, or traces, logs, and metri
 
 This is an **unauthenticated, trusted single-user development tool**, not a public HTTP service. Keep it on loopback and use synthetic data. Read [SECURITY.md](SECURITY.md) before using real captures or changing network bindings.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for verified build/check commands, [AGENTS.md](AGENTS.md) for architecture rules. Project-owned code is [MIT licensed](LICENSE); third-party material retains its own terms.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for verified build/check commands and [AGENTS.md](AGENTS.md) for architecture rules. Project-owned code is [MIT licensed](LICENSE); third-party material retains its own terms.
 
 ## Features
 

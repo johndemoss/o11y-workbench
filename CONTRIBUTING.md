@@ -30,7 +30,7 @@ pipeline UI); the unused, stale pipeline Bun lock was removed. Use `npm ci` for 
 a dependency refresh. Some development dependencies
 currently retain a low-severity upstream `deepmerge` advisory without a compatible
 fix. The audit gate rejects moderate and higher findings; it is not a zero-risk
-claim..
+claim.
 
 For intentional lockfile refreshes, npm 10.9.9 was observed to crash with
 `Cannot read properties of null (reading 'edgesOut')`; npm 11.6.0 completed the
