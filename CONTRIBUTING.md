@@ -131,6 +131,14 @@ static assets must return 404 rather than HTML. Reports, traces and screenshots
 stay ignored/local. These tests complement, not replace, UI unit/Go race checks;
 CI runs the full check workflow on every push and pull request.
 
+## Landing changes
+
+`main` accepts changes only through a pull request. The repository ruleset blocks
+direct pushes, force-pushes, and branch deletion, and requires the four
+`CI checks` jobs (`secrets`, `go`, `ui (pipeline-ui)`, and
+`embedded-ui-and-browser`) to pass. Push a branch, open a pull request, and merge
+it once those checks are green; a solo maintainer needs no approving review.
+
 ## Changes and safety
 
 - Keep changes focused, with regression tests that fail before a bug fix.
