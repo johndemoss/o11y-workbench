@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/johndemoss/o11y-workbench/internal/gen"
@@ -15,6 +16,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18080", "HTTP listen address (loopback only by default)")
+	allowedHostsFlag := flag.String("allowed-hosts", "", "Comma-separated additional exact hostnames or IP literals allowed in the Host header")
 	jobsPath := flag.String("jobs", "", "Path to JSON file with startup job definitions")
 	scenarioFile := flag.String("scenario-file", "", "Path to YAML/JSON file with user-defined scenario definitions")
 	pipelinePrototyper := flag.Bool("pipeline-prototyper", false, "Enable the pipeline prototyper UI and API")
@@ -25,7 +27,13 @@ func main() {
 		pipelineEnabled = true
 	}
 
-	srv, err := server.New(*addr, pipelineEnabled)
+	var allowedHosts []string
+	if *allowedHostsFlag != "" {
+		for _, part := range strings.Split(*allowedHostsFlag, ",") {
+			allowedHosts = append(allowedHosts, strings.TrimSpace(part))
+		}
+	}
+	srv, err := server.New(*addr, pipelineEnabled, allowedHosts)
 	if err != nil {
 		log.Fatalf("creating server: %v", err)
 	}

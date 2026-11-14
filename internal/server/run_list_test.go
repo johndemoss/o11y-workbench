@@ -116,7 +116,7 @@ func TestRunStore_GetIncludesPayloads(t *testing.T) {
 }
 
 func TestHandleListRuns_OmitsPayloads(t *testing.T) {
-	srv, err := New(":0", false)
+	srv, err := New(":0", false, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestHandleListRuns_OmitsPayloads(t *testing.T) {
 }
 
 func TestHandleGetRun_IncludesPayloads(t *testing.T) {
-	srv, err := New(":0", false)
+	srv, err := New(":0", false, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

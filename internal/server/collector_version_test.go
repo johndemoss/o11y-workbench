@@ -168,7 +168,7 @@ func TestNew_CloseStopsConfiguredWorkers(t *testing.T) {
 	}
 
 	t.Setenv("O11Y_OTTL_WORKERS", "0.164.0="+bin)
-	srv, err := New("127.0.0.1:0", false)
+	srv, err := New("127.0.0.1:0", false, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

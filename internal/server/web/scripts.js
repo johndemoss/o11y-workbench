@@ -399,13 +399,36 @@ function collectLogAttrs() {
   return attrs;
 }
 
-function addLogAttr(key, val) {
-  const tbody = document.getElementById('attr-body');
+function buildAttrRow(key, val) {
   const tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" class="attr-key" placeholder="key" value="' + escapeHtml(key || '') + '"></td>' +
-    '<td><input type="text" class="attr-val" placeholder="value" value="' + escapeHtml(val || '') + '"></td>' +
-    '<td><button class="btn-danger" style="font-size:14px;padding:2px 6px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
-  tbody.appendChild(tr);
+  const tdKey = document.createElement('td');
+  const keyInput = document.createElement('input');
+  keyInput.type = 'text';
+  keyInput.className = 'attr-key';
+  keyInput.placeholder = 'key';
+  keyInput.value = key || '';
+  tdKey.appendChild(keyInput);
+  const tdVal = document.createElement('td');
+  const valInput = document.createElement('input');
+  valInput.type = 'text';
+  valInput.className = 'attr-val';
+  valInput.placeholder = 'value';
+  valInput.value = val || '';
+  tdVal.appendChild(valInput);
+  const tdBtn = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-danger';
+  btn.style.cssText = 'font-size:14px;padding:2px 6px';
+  btn.textContent = '\u00D7';
+  btn.addEventListener('click', () => tr.remove());
+  tdBtn.appendChild(btn);
+  tr.append(tdKey, tdVal, tdBtn);
+  return tr;
+}
+
+function addLogAttr(key, val) {
+  document.getElementById('attr-body').appendChild(buildAttrRow(key, val));
 }
 
 function getMetricAttrs() {
@@ -420,12 +443,7 @@ function getMetricAttrs() {
 }
 
 function addMetricAttr(key, val) {
-  const tbody = document.getElementById('metric-attr-body');
-  const tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" class="attr-key" placeholder="key" value="' + escapeHtml(key || '') + '"></td>' +
-    '<td><input type="text" class="attr-val" placeholder="value" value="' + escapeHtml(val || '') + '"></td>' +
-    '<td><button class="btn-danger" style="font-size:14px;padding:2px 6px" onclick="this.closest(\'tr\').remove()">&times;</button></td>';
-  tbody.appendChild(tr);
+  document.getElementById('metric-attr-body').appendChild(buildAttrRow(key, val));
 }
 
 function updateMetricTypeBars() {
@@ -702,10 +720,18 @@ async function importTraces() {
     });
     runs[run.id] = run;
     renderRunList();
-    status.innerHTML = '<span style="color:#22c55e">Imported ' + (run.span_count || 0) + ' spans</span>';
+    status.replaceChildren();
+    const okSpan = document.createElement('span');
+    okSpan.style.color = '#22c55e';
+    okSpan.textContent = 'Imported ' + (run.span_count || 0) + ' spans';
+    status.appendChild(okSpan);
     setTimeout(() => closeImportModal(), 800);
   } catch(e) {
-    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+    status.replaceChildren();
+    const errSpan = document.createElement('span');
+    errSpan.style.color = '#ef4444';
+    errSpan.textContent = 'Error: ' + e.message;
+    status.appendChild(errSpan);
   }
   btn.disabled = false;
 }
@@ -726,14 +752,22 @@ async function uploadScenarios() {
       headers: {'Content-Type': ct},
       body: text
     });
-    status.innerHTML = '<span style="color:#22c55e">Registered: ' + (data.registered || []).join(', ') + '</span>';
+    status.replaceChildren();
+    const regSpan = document.createElement('span');
+    regSpan.style.color = '#22c55e';
+    regSpan.textContent = 'Registered: ' + (data.registered || []).join(', ');
+    status.appendChild(regSpan);
     setTimeout(() => closeScenarioModal(), 800);
     // Reload scenario dropdown
     const sel = document.getElementById('scenario');
     while (sel.options.length > 1) sel.remove(1);
     await loadScenarios();
   } catch(e) {
-    status.innerHTML = '<span style="color:#ef4444">Error: ' + escapeHtml(e.message) + '</span>';
+    status.replaceChildren();
+    const errSpan = document.createElement('span');
+    errSpan.style.color = '#ef4444';
+    errSpan.textContent = 'Error: ' + e.message;
+    status.appendChild(errSpan);
   }
   btn.disabled = false;
 }
@@ -818,8 +852,19 @@ function showOtterToast(run) {
 
   const toast = document.createElement('div');
   toast.className = 'otter-toast';
-  toast.innerHTML = '<img src="/assets/favicon.svg" alt="" class="toast-icon" width="28" height="28"><span class="toast-text">Olly the otter finished <strong>' +
-    (run.label || 'run #' + run.id.slice(0,8)) + '</strong></span>';
+  const icon = document.createElement('img');
+  icon.src = '/assets/favicon.svg';
+  icon.alt = '';
+  icon.className = 'toast-icon';
+  icon.width = 28;
+  icon.height = 28;
+  const text = document.createElement('span');
+  text.className = 'toast-text';
+  text.appendChild(document.createTextNode('Olly the otter finished '));
+  const strong = document.createElement('strong');
+  strong.textContent = run.label || 'run #' + run.id.slice(0, 8);
+  text.appendChild(strong);
+  toast.append(icon, text);
   document.body.appendChild(toast);
 
   setTimeout(() => {
@@ -898,6 +943,92 @@ function getSignalBadge(signals) {
 }
 
 var _emptyStateHTML = null;
+var _runListDelegated = false;
+
+function appendTrustedHtml(parent, html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html.trim();
+  const node = tpl.content.firstChild;
+  if (node) parent.appendChild(node);
+}
+
+function buildRunCard(r) {
+  const card = document.createElement('div');
+  card.className = 'run-card' +
+    (r.status === 'running' ? ' running' : '') +
+    (r.status === 'completed' ? ' completed' : '');
+  card.dataset.runId = r.id;
+
+  appendTrustedHtml(card, getSignalBadge(getRunSignals(r)));
+
+  const statusDot = document.createElement('div');
+  statusDot.className = 'status ' + statusClass(r.status);
+  card.appendChild(statusDot);
+
+  const scenario = r.scenario || r.config?.Scenario || '';
+  const isImported = r.output === 'import';
+  const metaParts = [formatTime(r.started_at)];
+  if (isImported) {
+    metaParts.push('imported');
+  } else {
+    if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
+    var tc = r.config?.TraceCount;
+    if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
+  }
+
+  const info = document.createElement('div');
+  info.className = 'info';
+  const idDiv = document.createElement('div');
+  idDiv.className = 'id';
+  idDiv.textContent = r.id + (scenario ? ' \u00B7 ' + scenario : '');
+  const metaDiv = document.createElement('div');
+  metaDiv.className = 'meta';
+  metaDiv.textContent = metaParts.join(' \u00B7 ');
+  info.append(idDiv, metaDiv);
+  card.appendChild(info);
+
+  const stats = document.createElement('div');
+  stats.className = 'stats';
+  const spanStat = document.createElement('span');
+  spanStat.textContent = (r.span_count || 0) + ' spans';
+  stats.appendChild(spanStat);
+  if (r.log_count || r.log_count_completed) {
+    const s = document.createElement('span');
+    s.textContent = (r.log_count || r.log_count_completed) + ' logs';
+    stats.appendChild(s);
+  }
+  if (r.metric_count || r.metric_count_completed) {
+    const s = document.createElement('span');
+    s.textContent = (r.metric_count || r.metric_count_completed) + ' metrics';
+    stats.appendChild(s);
+  }
+  const durSpan = document.createElement('span');
+  durSpan.innerHTML = formatDuration(r.duration_ns);
+  stats.appendChild(durSpan);
+  card.appendChild(stats);
+
+  if (r.status === 'running') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-pause';
+    btn.dataset.runAction = 'pause';
+    btn.textContent = 'Pause';
+    card.appendChild(btn);
+  } else if (r.status === 'paused') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-pause';
+    btn.dataset.runAction = 'resume';
+    btn.textContent = 'Resume';
+    card.appendChild(btn);
+  }
+  if (r.status === 'running' || r.status === 'pending' || r.status === 'paused') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-danger';
+    btn.dataset.runAction = 'stop';
+    btn.textContent = 'Stop';
+    card.appendChild(btn);
+  }
+  return card;
+}
 
 function renderRunList() {
   const list = document.getElementById('run-list');
@@ -929,45 +1060,26 @@ function renderRunList() {
     list.innerHTML = '<div class="empty"><p>No jobs match the current filter.</p></div>';
     return;
   }
-  list.innerHTML = entries.map(r => {
-    const signals = getRunSignals(r);
-    const signalBadge = getSignalBadge(signals);
-    const scenario = r.scenario || r.config?.Scenario || '';
-    const scenarioTag = scenario ? ' &middot; ' + scenario : '';
-    const isImported = r.output === 'import';
-    const metaParts = [formatTime(r.started_at)];
-    if (isImported) {
-      metaParts.push('imported');
-    } else {
-      if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
-      var tc = r.config?.TraceCount;
-      if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
-    }
-    var statsHtml = '<span>' + (r.span_count || 0) + ' spans</span>';
-    if (r.log_count || r.log_count_completed) {
-      var lc = r.log_count || r.log_count_completed;
-      statsHtml += '<span>' + lc + ' logs</span>';
-    }
-    if (r.metric_count || r.metric_count_completed) {
-      var mc = r.metric_count || r.metric_count_completed;
-      statsHtml += '<span>' + mc + ' metrics</span>';
-    }
-    statsHtml += '<span>' + formatDuration(r.duration_ns) + '</span>';
-    return `<div class="run-card${r.status === 'running' ? ' running' : ''}${r.status === 'completed' ? ' completed' : ''}" onclick="showDetail('${r.id}')">
-      ${signalBadge}
-      <div class="status ${statusClass(r.status)}"></div>
-      <div class="info">
-        <div class="id">${r.id}${scenarioTag}</div>
-        <div class="meta">${metaParts.join(' &middot; ')}</div>
-      </div>
-      <div class="stats">
-        ${statsHtml}
-      </div>
-      ${r.status === 'running' ? `<button class="btn-pause" onclick="event.stopPropagation();pauseRun('${r.id}')">Pause</button>` : ''}
-      ${r.status === 'paused' ? `<button class="btn-pause" onclick="event.stopPropagation();resumeRun('${r.id}')">Resume</button>` : ''}
-      ${r.status === 'running' || r.status === 'pending' || r.status === 'paused' ? `<button class="btn-danger" onclick="event.stopPropagation();stopRun('${r.id}')">Stop</button>` : ''}
-    </div>`;
-  }).join('');
+  list.replaceChildren();
+  entries.forEach((r) => list.appendChild(buildRunCard(r)));
+  if (!_runListDelegated) {
+    _runListDelegated = true;
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('.run-card');
+      if (!card) return;
+      const id = card.dataset.runId;
+      const actionBtn = e.target.closest('[data-run-action]');
+      if (actionBtn) {
+        e.stopPropagation();
+        const action = actionBtn.dataset.runAction;
+        if (action === 'pause') pauseRun(id);
+        else if (action === 'resume') resumeRun(id);
+        else if (action === 'stop') stopRun(id);
+        return;
+      }
+      if (!e.target.closest('button')) showDetail(id);
+    });
+  }
   const pauseAllBtn = document.getElementById('pause-all-btn');
   const resumeAllBtn = document.getElementById('resume-all-btn');
   const stopAllBtn = document.getElementById('stop-all-btn');
@@ -1026,7 +1138,7 @@ function renderDetail(r) {
       var metricDone = r.metric_count_completed || 0;
       progressHtml += '<div class="stat"><div class="value">' + metricDone + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
     }
-    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>' + progressHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="pauseRun(\'' + r.id + '\')">Pause</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>' + progressHtml + '</div><div style="margin-top:12px"><button type="button" class="btn btn-secondary" data-detail-action="pause" data-run-id="' + escapeAttr(r.id) + '">Pause</button><button type="button" class="btn btn-secondary" data-detail-action="stop" data-run-id="' + escapeAttr(r.id) + '" style="margin-left:8px">Stop</button></div>';
     return;
   }
 
@@ -1042,13 +1154,13 @@ function renderDetail(r) {
     if (r.metric_count) {
       pausedHtml += '<div class="stat"><div class="value">' + (r.metric_count_completed || 0) + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
     }
-    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>' + pausedHtml + '</div><div style="margin-top:12px"><button class="btn btn-secondary" onclick="resumeRun(\'' + r.id + '\')">Resume</button><button class="btn btn-secondary" onclick="stopRun(\'' + r.id + '\')" style="margin-left:8px">Stop</button></div>';
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>' + pausedHtml + '</div><div style="margin-top:12px"><button type="button" class="btn btn-secondary" data-detail-action="resume" data-run-id="' + escapeAttr(r.id) + '">Resume</button><button type="button" class="btn btn-secondary" data-detail-action="stop" data-run-id="' + escapeAttr(r.id) + '" style="margin-left:8px">Stop</button></div>';
     return;
   }
 
   // Failed state
   if (r.status === 'failed') {
-    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div></div><div class="error">' + (r.error || 'Unknown error') + '</div>';
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div></div><div class="error">' + escapeHtml(r.error || 'Unknown error') + '</div>';
     return;
   }
 
@@ -1113,13 +1225,13 @@ function renderDetail(r) {
   var hasMetricData = metricRecordCount > 0 || !!(r.has_metric_data || r.metric_data);
   var tabHtml = '<div class="detail-tabs">';
   if (hasTraceData) {
-    tabHtml += '<button class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" onclick="switchDetailTab(\'traces\')">Spans<span class="tab-badge">' + (spanCountTotal || r.span_count || 0) + '</span></button>';
+    tabHtml += '<button type="button" class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" data-tab="traces">Spans<span class="tab-badge">' + (spanCountTotal || r.span_count || 0) + '</span></button>';
   }
   if (hasLogData) {
-    tabHtml += '<button class="detail-tab' + (detailTab === 'logs' ? ' active' : '') + '" onclick="switchDetailTab(\'logs\')">Logs<span class="tab-badge">' + logRecordCount + '</span></button>';
+    tabHtml += '<button type="button" class="detail-tab' + (detailTab === 'logs' ? ' active' : '') + '" data-tab="logs">Logs<span class="tab-badge">' + logRecordCount + '</span></button>';
   }
   if (hasMetricData) {
-    tabHtml += '<button class="detail-tab' + (detailTab === 'metrics' ? ' active' : '') + '" onclick="switchDetailTab(\'metrics\')">Metrics<span class="tab-badge">' + metricRecordCount + '</span></button>';
+    tabHtml += '<button type="button" class="detail-tab' + (detailTab === 'metrics' ? ' active' : '') + '" data-tab="metrics">Metrics<span class="tab-badge">' + metricRecordCount + '</span></button>';
   }
   tabHtml += '</div>';
 
@@ -1188,8 +1300,8 @@ function renderLogTable(logData) {
         traceIdStr = typeof lr.traceId === 'string' ? lr.traceId.substring(0, 16) : '';
       }
 
-      bodyHtml += '<tr onclick="toggleLogDetail(this, ' + idx + ')" class="log-row" data-idx="' + idx + '">';
-      bodyHtml += '<td><span class="severity-tag ' + sevClass + '">' + (lr.severityText || 'INFO') + '</span></td>';
+      bodyHtml += '<tr class="log-row" data-log-idx="' + idx + '">';
+      bodyHtml += '<td><span class="severity-tag ' + sevClass + '">' + escapeHtml(lr.severityText || 'INFO') + '</span></td>';
       bodyHtml += '<td style="white-space:nowrap;color:#64748b;font-family:monospace;font-size:11px">' + ts + '</td>';
       bodyHtml += '<td><div class="log-body">' + escapeHtml(bodyStr) + '</div></td>';
       bodyHtml += '<td style="font-family:monospace;font-size:10px;color:#475569">' + escapeHtml(traceIdStr) + '...</td>';
@@ -1309,6 +1421,170 @@ function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+// HTML text escaping does not cover quotes, so attribute values need their own
+// helper before they are interpolated into markup.
+function escapeAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let _detailContentDelegated = false;
+
+function wireDetailContentDelegation() {
+  if (_detailContentDelegated) return;
+  _detailContentDelegated = true;
+  const el = document.getElementById('detail-content');
+  if (!el) return;
+  el.addEventListener('click', (e) => {
+    const tab = e.target.closest('.detail-tab[data-tab]');
+    if (tab) {
+      switchDetailTab(tab.dataset.tab);
+      return;
+    }
+    const actionBtn = e.target.closest('[data-detail-action]');
+    if (actionBtn) {
+      const action = actionBtn.dataset.detailAction;
+      const id = actionBtn.dataset.runId;
+      if (action === 'pause') pauseRun(id);
+      else if (action === 'resume') resumeRun(id);
+      else if (action === 'stop') stopRun(id);
+      return;
+    }
+    const logRow = e.target.closest('tr.log-row[data-log-idx]');
+    if (logRow) toggleLogDetail(logRow, parseInt(logRow.dataset.logIdx, 10));
+  });
+}
+
+function wireInfiniteField(inputId, overlayId, activateOnFocus) {
+  const input = document.getElementById(inputId);
+  const overlay = document.getElementById(overlayId);
+  if (!input) return;
+  const sync = () => {
+    updateInfiniteIndicator(inputId);
+    if (inputId === 'trace-count' || inputId === 'duration') {
+      syncTraceCountDuration(inputId);
+    }
+  };
+  input.addEventListener('input', sync);
+  input.addEventListener('blur', sync);
+  if (overlay) {
+    overlay.addEventListener('click', () => focusInfiniteInput(inputId, activateOnFocus));
+  }
+}
+
+function wireBarDragTracks(gridId, prefix) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  grid.querySelectorAll('.sev-bar-track').forEach((track) => {
+    const input = track.parentElement && track.parentElement.querySelector('input[type="number"]');
+    if (!input || !input.id) return;
+    const id = input.id.replace(prefix === 'sev' ? 'sev-' : 'metric-', '');
+    track.addEventListener('mousedown', (e) => startBarDrag(e, prefix, id));
+    track.addEventListener('touchstart', (e) => startBarDrag(e, prefix, id));
+    input.addEventListener('input', () => {
+      if (prefix === 'sev') onSeverityInput(id);
+      else onMetricTypeInput(id);
+    });
+  });
+}
+
+function wireStaticDashboardUI() {
+  const partyEq = document.querySelector('.signal-eq');
+  if (partyEq) partyEq.addEventListener('click', togglePartyMode);
+
+  const selectAllBtn = document.querySelector('#signal-type .pill-all');
+  if (selectAllBtn) selectAllBtn.addEventListener('click', selectAllSignals);
+  document.querySelectorAll('#signal-type input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('click', (e) => onSignalPillClick(e, cb.value));
+  });
+  const toggleAllBtn = document.getElementById('toggle-all-btn');
+  if (toggleAllBtn) toggleAllBtn.addEventListener('click', toggleAllSignalConfigs);
+
+  ['trace', 'log', 'metric'].forEach((signal) => {
+    const area = document.getElementById(signal + '-config-area');
+    const header = area && area.querySelector('.signal-config-header');
+    if (header) header.addEventListener('click', () => toggleSignalConfig(signal));
+  });
+
+  wireInfiniteField('trace-count', 'trace-count-inf', 1);
+  wireInfiniteField('rate', 'rate-inf');
+  wireInfiniteField('duration', 'duration-inf', 1);
+
+  const scenarioSel = document.getElementById('scenario');
+  if (scenarioSel) scenarioSel.addEventListener('change', () => handleScenarioChange(scenarioSel));
+
+  wireBarDragTracks('severity-grid', 'sev');
+  wireBarDragTracks('metric-type-grid', 'metric');
+
+  const addLogBtn = document.getElementById('add-log-attr-btn');
+  if (addLogBtn) addLogBtn.addEventListener('click', () => addLogAttr());
+  const addMetricBtn = document.getElementById('add-metric-attr-btn');
+  if (addMetricBtn) addMetricBtn.addEventListener('click', () => addMetricAttr('', ''));
+
+  const runBtn = document.getElementById('run-btn');
+  if (runBtn) runBtn.addEventListener('click', startRun);
+  const importOpenBtn = document.getElementById('open-import-modal-btn');
+  if (importOpenBtn) importOpenBtn.addEventListener('click', openImportModal);
+  const scenarioOpenBtn = document.getElementById('open-scenario-modal-btn');
+  if (scenarioOpenBtn) scenarioOpenBtn.addEventListener('click', openScenarioModal);
+
+  const pauseAllBtn = document.getElementById('pause-all-btn');
+  if (pauseAllBtn) pauseAllBtn.addEventListener('click', pauseAllRuns);
+  const resumeAllBtn = document.getElementById('resume-all-btn');
+  if (resumeAllBtn) resumeAllBtn.addEventListener('click', resumeAllRuns);
+  const stopAllBtn = document.getElementById('stop-all-btn');
+  if (stopAllBtn) stopAllBtn.addEventListener('click', stopAllRuns);
+
+  const resetFilterBtn = document.querySelector('#run-filter-signals .pill-all');
+  if (resetFilterBtn) resetFilterBtn.addEventListener('click', resetSignalFilter);
+  document.querySelectorAll('#run-filter-signals input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('click', (e) => onFilterSignalPillClick(e, cb.value));
+  });
+  const filterSearch = document.getElementById('filter-search');
+  if (filterSearch) filterSearch.addEventListener('input', renderRunList);
+
+  const importOverlay = document.getElementById('import-modal-overlay');
+  if (importOverlay) {
+    importOverlay.addEventListener('click', (e) => {
+      if (e.target === importOverlay) closeModal('import-modal-overlay');
+    });
+    importOverlay.querySelectorAll('.modal-close, .import-modal-cancel').forEach((btn) => {
+      btn.addEventListener('click', () => closeModal('import-modal-overlay'));
+    });
+  }
+  const importBtn = document.getElementById('import-btn');
+  if (importBtn) importBtn.addEventListener('click', importTraces);
+
+  const scenarioOverlay = document.getElementById('scenario-modal-overlay');
+  if (scenarioOverlay) {
+    scenarioOverlay.addEventListener('click', (e) => {
+      if (e.target === scenarioOverlay) closeModal('scenario-modal-overlay');
+    });
+    scenarioOverlay.querySelectorAll('.modal-close, .scenario-modal-cancel').forEach((btn) => {
+      btn.addEventListener('click', () => closeModal('scenario-modal-overlay'));
+    });
+  }
+  const scenarioUploadBtn = document.getElementById('scenario-upload-btn');
+  if (scenarioUploadBtn) scenarioUploadBtn.addEventListener('click', uploadScenarios);
+
+  const rtConnect = document.getElementById('remotetap-connect-btn');
+  if (rtConnect) rtConnect.addEventListener('click', connectRemotetap);
+  const rtDisconnect = document.getElementById('remotetap-disconnect-btn');
+  if (rtDisconnect) rtDisconnect.addEventListener('click', disconnectRemotetap);
+  const rtFiltersHeader = document.querySelector('.remotetap-filters-header');
+  if (rtFiltersHeader) rtFiltersHeader.addEventListener('click', toggleRemotetapFilters);
+
+  wireDetailContentDelegation();
+}
+
+function toggleRemotetapFilters() {
+  document.getElementById('remotetap-filters').classList.toggle('collapsed');
 }
 
 // --- Remotetap (Live Collector Data) ---
@@ -1494,6 +1770,7 @@ function showRemotetapDisconnected() {
   statusEl.className = 'status-disconnected';
 }
 
+wireStaticDashboardUI();
 loadScenarios();
 // Restore per-signal collapse states
 ['trace', 'log', 'metric'].forEach(function(signal) {

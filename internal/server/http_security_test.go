@@ -1,15 +1,127 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
+func waitUntilHTTPReady(t *testing.T, client *http.Client, url string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server not ready: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func startListenerAddr(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return addr
+}
+
+func runServerOnAddr(t *testing.T, s *Server) (client *http.Client, baseURL string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.ListenAndServeContext(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+	client = &http.Client{Timeout: time.Second}
+	baseURL = "http://" + s.addr
+	waitUntilHTTPReady(t, client, baseURL+"/api/health")
+	return client, baseURL
+}
+
+func assertSecurityHeaders(t *testing.T, h http.Header) {
+	t.Helper()
+	if got := h.Get("Content-Security-Policy"); got != contentSecurityPolicy {
+		t.Errorf("CSP = %q, want %q", got, contentSecurityPolicy)
+	}
+	if got := h.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := h.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q, want no-referrer", got)
+	}
+	if got := h.Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("X-Frame-Options = %q, want DENY", got)
+	}
+}
+
+func rawHTTPGet(t *testing.T, addr, hostLine, extraHeader string) (status int, headers http.Header) {
+	t.Helper()
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if hostLine == "" {
+		hostLine = "Host:\r\n"
+	} else {
+		hostLine = "Host: " + hostLine + "\r\n"
+	}
+	req := fmt.Sprintf("GET /api/health HTTP/1.1\r\n%s%s\r\n", hostLine, extraHeader)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, resp.Header
+}
+
+func requestWithHost(t *testing.T, client *http.Client, method, url, host string, extra func(*http.Request)) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "" {
+		req.Host = host
+	}
+	if extra != nil {
+		extra(req)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
 
 func TestHTTPRejectsCrossOriginMutations(t *testing.T) {
 	// Exercise the real serving entry point, not a test-only middleware stack.
@@ -172,4 +284,217 @@ func TestHTTPServerRejectsOversizedBody(t *testing.T) {
 	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("declared oversized body status=%d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
 	}
+}
+
+func TestHTTPHostAllowsLoopbackAndConfiguredHosts(t *testing.T) {
+	mappedPort := "18080"
+	addr := startListenerAddr(t)
+	srv, err := New(addr, false, []string{"allowed.example"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.Close()
+	client, baseURL := runServerOnAddr(t, srv)
+	hostPort := strings.TrimPrefix(addr, "127.0.0.1:")
+	for _, host := range []string{
+		"127.0.0.1:" + hostPort,
+		"127.0.0.1:" + mappedPort,
+		"localhost:" + hostPort,
+		"[::1]:" + hostPort,
+		"allowed.example:" + mappedPort,
+	} {
+		t.Run(host, func(t *testing.T) {
+			resp := requestWithHost(t, client, http.MethodGet, baseURL+"/api/health", host, nil)
+			defer resp.Body.Close()
+			io.Copy(io.Discard, resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d, want %d", resp.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}
+
+func TestHTTPHostRejectsForeignHosts(t *testing.T) {
+	addr := startListenerAddr(t)
+	srv, err := New(addr, false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.Close()
+	client, baseURL := runServerOnAddr(t, srv)
+	for _, tt := range []struct {
+		name   string
+		method string
+		host   string
+		extra  func(*http.Request)
+	}{
+		{
+			name:   "GET foreign DNS",
+			method: http.MethodGet,
+			host:   "evil.example:18080",
+			extra: func(req *http.Request) {
+				req.Header.Set("Origin", "http://evil.example:18080")
+			},
+		},
+		{
+			name:   "POST foreign DNS",
+			method: http.MethodPost,
+			host:   "evil.example:18080",
+			extra: func(req *http.Request) {
+				req.Header.Set("Origin", "http://evil.example:18080")
+			},
+		},
+		{name: "malformed host", method: http.MethodGet, host: "not a host!"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := requestWithHost(t, client, tt.method, baseURL+"/api/health", tt.host, tt.extra)
+			defer resp.Body.Close()
+			io.Copy(io.Discard, resp.Body)
+			if resp.StatusCode != http.StatusForbidden {
+				t.Fatalf("status=%d, want %d", resp.StatusCode, http.StatusForbidden)
+			}
+			assertSecurityHeaders(t, resp.Header)
+		})
+	}
+	t.Run("empty host", func(t *testing.T) {
+		status, hdr := rawHTTPGet(t, srv.addr, "", "")
+		if status != http.StatusForbidden {
+			t.Fatalf("status=%d, want %d", status, http.StatusForbidden)
+		}
+		assertSecurityHeaders(t, hdr)
+	})
+	t.Run("forwarded host only", func(t *testing.T) {
+		status, hdr := rawHTTPGet(t, srv.addr, "", "X-Forwarded-Host: evil.example:18080\r\n")
+		if status != http.StatusForbidden {
+			t.Fatalf("status=%d, want %d", status, http.StatusForbidden)
+		}
+		assertSecurityHeaders(t, hdr)
+	})
+}
+
+func TestHTTPHostPolicyOnDirectServerConstruction(t *testing.T) {
+	addr := startListenerAddr(t)
+	s := &Server{addr: addr, mux: http.NewServeMux()}
+	s.mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	client, baseURL := runServerOnAddr(t, s)
+	hostPort := strings.TrimPrefix(addr, "127.0.0.1:")
+	resp := requestWithHost(t, client, http.MethodGet, baseURL+"/api/health", "127.0.0.1:"+hostPort, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("allowed host status=%d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	resp2 := requestWithHost(t, client, http.MethodGet, baseURL+"/api/health", "evil.example:18080", nil)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign host status=%d, want %d", resp2.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestHTTPHostWildcardBindAllowsIPLiteralNotDNS(t *testing.T) {
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wildcardAddr := "0.0.0.0:" + port
+	srv, err := New(wildcardAddr, false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.Close()
+	clientURL := "http://127.0.0.1:" + port
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.ListenAndServeContext(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+	client := &http.Client{Timeout: time.Second}
+	waitUntilHTTPReady(t, client, clientURL+"/api/health")
+	resp := requestWithHost(t, client, http.MethodGet, clientURL+"/api/health", "203.0.113.7:"+port, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("IP literal host status=%d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	resp2 := requestWithHost(t, client, http.MethodGet, clientURL+"/api/health", "foreign.example:"+port, nil)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Fatalf("DNS on wildcard bind status=%d, want %d", resp2.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestHTTPNewRejectsInvalidAllowedHosts(t *testing.T) {
+	for _, entry := range []string{"https://x", "a/b", "*", "host:1234"} {
+		t.Run(entry, func(t *testing.T) {
+			_, err := New("127.0.0.1:0", false, []string{entry})
+			if err == nil {
+				t.Fatal("expected configuration error")
+			}
+			if !strings.Contains(err.Error(), "host configuration") {
+				t.Fatalf("error = %v, want host configuration wrapper", err)
+			}
+		})
+	}
+}
+
+func TestHTTPSecurityResponseHeaders(t *testing.T) {
+	addr := startListenerAddr(t)
+	srv, err := New(addr, true, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.Close()
+	client, baseURL := runServerOnAddr(t, srv)
+	hostPort := strings.TrimPrefix(addr, "127.0.0.1:")
+	host := "127.0.0.1:" + hostPort
+
+	t.Run("dashboard", func(t *testing.T) {
+		resp := requestWithHost(t, client, http.MethodGet, baseURL+"/", host, nil)
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+		assertSecurityHeaders(t, resp.Header)
+	})
+
+	t.Run("api error", func(t *testing.T) {
+		resp := requestWithHost(t, client, http.MethodGet, baseURL+"/api/runs/does-not-exist", host, nil)
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status=%d, want %d", resp.StatusCode, http.StatusNotFound)
+		}
+		assertSecurityHeaders(t, resp.Header)
+	})
+
+	t.Run("pipeline", func(t *testing.T) {
+		resp := requestWithHost(t, client, http.MethodGet, baseURL+"/pipeline/", host, nil)
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+		assertSecurityHeaders(t, resp.Header)
+	})
+}
+
+func TestHTTPHostForbiddenIncludesSecurityHeaders(t *testing.T) {
+	addr := startListenerAddr(t)
+	srv, err := New(addr, false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.Close()
+	client, baseURL := runServerOnAddr(t, srv)
+	resp := requestWithHost(t, client, http.MethodGet, baseURL+"/", fmt.Sprintf("evil.example:%s", strings.TrimPrefix(addr, "127.0.0.1:")), nil)
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	assertSecurityHeaders(t, resp.Header)
 }

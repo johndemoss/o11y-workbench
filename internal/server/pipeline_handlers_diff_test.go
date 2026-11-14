@@ -175,7 +175,7 @@ func TestHandlePipelineDiff(t *testing.T) {
 }
 
 func TestHandlePipelineDiff_RouteEnabled(t *testing.T) {
-	srv, _ := New(":0", false)
+	srv, _ := New(":0", false, nil)
 	body, _ := json.Marshal(map[string]interface{}{
 		"stages":        []interface{}{},
 		"original_data": json.RawMessage(`{}`),

@@ -10,7 +10,7 @@ import (
 )
 
 func TestHandleStartRun_WorkloadOverlays(t *testing.T) {
-	s, err := New(":0", false)
+	s, err := New(":0", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestHandleStartRun_WorkloadOverlays(t *testing.T) {
 }
 
 func TestHandleStartRun_FlatShapeSkipsTopologyParse(t *testing.T) {
-	s, err := New(":0", false)
+	s, err := New(":0", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestHandleStartRun_FlatShapeSkipsTopologyParse(t *testing.T) {
 }
 
 func TestHandleStartRun_ScenarioWorkload(t *testing.T) {
-	s, err := New(":0", false)
+	s, err := New(":0", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ test.describe('Run list summary + detail Get-by-id', () => {
       .poll(async () => safeEval(page, () => pollTimer !== null), { timeout: 5000 })
       .toBe(true);
 
-    await expect(page.locator('.run-card.completed')).toBeVisible({ timeout: 20000 });
+    await expect(page.locator('.run-card.completed').first()).toBeVisible({ timeout: 20000 });
 
     // After completion, polling should stop.
     await expect

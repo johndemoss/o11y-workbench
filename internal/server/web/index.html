@@ -14,7 +14,7 @@
     <div class="logo">
       <img src="/assets/logo.svg" alt="o11y workbench" class="logo-img logo-xl">
     </div>
-    <div class="signal-eq" onclick="togglePartyMode()" title="Toggle party mode">
+    <div class="signal-eq" title="Toggle party mode">
       <div class="eq-bar eq-traces"></div>
       <div class="eq-bar eq-logs"></div>
       <div class="eq-bar eq-metrics"></div>
@@ -57,18 +57,18 @@
       <label>Signals</label>
       <div style="display:flex;align-items:center;gap:16px;justify-content:space-between">
         <div class="signal-pills" id="signal-type">
-          <button class="pill-all" onclick="selectAllSignals()" type="button">All</button>
-          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="traces" checked onclick="onSignalPillClick(event,'traces')"> Traces</label>
-          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs" onclick="onSignalPillClick(event,'logs')"> Logs</label>
-          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics" onclick="onSignalPillClick(event,'metrics')"> Metrics</label>
+          <button class="pill-all" type="button">All</button>
+          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="traces" checked> Traces</label>
+          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs"> Logs</label>
+          <label title="Click to select only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics"> Metrics</label>
         </div>
-        <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;font-weight:400;flex-shrink:0" onclick="toggleAllSignalConfigs()" id="toggle-all-btn">Collapse All</button>
+        <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;font-weight:400;flex-shrink:0" id="toggle-all-btn">Collapse All</button>
       </div>
     </div>
   </div>
 
   <div class="signal-config" id="trace-config-area">
-    <div class="signal-config-header" onclick="toggleSignalConfig('trace')">
+    <div class="signal-config-header">
       <span>Trace Config</span>
       <button class="signal-collapse-btn">▾</button>
     </div>
@@ -78,27 +78,27 @@
         <div class="field">
           <label>Trace Count</label>
           <span class="field-input-wrap">
-            <input type="number" id="trace-count" value="0" min="0" title="0 = unlimited/infinite" oninput="updateInfiniteIndicator('trace-count'); syncTraceCountDuration('trace-count')" onblur="updateInfiniteIndicator('trace-count'); syncTraceCountDuration('trace-count')">
-            <span class="infinite-overlay" id="trace-count-inf" onclick="focusInfiniteInput('trace-count', 1)">∞</span>
+            <input type="number" id="trace-count" value="0" min="0" title="0 = unlimited/infinite">
+            <span class="infinite-overlay" id="trace-count-inf">∞</span>
           </span>
         </div>
         <div class="field">
           <label>Rate (0 = unlimited)</label>
           <span class="field-input-wrap">
-            <input type="number" id="rate" value="1" min="0" oninput="updateInfiniteIndicator('rate')" onblur="updateInfiniteIndicator('rate')">
-            <span class="infinite-overlay" id="rate-inf" onclick="focusInfiniteInput('rate')">∞</span>
+            <input type="number" id="rate" value="1" min="0">
+            <span class="infinite-overlay" id="rate-inf">∞</span>
           </span>
         </div>
         <div class="field">
           <label>Duration (s; 0 = unlimited)</label>
           <span class="field-input-wrap">
-            <input type="number" id="duration" value="10" min="0" title="0 = unlimited" oninput="updateInfiniteIndicator('duration'); syncTraceCountDuration('duration')" onblur="updateInfiniteIndicator('duration'); syncTraceCountDuration('duration')">
-            <span class="infinite-overlay" id="duration-inf" onclick="focusInfiniteInput('duration', 1)">∞</span>
+            <input type="number" id="duration" value="10" min="0" title="0 = unlimited">
+            <span class="infinite-overlay" id="duration-inf">∞</span>
           </span>
         </div>
         <div class="field">
           <label>Scenario</label>
-          <select id="scenario" onchange="handleScenarioChange(this)">
+          <select id="scenario">
             <option value="">None (use topology)</option>
           </select>
         </div>
@@ -132,7 +132,7 @@
   </div>
 
   <div class="signal-config" id="log-config-area" style="display:none">
-    <div class="signal-config-header" onclick="toggleSignalConfig('log')">
+    <div class="signal-config-header">
       <span>Log Config</span>
       <button class="signal-collapse-btn">▾</button>
     </div>
@@ -152,31 +152,31 @@
       <div class="severity-grid" id="severity-grid">
         <div class="severity-row sev-info">
           <label>INFO</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'info')" ontouchstart="startBarDrag(event, 'sev', 'info')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-info" style="--chunk-color:#3b82f6"></div>
           </div>
-          <input type="number" id="sev-info" min="0" max="100" value="60" oninput="onSeverityInput('info')">
+          <input type="number" id="sev-info" min="0" max="100" value="60">
         </div>
         <div class="severity-row sev-warn">
           <label>WARN</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'warn')" ontouchstart="startBarDrag(event, 'sev', 'warn')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-warn" style="--chunk-color:#eab308"></div>
           </div>
-          <input type="number" id="sev-warn" min="0" max="100" value="25" oninput="onSeverityInput('warn')">
+          <input type="number" id="sev-warn" min="0" max="100" value="25">
         </div>
         <div class="severity-row sev-error">
           <label>ERROR</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'error')" ontouchstart="startBarDrag(event, 'sev', 'error')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-error" style="--chunk-color:#ef4444"></div>
           </div>
-          <input type="number" id="sev-error" min="0" max="100" value="12" oninput="onSeverityInput('error')">
+          <input type="number" id="sev-error" min="0" max="100" value="12">
         </div>
         <div class="severity-row sev-fatal">
           <label>FATAL</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'sev', 'fatal')" ontouchstart="startBarDrag(event, 'sev', 'fatal')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-fatal" style="--chunk-color:#dc2626"></div>
           </div>
-          <input type="number" id="sev-fatal" min="0" max="100" value="3" oninput="onSeverityInput('fatal')">
+          <input type="number" id="sev-fatal" min="0" max="100" value="3">
         </div>
       </div>
       <div class="severity-total" id="severity-total">Total: <span class="ok">100</span> / 100</div>
@@ -189,12 +189,12 @@
         <thead><tr><th>Key</th><th>Value</th><th style="width:32px"></th></tr></thead>
         <tbody id="attr-body"></tbody>
       </table>
-      <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px" onclick="addLogAttr()">+ Add Attribute</button>
+      <button type="button" class="btn btn-secondary" style="font-size:12px;padding:4px 12px" id="add-log-attr-btn">+ Add Attribute</button>
     </div>
   </div>
 
   <div class="signal-config" id="metric-config-area" style="display:none">
-    <div class="signal-config-header" onclick="toggleSignalConfig('metric')">
+    <div class="signal-config-header">
       <span>Metric Config</span>
       <button class="signal-collapse-btn">▾</button>
     </div>
@@ -210,24 +210,24 @@
       <div class="severity-grid" id="metric-type-grid">
         <div class="severity-row" style="--sev-color:#4ade80">
           <label>Gauge</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'metric', 'gauge')" ontouchstart="startBarDrag(event, 'metric', 'gauge')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="metric-bar-gauge" style="--chunk-color:#4ade80"></div>
           </div>
-          <input type="number" id="metric-gauge" min="0" max="100" value="40" step="5" oninput="onMetricTypeInput('gauge')">
+          <input type="number" id="metric-gauge" min="0" max="100" value="40" step="5">
         </div>
         <div class="severity-row" style="--sev-color:#60a5fa">
           <label>Sum</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'metric', 'sum')" ontouchstart="startBarDrag(event, 'metric', 'sum')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="metric-bar-sum" style="--chunk-color:#60a5fa"></div>
           </div>
-          <input type="number" id="metric-sum" min="0" max="100" value="40" step="5" oninput="onMetricTypeInput('sum')">
+          <input type="number" id="metric-sum" min="0" max="100" value="40" step="5">
         </div>
         <div class="severity-row" style="--sev-color:#f59e0b">
           <label>Histogram</label>
-          <div class="sev-bar-track" onmousedown="startBarDrag(event, 'metric', 'histogram')" ontouchstart="startBarDrag(event, 'metric', 'histogram')">
+          <div class="sev-bar-track">
             <div class="sev-bar-fill" id="metric-bar-histogram" style="--chunk-color:#f59e0b"></div>
           </div>
-          <input type="number" id="metric-histogram" min="0" max="100" value="20" step="5" oninput="onMetricTypeInput('histogram')">
+          <input type="number" id="metric-histogram" min="0" max="100" value="20" step="5">
         </div>
       </div>
       <div id="metric-type-total" style="font-size:11px;margin-bottom:12px;color:#94a3b8">Total: <span class="ok">1.0</span></div>
@@ -247,16 +247,16 @@
         <tbody id="metric-attr-body">
         </tbody>
       </table>
-      <button class="btn btn-secondary" style="font-size:12px;padding:4px 12px;margin-top:6px" onclick="addMetricAttr('','')">+ Add Attribute</button>
+      <button type="button" class="btn btn-secondary" style="font-size:12px;padding:4px 12px;margin-top:6px" id="add-metric-attr-btn">+ Add Attribute</button>
     </div>
   </div>
 
   <div class="form-actions" style="margin-top:16px">
-    <button class="btn btn-primary" id="run-btn" onclick="startRun()">Run</button>
+    <button type="button" class="btn btn-primary" id="run-btn">Run</button>
     <span id="run-status"></span>
     <span style="flex:1"></span>
-    <button class="btn btn-secondary" onclick="openImportModal()">Import OTLP JSON</button>
-    <button class="btn btn-secondary" onclick="openScenarioModal()">Upload Scenarios</button>
+    <button type="button" class="btn btn-secondary" id="open-import-modal-btn">Import OTLP JSON</button>
+    <button type="button" class="btn btn-secondary" id="open-scenario-modal-btn">Upload Scenarios</button>
   </div>
 </section>
 
@@ -282,18 +282,18 @@
 <section id="runs-section">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
     <h2 style="margin-bottom:0;">Jobs</h2>
-    <button id="pause-all-btn" class="btn-pause" onclick="pauseAllRuns()" style="display:none">Pause All</button>
-    <button id="resume-all-btn" class="btn-pause" onclick="resumeAllRuns()" style="display:none">Resume All</button>
-    <button id="stop-all-btn" class="btn-danger" onclick="stopAllRuns()" style="display:none">Stop All Running</button>
+    <button type="button" id="pause-all-btn" class="btn-pause" style="display:none">Pause All</button>
+    <button type="button" id="resume-all-btn" class="btn-pause" style="display:none">Resume All</button>
+    <button type="button" id="stop-all-btn" class="btn-danger" style="display:none">Stop All Running</button>
   </div>
   <div class="filter-bar">
     <div class="signal-pills" id="run-filter-signals">
-      <button class="pill-all" onclick="resetSignalFilter()" type="button">All</button>
-      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="traces" checked onclick="onFilterSignalPillClick(event,'traces')"> Traces</label>
-      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs" checked onclick="onFilterSignalPillClick(event,'logs')"> Logs</label>
-      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics" checked onclick="onFilterSignalPillClick(event,'metrics')"> Metrics</label>
+      <button class="pill-all" type="button">All</button>
+      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="traces" checked> Traces</label>
+      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs" checked> Logs</label>
+      <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics" checked> Metrics</label>
     </div>
-    <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs..." oninput="renderRunList()">
+    <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs...">
   </div>
   <div id="run-list" class="run-list">
     <div class="empty otter-empty">
@@ -309,11 +309,11 @@
 </section>
 
 <!-- Import OTLP JSON Modal -->
-<div class="modal-overlay" id="import-modal-overlay" onclick="closeImportModal(event)">
-  <div class="modal" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="import-modal-overlay">
+  <div class="modal">
     <div class="modal-header">
       <h3>Import OTLP JSON</h3>
-      <button class="modal-close" onclick="closeImportModal()">&times;</button>
+      <button type="button" class="modal-close">&times;</button>
     </div>
     <div class="modal-body">
       <p class="desc">Upload a JSON file exported by the OpenTelemetry Collector file exporter. Supports single JSON, JSON arrays, and NDJSON formats.</p>
@@ -322,20 +322,20 @@
         <input type="file" id="import-file" accept=".json,.ndjson">
       </div>
       <div class="form-actions">
-        <button class="btn btn-primary" id="import-btn" onclick="importTraces()">Import</button>
+        <button type="button" class="btn btn-primary" id="import-btn">Import</button>
         <span id="import-status"></span>
-        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+        <button type="button" class="btn btn-secondary import-modal-cancel">Cancel</button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- Upload Scenarios Modal -->
-<div class="modal-overlay" id="scenario-modal-overlay" onclick="closeScenarioModal(event)">
-  <div class="modal" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="scenario-modal-overlay">
+  <div class="modal">
     <div class="modal-header">
       <h3>Upload Scenarios</h3>
-      <button class="modal-close" onclick="closeScenarioModal()">&times;</button>
+      <button type="button" class="modal-close">&times;</button>
     </div>
     <div class="modal-body">
       <p class="desc">Upload a YAML or JSON file with user-defined scenario definitions. After registration, scenarios appear in the dropdown above.</p>
@@ -344,9 +344,9 @@
         <input type="file" id="scenario-file-input" accept=".yaml,.yml,.json">
       </div>
       <div class="form-actions">
-        <button class="btn btn-primary" id="scenario-upload-btn" onclick="uploadScenarios()">Upload</button>
+        <button type="button" class="btn btn-primary" id="scenario-upload-btn">Upload</button>
         <span id="scenario-upload-status"></span>
-        <button class="btn btn-secondary" onclick="closeScenarioModal()">Cancel</button>
+        <button type="button" class="btn btn-secondary scenario-modal-cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -361,14 +361,14 @@
       <input type="text" id="remotetap-endpoint" placeholder="localhost:12001" value="localhost:12001">
     </div>
     <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
-      <button onclick="connectRemotetap()" id="remotetap-connect-btn" class="btn btn-primary">Connect</button>
-      <button onclick="disconnectRemotetap()" id="remotetap-disconnect-btn" class="btn btn-secondary" style="display:none">Disconnect</button>
+      <button type="button" id="remotetap-connect-btn" class="btn btn-primary">Connect</button>
+      <button type="button" id="remotetap-disconnect-btn" class="btn btn-secondary" style="display:none">Disconnect</button>
     </div>
   </div>
 
   <!-- Filters section (collapsible) -->
   <div class="remotetap-filters" id="remotetap-filters">
-    <div class="remotetap-filters-header" onclick="toggleRemotetapFilters()">
+    <div class="remotetap-filters-header">
       <span>Filters</span>
       <button class="signal-collapse-btn">▾</button>
     </div>
@@ -462,11 +462,6 @@
 </div>
 
 <script src="scripts.js"></script>
-<script>
-function toggleRemotetapFilters() {
-  document.getElementById('remotetap-filters').classList.toggle('collapsed');
-}
-</script>
 <footer class="app-footer">
   <img src="/assets/favicon.svg" alt="" class="footer-mark" width="20" height="20">
   <span class="footer-tagline">Observe. Iterate. Improve.</span>

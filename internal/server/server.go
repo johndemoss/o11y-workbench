@@ -31,6 +31,7 @@ type Server struct {
 	addr            string
 	maxBody         int64
 	pipelineEnabled bool
+	allowedHosts    []string
 	remotetap       *RemotetapManager
 	engines         *ottlengine.Registry
 	engineStops     []func() error
@@ -39,10 +40,14 @@ type Server struct {
 type serverConfig struct {
 	addr            string
 	pipelineEnabled bool
+	allowedHosts    []string
 }
 
-func New(addr string, pipelineEnabled bool) (*Server, error) {
-	return newServer(serverConfig{addr: addr, pipelineEnabled: pipelineEnabled})
+func New(addr string, pipelineEnabled bool, allowedHosts []string) (*Server, error) {
+	if _, err := buildHostPolicy(addr, allowedHosts); err != nil {
+		return nil, fmt.Errorf("host configuration: %w", err)
+	}
+	return newServer(serverConfig{addr: addr, pipelineEnabled: pipelineEnabled, allowedHosts: allowedHosts})
 }
 
 func newServer(cfg serverConfig) (*Server, error) {
@@ -63,6 +68,7 @@ func newServer(cfg serverConfig) (*Server, error) {
 		mux:             http.NewServeMux(),
 		addr:            cfg.addr,
 		pipelineEnabled: cfg.pipelineEnabled,
+		allowedHosts:    cfg.allowedHosts,
 		remotetap:       NewRemotetapManager(store),
 		engines:         engines,
 		engineStops:     stops,
@@ -205,9 +211,11 @@ func limitRequestBody(max int64, next http.Handler) http.Handler {
 }
 
 func (s *Server) newHTTPServer() *http.Server {
+	inner := limitRequestBody(s.httpBodyLimit(), http.NewCrossOriginProtection().Handler(s.mux))
+	handler := securityHeaders(validateHost(s.addr, s.allowedHosts, inner))
 	return &http.Server{
 		Addr:              s.addr,
-		Handler:           limitRequestBody(s.httpBodyLimit(), http.NewCrossOriginProtection().Handler(s.mux)),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
