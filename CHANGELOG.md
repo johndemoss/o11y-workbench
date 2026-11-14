@@ -33,3 +33,13 @@ here describe user-visible behavior rather than internal work.
 - Weekly Dependabot updates for the Go modules, both npm manifests, and GitHub
   Actions, plus issue and pull-request templates, `CODEOWNERS`, and a code of
   conduct.
+
+### Changed
+
+- Updated the Pipeline Prototyper's Vite and Svelte build tooling.
+
+### Fixed
+
+- Metrics filter validation recognizes datapoint conditions across all supported
+  Collector versions, including configurations with `error_mode`.
+- Trace filter stages report zero output spans when every span is removed.
