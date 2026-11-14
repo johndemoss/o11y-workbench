@@ -181,6 +181,40 @@ func TestExecutePipeline_ThreeStageTransformFilterTransform(t *testing.T) {
 	}
 }
 
+func TestExecutePipeline_FilterDropsAllSpans(t *testing.T) {
+	traceData, err := marshalTrace(makeSampleTrace())
+	if err != nil {
+		t.Fatalf("marshal trace: %v", err)
+	}
+
+	pipeline := Pipeline{
+		Stages: []Stage{
+			{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"},
+		},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"traces": map[string]interface{}{
+					"span": []interface{}{`name == "no-such-span"`},
+				},
+			},
+		},
+	}
+
+	result, err := ExecutePipeline(traceData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecutePipeline: %v", err)
+	}
+	if result.Stages[0].StatementsParsed != 1 {
+		t.Fatalf("statements parsed = %d, want 1", result.Stages[0].StatementsParsed)
+	}
+	if result.Stages[0].OutputSpanCount != 0 {
+		t.Errorf("stage output = %d, want 0 (a filter that matches nothing keeps nothing)", result.Stages[0].OutputSpanCount)
+	}
+	if result.FinalSpanCount != 0 {
+		t.Errorf("FinalSpanCount = %d, want 0", result.FinalSpanCount)
+	}
+}
+
 func TestExecutePipeline_EmptyStages(t *testing.T) {
 	req := makeSampleTrace()
 	traceData, err := marshalTrace(req)

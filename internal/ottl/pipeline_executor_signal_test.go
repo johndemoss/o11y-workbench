@@ -183,6 +183,80 @@ func TestExecuteLogPipeline_Filter(t *testing.T) {
 	}
 }
 
+func TestExecuteMetricPipeline_Filter(t *testing.T) {
+	metricData, err := marshalMetrics(makeSampleMetrics())
+	if err != nil {
+		t.Fatalf("marshal metrics: %v", err)
+	}
+
+	pipeline := Pipeline{
+		Stages: []Stage{
+			{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"},
+		},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"metrics": map[string]interface{}{
+					"datapoint": []interface{}{`attributes["env"] == "prod"`},
+				},
+			},
+		},
+	}
+
+	result, err := ExecuteMetricPipeline(metricData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecuteMetricPipeline: %v", err)
+	}
+	if result.FinalSpanCount != 1 {
+		t.Fatalf("FinalSpanCount = %d, want 1", result.FinalSpanCount)
+	}
+	if result.Stages[0].InputSpanCount != 2 || result.Stages[0].OutputSpanCount != 1 {
+		t.Fatalf("stage counts in=%d out=%d, want 2/1", result.Stages[0].InputSpanCount, result.Stages[0].OutputSpanCount)
+	}
+
+	var out collectormetricsv1.ExportMetricsServiceRequest
+	if err := protojson.Unmarshal(result.FinalData, &out); err != nil {
+		t.Fatalf("unmarshal final: %v", err)
+	}
+	points := out.ResourceMetrics[0].ScopeMetrics[0].Metrics[0].GetSum().DataPoints
+	if len(points) != 1 {
+		t.Fatalf("data points = %d, want 1", len(points))
+	}
+	for _, attr := range points[0].Attributes {
+		if attr.Key == "env" && attr.Value.GetStringValue() != "prod" {
+			t.Fatalf("kept the wrong data point: env=%q", attr.Value.GetStringValue())
+		}
+	}
+}
+
+func TestExecuteMetricPipeline_FilterErrorModeIgnore(t *testing.T) {
+	metricData, err := marshalMetrics(makeSampleMetrics())
+	if err != nil {
+		t.Fatalf("marshal metrics: %v", err)
+	}
+
+	pipeline := Pipeline{
+		Stages: []Stage{
+			{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"},
+		},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"error_mode": "ignore",
+				"metrics": map[string]interface{}{
+					"datapoint": []interface{}{`attributes["env"] == "prod"`},
+				},
+			},
+		},
+	}
+
+	result, err := ExecuteMetricPipeline(metricData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecuteMetricPipeline: %v", err)
+	}
+	if result.FinalSpanCount != 1 {
+		t.Fatalf("FinalSpanCount = %d, want 1 (error_mode must not change which data points are kept)", result.FinalSpanCount)
+	}
+}
+
 func TestExecuteMetricPipeline_Transform(t *testing.T) {
 	metricData, err := marshalMetrics(makeSampleMetrics())
 	if err != nil {
