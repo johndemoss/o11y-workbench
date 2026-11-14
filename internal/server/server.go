@@ -28,6 +28,7 @@ type Server struct {
 	mux             *http.ServeMux
 	httpSrv         *http.Server
 	addr            string
+	maxBody         int64
 	pipelineEnabled bool
 	remotetap       *RemotetapManager
 	engines         *ottlengine.Registry
@@ -172,10 +173,36 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return first
 }
 
+const defaultMaxHTTPBodyBytes int64 = 32 << 20
+
+func (s *Server) httpBodyLimit() int64 {
+	if s.maxBody > 0 {
+		return s.maxBody
+	}
+	return defaultMaxHTTPBodyBytes
+}
+
+// limitRequestBody rejects declared oversized bodies and caps every read.
+// WebSocket upgrades are not request bodies; handlers still apply tighter limits.
+func limitRequestBody(max int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > max {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": fmt.Sprintf("request body exceeds %d bytes", max),
+			})
+			return
+		}
+		if r.Body != nil && r.Body != http.NoBody {
+			r.Body = http.MaxBytesReader(w, r.Body, max)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) newHTTPServer() *http.Server {
 	return &http.Server{
 		Addr:              s.addr,
-		Handler:           http.NewCrossOriginProtection().Handler(s.mux),
+		Handler:           limitRequestBody(s.httpBodyLimit(), http.NewCrossOriginProtection().Handler(s.mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

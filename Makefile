@@ -102,6 +102,8 @@ endif
 
 # OTel collector config for remotetap
 OTEL_COLLECTOR_CONTRIB_VERSION ?= 0.151.0
+OTEL_COLLECTOR_CONTRIB_DIGEST ?= sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+OTEL_COLLECTOR_IMAGE ?= docker.io/otel/opentelemetry-collector-contrib:$(OTEL_COLLECTOR_CONTRIB_VERSION)@$(OTEL_COLLECTOR_CONTRIB_DIGEST)
 OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
 
 # Start OTel collector with remotetap processor
@@ -109,9 +111,11 @@ OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
 otel-start:
 	@echo "Using container runtime: $(CONTAINER_RUNTIME)"
 	$(CONTAINER_RUNTIME) run -d --name otel-collector-remotetap --replace \
-		-p 14317:14317 -p 14318:14318 -p 12001:12001 \
+		-p 127.0.0.1:14317:14317 -p 127.0.0.1:14318:14318 -p 127.0.0.1:12001:12001 \
+		--security-opt=no-new-privileges \
+		--memory=512m --pids-limit=256 \
 		-v $(CURDIR)/config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:Z \
-		docker.io/otel/opentelemetry-collector-contrib:$(OTEL_COLLECTOR_CONTRIB_VERSION)
+		$(OTEL_COLLECTOR_IMAGE)
 	@echo "OTel collector started"
 
 # Stop OTel collector
@@ -122,7 +126,9 @@ otel-stop:
 	@echo "OTel collector stopped"
 
 # otel-desktop-viewer configuration
-# ODV_SOURCE := workspace/github.com/ctrlspice/otel-desktop-viewer  # Not used - builds from downloaded binaries
+# Default is loopback. make dev / make dev-remotetap override to 0.0.0.0 so
+# containers can reach the host binary; that mode is not for an untrusted network.
+ODV_HOST ?= 127.0.0.1
 ODV_VERSION := latest
 ODV_BINDIR := $(CURDIR)/bin
 ODV_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
@@ -159,7 +165,8 @@ ODV_CURRENT_BINARY := $(ODV_BINDIR)/otel-desktop-viewer-$(ODV_PLATFORM)
 .PHONY: otel-desktop-viewer-start
 otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
 	@echo "Using otel-desktop-viewer $(ODV_VERSION) ($(ODV_PLATFORM))"
-	@$(ODV_CURRENT_BINARY) --host 0.0.0.0 > /tmp/otel-desktop-viewer.log 2>&1 & echo $$! > /tmp/otel-desktop-viewer.pid
+	@if [ "$(ODV_HOST)" = "0.0.0.0" ]; then echo "WARNING: otel-desktop-viewer is listening on all interfaces so containers can reach it. Do not use this on an untrusted network."; fi
+	@$(ODV_CURRENT_BINARY) --host $(ODV_HOST) > /tmp/otel-desktop-viewer.log 2>&1 & echo $$! > /tmp/otel-desktop-viewer.pid
 	@sleep 1
 	@echo "otel-desktop-viewer started (pid: $$(cat /tmp/otel-desktop-viewer.pid))"
 	@echo "    UI:          http://localhost:8000"
@@ -185,7 +192,8 @@ reclaim-named-containers:
 # Start everything for remotetap testing - HYBRID MODE
 # Web server and collector in containers, viewer as binary
 .PHONY: dev-remotetap
-dev-remotetap: otel-desktop-viewer-start reclaim-named-containers
+dev-remotetap: reclaim-named-containers
+	@$(MAKE) --no-print-directory otel-desktop-viewer-start ODV_HOST=0.0.0.0
 	@echo "Starting full remotetap stack (hybrid)..."
 	@echo "Demo-sender command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
 	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
@@ -213,7 +221,8 @@ otel-demo-sender:
 # Start CLI + otel-desktop-viewer - HYBRID MODE (for macOS ARM64)
 # Runs otel-desktop-viewer as binary on host, demo-sender in container
 .PHONY: dev
-dev: otel-desktop-viewer-start
+dev:
+	@$(MAKE) --no-print-directory otel-desktop-viewer-start ODV_HOST=0.0.0.0
 	@echo "Starting demo sender (containerized)..."
 	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
 	@echo ""

@@ -32,13 +32,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout otel-desktop-viewer
+      - name: Checkout otel-desktop-viewer v0.7.0
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           repository: ctrlspice/otel-desktop-viewer
+          ref: d540ad65882786fd795adb584201d8ad87810180 # v0.7.0
           path: otel-desktop-viewer-src
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Get version
         id: version

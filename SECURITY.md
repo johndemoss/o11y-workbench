@@ -15,7 +15,8 @@ Only the current main branch is maintained; there is no supported-release SLA.
 - The API can generate traffic, connect to caller-selected OTLP/Remote TAP
   endpoints, process imported data, and run admitted local evaluation binaries.
   Do not grant access to untrusted clients or import untrusted collector configs.
-- Several request bodies and generation parameters lack comprehensive budgets.
+- HTTP request bodies are capped at 32 MiB, and evaluation JSON at 2 MiB.
+  Generation counts, rates and durations still have no comprehensive budget.
   Run the workbench with restricted network access and OS resource limits.
 - Per-run destinations are isolated; server shutdown cancels/joins generated jobs
   and finalizes/closes TAP capture. These lifecycle guarantees do not provide
@@ -23,9 +24,13 @@ Only the current main branch is maintained; there is no supported-release SLA.
 - Use synthetic telemetry. Real traces, logs, attributes, headers, imported
   configurations, TAP captures, evaluation artifacts, screenshots and terminal
   output can contain credentials or personal/customer data. Do not commit them.
-- Docker listens on all container interfaces intentionally. Publish its host
-  port on loopback only, for example `-p 127.0.0.1:18080:8080`. Review all Compose
-  port mappings before running; not every example is hardened.
+- Docker listens on all container interfaces intentionally. Compose examples
+  and `make otel-start` publish host ports on `127.0.0.1` only. Images run as
+  uid 65532 with a read-only root and a tmpfs `/tmp`, except the upstream
+  collector image, which keeps its own user and is memory-limited.
+  `make dev` and `make dev-remotetap` bind the host desktop viewer to
+  `0.0.0.0` so containers can reach it. Do not run those targets on an
+  untrusted network. A plain `make otel-desktop-viewer-start` stays on loopback.
 
 ## Reporting a vulnerability
 

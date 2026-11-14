@@ -1,5 +1,5 @@
 # Stage 1a: Build pipeline-ui
-FROM node:22-alpine AS pipeline-ui-builder
+FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS pipeline-ui-builder
 WORKDIR /src/pipeline-ui
 COPY pipeline-ui/package*.json ./
 RUN npm ci --silent
@@ -8,7 +8,7 @@ COPY scripts/check-ui-assets.mjs /src/scripts/check-ui-assets.mjs
 RUN npm run build && node ../scripts/check-ui-assets.mjs dist /pipeline/
 
 # Stage 2: Build Go binary + OTTL worker
-FROM golang:1.26.11-alpine AS go-builder
+FROM golang:1.26.11-alpine@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb AS go-builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -20,11 +20,14 @@ WORKDIR /src/workers/ottl-0.162
 RUN CGO_ENABLED=0 go build -o /ottl-worker-0.162.0 .
 
 # Stage 3: Runtime
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
+FROM alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+RUN apk add --no-cache ca-certificates \
+	&& adduser -D -u 65532 -H -s /sbin/nologin nonroot
 COPY --from=go-builder /o11y-workbench-web /o11y-workbench-web
 COPY --from=go-builder /ottl-worker-0.162.0 /usr/local/lib/o11y/ottl-worker-0.162.0
 ENV O11Y_OTTL_WORKERS=0.162.0=/usr/local/lib/o11y/ottl-worker-0.162.0
+ENV HOME=/tmp
+USER nonroot
 EXPOSE 8080
 ENTRYPOINT ["/o11y-workbench-web"]
 CMD ["--addr", ":8080", "--pipeline-prototyper"]

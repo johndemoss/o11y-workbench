@@ -1,14 +1,18 @@
 services:
   # OTel Collector with remotetap processor
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_CONTRIB_VERSION:-0.151.0}
+    image: docker.io/otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
     container_name: otel-collector-remotetap
     volumes:
       - ./config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      - "14317:14317"  # OTLP gRPC
-      - "14318:14318"  # OTLP HTTP
-      - "12001:12001"  # remotetap WebSocket
+      - "127.0.0.1:14317:14317"  # OTLP gRPC
+      - "127.0.0.1:14318:14318"  # OTLP HTTP
+      - "127.0.0.1:12001:12001"  # remotetap WebSocket
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     networks:
       - o11y-workbench-net
     profiles:
@@ -22,9 +26,17 @@ services:
       dockerfile: Dockerfile.otel-desktop-viewer
     container_name: otel-desktop-viewer
     ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
-      - "8000:8000"  # Web UI
+      - "127.0.0.1:4317:4317"  # OTLP gRPC
+      - "127.0.0.1:4318:4318"  # OTLP HTTP
+      - "127.0.0.1:8000:8000"  # Web UI
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=67108864
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     networks:
       - o11y-workbench-net
     profiles:
@@ -38,8 +50,16 @@ services:
       dockerfile: Dockerfile.web
     container_name: o11y-workbench-web
     ports:
-      # Host WEB_PORT (default 18080) avoids clash with a local process on :8080.
-      - "${WEB_PORT:-18080}:8080"
+      # Host port defaults to 18080 so it does not clash with other listeners on :8080.
+      - "127.0.0.1:${WEB_PORT:-18080}:8080"
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=67108864
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
     environment:
       - O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true
       - O11Y_WORKBENCH_LOG_LEVEL=debug
@@ -73,6 +93,14 @@ services:
       - --insecure
     networks:
       - o11y-workbench-net
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=67108864
+    mem_limit: 256m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - otel-desktop-viewer
     profiles:

@@ -23,6 +23,8 @@ jobs:
           go-version-file: go.mod
       - name: Install pinned local secret scanner
         run: go install github.com/zricethezav/gitleaks/v8@v8.24.3
+      - name: Reject internal trees, machine paths, and broad publishes
+        run: ./scripts/check-publication.sh
       - name: Scan tracked tree and reachable history without publishing matches
         run: ./scripts/check-secrets.sh
 

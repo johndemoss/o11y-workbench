@@ -20,6 +20,7 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 # build, race tests and reachable-vulnerability checks.
 GOTOOLCHAIN=go1.26.11 ./scripts/check-go.sh
 ./scripts/check-secrets.sh
+./scripts/check-publication.sh
 
 (cd pipeline-ui && npm ci && npm test && npm run build && npm audit --audit-level=moderate)
 ```

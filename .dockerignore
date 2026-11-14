@@ -45,11 +45,15 @@ docs/
 *.pfx
 .cursor/
 .sisyphus/
+.od-skills/
+plans/
 
 # Claude plans
 .claude/
 
-# Local binaries (worker rebuilt inside image)
-bin/
+# Local binaries (worker rebuilt inside image). The desktop-viewer image
+# copies only the Linux amd64 binary, which is not rebuilt in that Dockerfile.
+bin/*
+!bin/otel-desktop-viewer-linux-amd64
 o11y-workbench
 o11y-workbench-web

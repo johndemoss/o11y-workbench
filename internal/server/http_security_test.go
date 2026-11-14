@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -87,5 +89,87 @@ func TestHTTPServerHasConnectionTimeouts(t *testing.T) {
 	}
 	if s.httpSrv.ReadHeaderTimeout <= 0 || s.httpSrv.IdleTimeout <= 0 {
 		t.Fatal("HTTP connections must have header and idle timeouts")
+	}
+}
+
+func TestHTTPServerRejectsOversizedBody(t *testing.T) {
+	if (&Server{}).httpBodyLimit() != defaultMaxHTTPBodyBytes {
+		t.Fatalf("default body limit = %d, want %d", (&Server{}).httpBodyLimit(), defaultMaxHTTPBodyBytes)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	const limit = 64
+	s := &Server{addr: addr, mux: http.NewServeMux(), maxBody: limit}
+	s.mux.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body exceeds limit"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.ListenAndServeContext(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := "http://" + addr + "/read"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server not ready: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	post := func(body []byte, contentLength int64) int {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if contentLength != 0 {
+			req.ContentLength = contentLength
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode
+	}
+	if got := post(bytes.Repeat([]byte("a"), limit), 0); got != http.StatusNoContent {
+		t.Errorf("limit-sized body status=%d, want %d", got, http.StatusNoContent)
+	}
+	if got := post(bytes.Repeat([]byte("b"), limit+1), -1); got != http.StatusRequestEntityTooLarge {
+		t.Errorf("chunked oversized body status=%d, want %d", got, http.StatusRequestEntityTooLarge)
+	}
+	called := false
+	req := httptest.NewRequest(http.MethodPost, "/read", bytes.NewReader([]byte("x")))
+	req.ContentLength = limit + 1
+	rr := httptest.NewRecorder()
+	limitRequestBody(limit, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	})).ServeHTTP(rr, req)
+	if called {
+		t.Fatal("declared oversized body reached the handler")
+	}
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("declared oversized body status=%d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
 	}
 }

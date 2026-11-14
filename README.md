@@ -80,7 +80,7 @@ Open [http://localhost:18080/pipeline/](http://localhost:18080/pipeline/) for th
 
 ```bash
 docker build -f Dockerfile.web -t o11y-workbench-web .
-# Host 18080 → container 8080 (avoids clash with a local process on :8080)
+# Host 18080 → container 8080, published on loopback only.
 docker run -p 127.0.0.1:18080:8080 o11y-workbench-web
 ```
 

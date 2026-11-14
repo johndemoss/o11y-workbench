@@ -1,0 +1,17 @@
+Project-owned source is MIT, Copyright 2026 John DeMoss. See LICENSE.
+That grant does not relicense third-party material.
+
+Go modules (go.mod and workers/ottl-0.162/go.mod) and npm packages
+(package-lock.json, pipeline-ui/package-lock.json)
+are fetched at build time and stay under their own licenses. Those manifests are
+the source-tree inventory. This repository does not vendor their source, and it
+does not track built SPA bundles or collector binaries.
+
+Container base images and the collector image are pinned by digest in the
+Dockerfiles, Compose files, and Makefile. The optional desktop-viewer workflow
+checks out ctrlspice/otel-desktop-viewer v0.7.0
+(d540ad65882786fd795adb584201d8ad87810180), which has its own license and is not
+vendored here.
+
+Redistributing a built image or binary bundles those dependencies. Comply with
+their upstream licenses. This source MIT grant is not that clearance.
