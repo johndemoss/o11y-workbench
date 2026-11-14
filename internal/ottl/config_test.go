@@ -144,6 +144,63 @@ filter:
 	}
 }
 
+func TestParseFilterConditions_MetricsDatapoint(t *testing.T) {
+	yamlStr := `
+metrics:
+  datapoint:
+    - attributes["env"] == "prod"
+    - name == "demo.counter"
+`
+	conds, err := ParseFilterConditions(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conds) != 2 {
+		t.Fatalf("got %d conditions, want 2", len(conds))
+	}
+	if conds[0] != `attributes["env"] == "prod"` {
+		t.Errorf("conds[0] = %q, want %q", conds[0], `attributes["env"] == "prod"`)
+	}
+}
+
+func TestParseFilterConditions_MetricsDatapointWrapped(t *testing.T) {
+	yamlStr := `
+filter:
+  metrics:
+    datapoint:
+      - attributes["env"] == "prod"
+`
+	conds, err := ParseFilterConditions(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conds) != 1 {
+		t.Fatalf("got %d conditions, want 1", len(conds))
+	}
+	if conds[0] != `attributes["env"] == "prod"` {
+		t.Errorf("conds[0] = %q, want %q", conds[0], `attributes["env"] == "prod"`)
+	}
+}
+
+func TestParseFilterConditions_MetricsWithErrorMode(t *testing.T) {
+	yamlStr := `
+error_mode: ignore
+metrics:
+  datapoint:
+    - attributes["env"] == "prod"
+`
+	conds, err := ParseFilterConditions(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conds) != 1 {
+		t.Fatalf("got %d conditions, want 1", len(conds))
+	}
+	if conds[0] != `attributes["env"] == "prod"` {
+		t.Errorf("conds[0] = %q, want %q", conds[0], `attributes["env"] == "prod"`)
+	}
+}
+
 func TestParseFilterConditions_FlatYAMLList(t *testing.T) {
 	yamlStr := `
 - kind == SPAN_KIND_INTERNAL

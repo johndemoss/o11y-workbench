@@ -83,7 +83,10 @@ func ExecutePipeline(traceData json.RawMessage, pipeline Pipeline) (*PipelineRes
 			}
 		}
 
-		if outputSpanCount == 0 && stageErr == nil {
+		// A transform keeps every span, so a zero "selected" count still means the
+		// input count. A filter can legitimately drop every span, and reporting the
+		// input count there would hide the result.
+		if stage.Type == StageTypeTransform && outputSpanCount == 0 && stageErr == nil {
 			outputSpanCount = inputSpanCount
 		}
 
