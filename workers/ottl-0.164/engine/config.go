@@ -101,20 +101,14 @@ func ParseFilterConditions(configYAML string) ([]string, error) {
 
 	var cfg FilterConfig
 	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
-		if conds := cfg.Traces.SpanConditions; len(conds) > 0 {
-			return conds, nil
-		}
-		if conds := cfg.Logs.LogRecordConditions; len(conds) > 0 {
+		if conds := filterConditions(cfg); len(conds) > 0 {
 			return conds, nil
 		}
 	}
 
 	var wrapped filterWrapper
 	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
-		if conds := wrapped.Filter.Traces.SpanConditions; len(conds) > 0 {
-			return conds, nil
-		}
-		if conds := wrapped.Filter.Logs.LogRecordConditions; len(conds) > 0 {
+		if conds := filterConditions(wrapped.Filter); len(conds) > 0 {
 			return conds, nil
 		}
 	}
@@ -130,6 +124,19 @@ func ParseFilterConditions(configYAML string) ([]string, error) {
 	}
 
 	return nil, fmt.Errorf("no OTTL conditions found in config")
+}
+
+func filterConditions(cfg FilterConfig) []string {
+	if conds := cfg.Traces.SpanConditions; len(conds) > 0 {
+		return conds
+	}
+	if conds := cfg.Logs.LogRecordConditions; len(conds) > 0 {
+		return conds
+	}
+	if conds := cfg.Metrics.Conditions; len(conds) > 0 {
+		return conds
+	}
+	return nil
 }
 
 func (tc *TransformConfig) statements() []string {

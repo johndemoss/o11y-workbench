@@ -1,5 +1,4 @@
 import { defineConfig, devices } from '@playwright/experimental-ct-svelte'
-import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig({
   testDir: './src/lib/__tests__',
@@ -9,9 +8,6 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   use: {
     trace: 'on-first-retry',
-    ctViteConfig: {
-      plugins: [svelte()]
-    }
   },
   projects: [
     {

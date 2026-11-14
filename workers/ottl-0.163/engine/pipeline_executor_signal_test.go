@@ -264,3 +264,45 @@ func TestExecutePipelineForSignal_Dispatch(t *testing.T) {
 		t.Fatal("expected error for unsupported signal")
 	}
 }
+
+func TestValidatePipelineMetricFilter(t *testing.T) {
+	pipeline := Pipeline{Processors: map[string]ProcessorConfig{
+		"filter/metrics": {
+			"error_mode": "ignore",
+			"metrics": map[string]interface{}{
+				"datapoint": []interface{}{`attributes["env"] == "prod"`},
+			},
+		},
+	}}
+	result := ValidatePipelineOTTL(pipeline)
+	if !result.Valid || result.Parsed != 1 {
+		t.Fatalf("validation = %+v, want one valid condition", result)
+	}
+}
+
+func TestParseWrappedMetricFilter(t *testing.T) {
+	conditions, err := ParseFilterConditions("filter:\n  error_mode: ignore\n  metrics:\n    datapoint:\n      - 'attributes[\"env\"] == \"prod\"'\n")
+	if err != nil || len(conditions) != 1 || conditions[0] != `attributes["env"] == "prod"` {
+		t.Fatalf("conditions = %q, err = %v", conditions, err)
+	}
+}
+
+func TestExecuteTracePipelineFilterDropsAll(t *testing.T) {
+	traceJSON := json.RawMessage(`{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"0102030405060708090a0b0c0d0e0f10","spanId":"0102030405060708","name":"original","startTimeUnixNano":"1","endTimeUnixNano":"2"}]}]}]}`)
+	pipeline := Pipeline{
+		Stages: []Stage{{ID: "filter", Type: StageTypeFilter, ProcessorRef: "p1"}},
+		Processors: map[string]ProcessorConfig{
+			"p1": {"traces": map[string]interface{}{"span": []interface{}{`name != "original"`}}},
+		},
+	}
+	result, err := ExecutePipeline(traceJSON, pipeline)
+	if err != nil {
+		t.Fatalf("execute pipeline: %v", err)
+	}
+	if len(result.Stages) != 1 {
+		t.Fatalf("stages = %d, want 1", len(result.Stages))
+	}
+	if stage := result.Stages[0]; stage.InputSpanCount != 1 || stage.OutputSpanCount != 0 || result.FinalSpanCount != 0 {
+		t.Fatalf("input = %d, output = %d, final = %d; want 1, 0, 0", stage.InputSpanCount, stage.OutputSpanCount, result.FinalSpanCount)
+	}
+}

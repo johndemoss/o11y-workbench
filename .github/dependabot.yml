@@ -55,10 +55,6 @@ updates:
       # installed until svelte-check widens that range.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
-      # Major plugin releases require a matching Vite major, so they ship with
-      # the Svelte and Vite toolchain upgrade rather than on their own.
-      - dependency-name: "@sveltejs/vite-plugin-svelte"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
