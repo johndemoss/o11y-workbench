@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -283,13 +284,38 @@ func (e multiExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+var ErrRunStoreClosed = errors.New("run store is closed")
+
 type RunStore struct {
-	mu   sync.RWMutex
-	runs map[string]*Run
+	mu      sync.RWMutex
+	runs    map[string]*Run
+	active  map[string]*Run // Jobs remain owned even if UI history is deleted.
+	closed  bool
+	workers sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 func NewRunStore() *RunStore {
-	return &RunStore{runs: make(map[string]*Run)}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &RunStore{runs: make(map[string]*Run), active: make(map[string]*Run), ctx: ctx, cancel: cancel}
+}
+
+// Close rejects new work, cancels owned jobs and joins their exporter cleanup.
+// Concurrent callers all wait; worker admission and Close are serialized.
+func (s *RunStore) Close() {
+	s.mu.Lock()
+	if !s.closed {
+		s.closed = true
+		for _, run := range s.active {
+			run.Stop()
+		}
+		// Mark explicit stops before canceling export owners, so an RPC failure
+		// cannot finalize a shutdown cancellation as an ordinary failed job.
+		s.cancel()
+	}
+	s.mu.Unlock()
+	s.workers.Wait()
 }
 
 func (s *RunStore) Add(r *Run) {
@@ -386,7 +412,8 @@ func (e multiMetricExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []string, insecure bool, output string) (*Run, error) {
+// StartRun detaches accepted jobs from HTTP request cancellation, not from their store.
+func StartRun(_ context.Context, store *RunStore, cfg gen.Config, endpoints []string, insecure bool, output string) (*Run, error) {
 	id := fmt.Sprintf("run-%d", runIDCounter.Add(1))
 	scenario := ""
 	if cfg.Scenario != "" {
@@ -412,20 +439,33 @@ func StartRun(ctx context.Context, store *RunStore, cfg gen.Config, endpoints []
 	if cfg.IncludesMetrics() {
 		run.MetricCount = cfg.MetricConfig.MetricCount
 	}
-	store.Add(run)
-
-	// WithCancel (not WithTimeout): generators apply Duration internally with
-	// the clock starting at generation time. A server-side deadline starts at
-	// StartRun, letting setup steal budget (90 spans instead of 100).
-	genCtx, cancel := context.WithCancel(context.Background())
-
-	run.mu.Lock()
+	// Generators start duration budgets after setup. This parent controls only
+	// the store lifetime, never an HTTP request or generation duration deadline.
+	genCtx, cancel := context.WithCancel(store.ctx)
 	run.cancel = cancel
-	run.mu.Unlock()
-	// Return caller-owned state before the worker starts mutating the live run.
-	// In particular, HTTP response encoding must not race with progress updates.
+	store.mu.Lock()
+	if store.closed {
+		store.mu.Unlock()
+		cancel()
+		return nil, ErrRunStoreClosed
+	}
+	store.runs[id] = run
+	store.active[id] = run
+	store.workers.Add(1)
+	store.mu.Unlock()
+
+	// HTTP response encoding must not race with progress updates.
 	response := run.snapshot()
-	go executeRun(run, store, cfg, genCtx)
+	go func() {
+		defer store.workers.Done()
+		defer cancel()
+		defer func() {
+			store.mu.Lock()
+			delete(store.active, id)
+			store.mu.Unlock()
+		}()
+		executeRun(run, store, cfg, genCtx)
+	}()
 	return response, nil
 }
 
@@ -615,6 +655,10 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	}()
 
 	run.mu.Lock()
+	if genCtx.Err() != nil || run.Status == RunStatusStopped {
+		run.mu.Unlock()
+		return
+	}
 	run.Status = RunStatusRunning
 	run.mu.Unlock()
 
@@ -658,7 +702,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				// Close every successfully constructed connection, including partial setup failures.
 				defer func() { _ = otlpExp.Shutdown(context.Background()) }()
 				// Wrap exporter to use fresh context with timeout for each export
-				otlpExporters[reg] = export.WithExportTimeout(otlpExp, 30*time.Second)
+				otlpExporters[reg] = export.WithExportTimeoutContext(store.ctx, otlpExp, 30*time.Second)
 			}
 			router := export.NewEndpointRouter(otlpExporters)
 			exp = multiExporter{buf, router}
@@ -713,7 +757,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				}
 				defer func() { _ = otlpLogExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
 				// Wrap log exporter to use fresh context with timeout for each export
-				otlpLogExporters[reg] = export.WithLogExportTimeout(otlpLogExp, 30*time.Second)
+				otlpLogExporters[reg] = export.WithLogExportTimeoutContext(store.ctx, otlpLogExp, 30*time.Second)
 			}
 			router := export.NewLogEndpointRouter(otlpLogExporters)
 			logExp = multiLogExporter{logBuf, router}
@@ -764,7 +808,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				}
 				defer func() { _ = otlpMetricExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
 				// Wrap metric exporter to use fresh context with timeout for each export
-				otlpMetricExporters[reg] = export.WithMetricExportTimeout(otlpMetricExp, 30*time.Second)
+				otlpMetricExporters[reg] = export.WithMetricExportTimeoutContext(store.ctx, otlpMetricExp, 30*time.Second)
 			}
 			router := export.NewMetricEndpointRouter(otlpMetricExporters)
 			metricExp = multiMetricExporter{metricBuf, router}
@@ -823,19 +867,17 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	stopped := run.Status == RunStatusStopped
 	run.mu.Unlock()
 
-	// Check for cancellation / stop first.
-	if traceErr == context.Canceled || logErr == context.Canceled || metricErr == context.Canceled {
-		if stopped {
-			traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
-			run.mu.Lock()
-			run.SpanCount = spanTotal
-			run.ResourceSpanCount = len(spans)
-			run.TraceData = traceData
-			run.LogData = logData
-			run.MetricData = metricData
-			run.mu.Unlock()
-			return
-		}
+	// Preserve a stop even if cancellation races the last successful export.
+	if stopped {
+		traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
+		run.mu.Lock()
+		run.SpanCount = spanTotal
+		run.ResourceSpanCount = len(spans)
+		run.TraceData = traceData
+		run.LogData = logData
+		run.MetricData = metricData
+		run.mu.Unlock()
+		return
 	}
 
 	// Duration expired — clean completion, not failure.
@@ -877,8 +919,10 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	run.TraceData = traceData
 	run.LogData = logData
 	run.MetricData = metricData
-	run.Status = RunStatusCompleted
-	now := time.Now()
-	run.CompletedAt = &now
+	if run.Status != RunStatusStopped {
+		run.Status = RunStatusCompleted
+		now := time.Now()
+		run.CompletedAt = &now
+	}
 	run.mu.Unlock()
 }

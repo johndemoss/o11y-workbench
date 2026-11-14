@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	collectorslogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -39,6 +40,9 @@ type Client struct {
 	dataCh   chan *RemotetapData
 	errCh    chan error
 	done     chan struct{}
+	readDone chan struct{}
+	started  bool
+	closed   bool
 	mu       sync.Mutex
 	capacity int
 }
@@ -57,6 +61,7 @@ func NewClient(endpoint string, opts ...ClientOption) *Client {
 		dataCh:   make(chan *RemotetapData, 100),
 		errCh:    make(chan error, 10),
 		done:     make(chan struct{}),
+		readDone: make(chan struct{}),
 		capacity: 100,
 	}
 	for _, opt := range opts {
@@ -70,38 +75,47 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.closed || c.started {
+		return fmt.Errorf("remotetap client is single-use")
+	}
 	url := fmt.Sprintf("ws://%s/", c.endpoint)
 	config, err := websocket.NewConfig(url, "http://"+c.endpoint)
 	if err != nil {
 		return fmt.Errorf("websocket config: %w", err)
 	}
 
-	conn, err := websocket.DialConfig(config)
+	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	conn, err := config.DialContext(dialCtx)
 	if err != nil {
 		return fmt.Errorf("websocket dial: %w", err)
 	}
 	c.conn = conn
+	c.started = true
 
-	go c.readLoop()
+	go c.readLoop(conn)
 
 	return nil
 }
 
+// Disconnect closes the socket and joins the reader, including blocked sends.
 func (c *Client) Disconnect() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	select {
-	case <-c.done:
-	default:
+	if !c.closed {
+		c.closed = true
 		close(c.done)
+		if !c.started {
+			close(c.dataCh)
+			close(c.errCh)
+			close(c.readDone)
+		}
 	}
-
-	if c.conn != nil {
-		c.conn.Close()
-		c.conn = nil
+	conn := c.conn
+	c.mu.Unlock()
+	if conn != nil {
+		closeSocket(conn)
 	}
-
+	<-c.readDone
 	return nil
 }
 
@@ -113,17 +127,16 @@ func (c *Client) Err() <-chan error {
 	return c.errCh
 }
 
-func (c *Client) readLoop() {
+func (c *Client) readLoop(conn *websocket.Conn) {
+	defer close(c.readDone)
+	defer close(c.errCh)
+	defer close(c.dataCh)
+	defer closeSocket(conn)
 	for {
 		var msg []byte
-		err := websocket.Message.Receive(c.conn, &msg)
+		err := websocket.Message.Receive(conn, &msg)
 		if err != nil {
-			select {
-			case <-c.done:
-			default:
-				c.errCh <- fmt.Errorf("websocket receive: %w", err)
-			}
-			close(c.dataCh)
+			c.reportError(fmt.Errorf("websocket receive: %w", err))
 			return
 		}
 
@@ -133,16 +146,34 @@ func (c *Client) readLoop() {
 
 		data, err := c.parseLine(msg)
 		if err != nil {
-			c.errCh <- fmt.Errorf("parse line: %w", err)
+			c.reportError(fmt.Errorf("parse line: %w", err))
 			continue
 		}
 
 		select {
 		case c.dataCh <- data:
 		case <-c.done:
-			close(c.dataCh)
 			return
 		}
+	}
+}
+
+func closeSocket(conn *websocket.Conn) {
+	// x/net/websocket writes a close frame before closing TCP. A peer that no
+	// longer reads must not keep shutdown blocked on that control-frame write.
+	_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = conn.Close()
+}
+
+func (c *Client) reportError(err error) {
+	select {
+	case <-c.done:
+		return
+	default:
+	}
+	select {
+	case c.errCh <- err:
+	case <-c.done:
 	}
 }
 

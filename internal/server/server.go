@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/johndemoss/o11y-workbench/internal/ottlengine"
@@ -21,6 +22,8 @@ var webFS embed.FS
 var pipelineFS embed.FS
 
 type Server struct {
+	closeOnce       sync.Once
+	closeErr        error
 	store           *RunStore
 	mux             *http.ServeMux
 	httpSrv         *http.Server
@@ -131,31 +134,28 @@ func (s *Server) registerRoutes() error {
 
 func (s *Server) Store() *RunStore { return s.store }
 
-// Close releases evaluation coordinator resources and stops OTTL worker subprocesses.
-// Safe to call more than once.
+// Close cancels/joins generated runs and TAP capture, then stops OTTL workers.
+// All concurrent callers join the same close. Use Shutdown to stop HTTP admission as well.
 func (s *Server) Close() error {
 	if s == nil {
 		return nil
 	}
-	if s.evalSequence != nil {
-		s.evalSequence.Close()
-		s.evalSequence = nil
-	}
-	if s.evaluation != nil {
-		s.evaluation.Close()
-		s.evaluation = nil
-	}
-	var first error
-	for _, stop := range s.engineStops {
-		if stop == nil {
-			continue
+	s.closeOnce.Do(func() {
+		if s.remotetap != nil {
+			s.closeErr = s.remotetap.Close()
 		}
-		if err := stop(); err != nil && first == nil {
-			first = err
+		if s.store != nil {
+			s.store.Close()
 		}
-	}
-	s.engineStops = nil
-	return first
+		for _, stop := range s.engineStops {
+			if stop != nil {
+				if err := stop(); err != nil && s.closeErr == nil {
+					s.closeErr = err
+				}
+			}
+		}
+	})
+	return s.closeErr
 }
 
 // Shutdown gracefully stops the HTTP server (if running) and OTTL workers.

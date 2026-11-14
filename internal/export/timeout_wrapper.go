@@ -12,13 +12,17 @@ import (
 // WithExportTimeout wraps a TraceExporter to use a fresh context with timeout for each export,
 // preventing race conditions when the parent generation context expires.
 func WithExportTimeout(exp TraceExporter, timeout time.Duration) TraceExporter {
-	return &traceExporterWithTimeout{
-		inner:   exp,
-		timeout: timeout,
-	}
+	return WithExportTimeoutContext(context.Background(), exp, timeout)
+}
+
+// WithExportTimeoutContext gives exports a separate owner lifetime. Generation
+// deadlines may expire before final flush, but owner shutdown must cancel RPCs.
+func WithExportTimeoutContext(owner context.Context, exp TraceExporter, timeout time.Duration) TraceExporter {
+	return &traceExporterWithTimeout{inner: exp, timeout: timeout, owner: owner}
 }
 
 type traceExporterWithTimeout struct {
+	owner   context.Context
 	inner   TraceExporter
 	timeout time.Duration
 }
@@ -34,7 +38,7 @@ func (w *traceExporterWithTimeout) Export(ctx context.Context, spans []*tracev1.
 
 // ExportWithReceipt preserves optional receipt accounting across the timeout wrapper.
 func (w *traceExporterWithTimeout) ExportWithReceipt(ctx context.Context, spans []*tracev1.ResourceSpans) (ExportReceipt, error) {
-	exportCtx, cancel := context.WithTimeout(context.Background(), w.timeout)
+	exportCtx, cancel := context.WithTimeout(w.owner, w.timeout)
 	defer cancel()
 	if re, ok := w.inner.(traceReceiptExporter); ok {
 		return re.ExportWithReceipt(exportCtx, spans)
@@ -54,13 +58,16 @@ func (w *traceExporterWithTimeout) Shutdown(ctx context.Context) error {
 
 // WithLogExportTimeout wraps a LogExporter to use a fresh context with timeout for each export.
 func WithLogExportTimeout(exp LogExporter, timeout time.Duration) LogExporter {
-	return &logExporterWithTimeout{
-		inner:   exp,
-		timeout: timeout,
-	}
+	return WithLogExportTimeoutContext(context.Background(), exp, timeout)
+}
+
+// WithLogExportTimeoutContext preserves final flush while honoring owner shutdown.
+func WithLogExportTimeoutContext(owner context.Context, exp LogExporter, timeout time.Duration) LogExporter {
+	return &logExporterWithTimeout{inner: exp, timeout: timeout, owner: owner}
 }
 
 type logExporterWithTimeout struct {
+	owner   context.Context
 	inner   LogExporter
 	timeout time.Duration
 }
@@ -75,7 +82,7 @@ func (w *logExporterWithTimeout) Export(ctx context.Context, logs []*logsv1.Reso
 }
 
 func (w *logExporterWithTimeout) ExportWithReceipt(ctx context.Context, logs []*logsv1.ResourceLogs) (ExportReceipt, error) {
-	exportCtx, cancel := context.WithTimeout(context.Background(), w.timeout)
+	exportCtx, cancel := context.WithTimeout(w.owner, w.timeout)
 	defer cancel()
 	if re, ok := w.inner.(logReceiptExporter); ok {
 		return re.ExportWithReceipt(exportCtx, logs)
@@ -94,13 +101,16 @@ func (w *logExporterWithTimeout) Shutdown(ctx context.Context) error {
 
 // WithMetricExportTimeout wraps a MetricExporter to use a fresh context with timeout for each export.
 func WithMetricExportTimeout(exp MetricExporter, timeout time.Duration) MetricExporter {
-	return &metricExporterWithTimeout{
-		inner:   exp,
-		timeout: timeout,
-	}
+	return WithMetricExportTimeoutContext(context.Background(), exp, timeout)
+}
+
+// WithMetricExportTimeoutContext preserves final flush while honoring owner shutdown.
+func WithMetricExportTimeoutContext(owner context.Context, exp MetricExporter, timeout time.Duration) MetricExporter {
+	return &metricExporterWithTimeout{inner: exp, timeout: timeout, owner: owner}
 }
 
 type metricExporterWithTimeout struct {
+	owner   context.Context
 	inner   MetricExporter
 	timeout time.Duration
 }
@@ -115,7 +125,7 @@ func (w *metricExporterWithTimeout) Export(ctx context.Context, metrics []*metri
 }
 
 func (w *metricExporterWithTimeout) ExportWithReceipt(ctx context.Context, metrics []*metricspb.ResourceMetrics) (ExportReceipt, error) {
-	exportCtx, cancel := context.WithTimeout(context.Background(), w.timeout)
+	exportCtx, cancel := context.WithTimeout(w.owner, w.timeout)
 	defer cancel()
 	if re, ok := w.inner.(metricReceiptExporter); ok {
 		return re.ExportWithReceipt(exportCtx, metrics)

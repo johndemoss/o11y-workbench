@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -119,7 +120,11 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 	run, err := StartRun(r.Context(), s.store, cfg, endpoints, insecure, body.Output)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrRunStoreClosed) {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)

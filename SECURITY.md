@@ -17,8 +17,9 @@ Only the current main branch is maintained; there is no supported-release SLA.
   Do not grant access to untrusted clients or import untrusted collector configs.
 - Several request bodies and generation parameters lack comprehensive budgets.
   Run the workbench with restricted network access and OS resource limits.
-- Per-run destinations are isolated, but the service still lacks multi-user
-  authorization, quotas and complete server-wide shutdown ownership. do not infer multi-tenant safety from routing isolation.
+- Per-run destinations are isolated; server shutdown cancels/joins generated jobs
+  and finalizes/closes TAP capture. These lifecycle guarantees do not provide
+  multi-user authorization, quotas or comprehensive per-handler budgets. do not infer multi-tenant safety from routing isolation.
 - Use synthetic telemetry. Real traces, logs, attributes, headers, imported
   configurations, TAP captures, evaluation artifacts, screenshots and terminal
   output can contain credentials or personal/customer data. Do not commit them.

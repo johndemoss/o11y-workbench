@@ -168,19 +168,26 @@ type RemotetapFilters struct {
 }
 
 type RemotetapManager struct {
-	mu       sync.Mutex
-	endpoint string
-	client   *remotetap.Client
-	run      *Run
-	store    *RunStore
-	filters  RemotetapFilters
-	buffer   *ringBuffer
-	sampler  *sampler
+	mu         sync.Mutex
+	closed     bool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	streamDone chan struct{}
+	endpoint   string
+	client     *remotetap.Client
+	run        *Run
+	store      *RunStore
+	filters    RemotetapFilters
+	buffer     *ringBuffer
+	sampler    *sampler
 }
 
 func NewRemotetapManager(store *RunStore) *RemotetapManager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &RemotetapManager{
-		store: store,
+		store:  store,
+		ctx:    ctx,
+		cancel: cancel,
 		filters: RemotetapFilters{
 			MaxSpans:     10000,
 			MaxBytes:     10 * 1024 * 1024,
@@ -195,12 +202,20 @@ func (m *RemotetapManager) Connect(ctx context.Context, endpoint string, filters
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.closed {
+		return nil, fmt.Errorf("remotetap manager is closed")
+	}
 	if m.client != nil {
 		return nil, fmt.Errorf("already connected to %s", m.endpoint)
 	}
 
+	// The request controls admission/dial only; the manager owns the live stream.
+	dialCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(m.ctx, cancel)
+	defer stop()
 	client := remotetap.NewClient(endpoint)
-	if err := client.Connect(ctx); err != nil {
+	if err := client.Connect(dialCtx); err != nil {
 		return nil, fmt.Errorf("remotetap connect: %w", err)
 	}
 
@@ -219,17 +234,22 @@ func (m *RemotetapManager) Connect(ctx context.Context, endpoint string, filters
 	m.buffer = newRingBuffer(m.filters.MaxSpans, m.filters.MaxBytes)
 	m.sampler = newSampler(filters.SamplingType, filters.SamplingRate)
 
-	go m.streamLoop()
+	done := make(chan struct{})
+	m.streamDone = done
+	response := run.snapshot()
+	go m.streamLoop(client, done)
 
-	return run, nil
+	return response, nil
 }
 
-func (m *RemotetapManager) streamLoop() {
+func (m *RemotetapManager) streamLoop(client *remotetap.Client, done chan struct{}) {
+	defer close(done)
+	defer m.onDisconnect(client)
+	defer client.Disconnect()
 	for {
 		select {
-		case data, ok := <-m.client.Data():
+		case data, ok := <-client.Data():
 			if !ok {
-				m.onDisconnect()
 				return
 			}
 			spanCount := 0
@@ -239,7 +259,7 @@ func (m *RemotetapManager) streamLoop() {
 				}
 			}
 			m.processData(data, spanCount)
-		case err, ok := <-m.client.Err():
+		case err, ok := <-client.Err():
 			if !ok {
 				return
 			}
@@ -254,7 +274,9 @@ func (m *RemotetapManager) streamLoop() {
 }
 
 func (m *RemotetapManager) processData(data *remotetap.RemotetapData, spanCount int) {
-	run := m.getRun()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run := m.run
 	if run == nil {
 		return
 	}
@@ -285,25 +307,39 @@ func (m *RemotetapManager) processData(data *remotetap.RemotetapData, spanCount 
 
 func (m *RemotetapManager) Disconnect() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	client, done := m.client, m.streamDone
+	m.mu.Unlock()
+	return disconnectTAP(client, done)
+}
 
-	if m.client == nil {
-		return nil
+// Close also rejects reconnects and interrupts any in-progress dial.
+func (m *RemotetapManager) Close() error {
+	m.cancel()
+	m.mu.Lock()
+	m.closed = true
+	client, done := m.client, m.streamDone
+	m.mu.Unlock()
+	return disconnectTAP(client, done)
+}
+
+func disconnectTAP(client *remotetap.Client, done <-chan struct{}) error {
+	if client != nil {
+		_ = client.Disconnect()
 	}
-
-	m.client.Disconnect()
-	m.onDisconnectLocked()
+	if done != nil {
+		<-done
+	}
 	return nil
 }
 
-func (m *RemotetapManager) onDisconnect() {
+func (m *RemotetapManager) onDisconnect(client *remotetap.Client) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.onDisconnectLocked()
-}
-
-func (m *RemotetapManager) onDisconnectLocked() {
+	if m.client != client {
+		return
+	}
 	if m.run != nil {
+		m.run.mu.Lock()
 		// Serialize ring buffer to TraceData so Pipeline Prototyper can access it
 		if m.buffer != nil {
 			items := m.buffer.GetAll()
@@ -321,6 +357,7 @@ func (m *RemotetapManager) onDisconnectLocked() {
 		now := time.Now()
 		m.run.Status = RunStatusCompleted
 		m.run.CompletedAt = &now
+		m.run.mu.Unlock()
 		if m.store != nil {
 			m.store.PruneCompleted(maxCompletedRuns)
 		}
@@ -334,17 +371,13 @@ func (m *RemotetapManager) onDisconnectLocked() {
 // Returns nil if the run was found and stopped, error otherwise.
 func (m *RemotetapManager) StopByRunID(runID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.run == nil || m.run.ID != runID {
+		m.mu.Unlock()
 		return fmt.Errorf("run not found: %s", runID)
 	}
-
-	if m.client != nil {
-		m.client.Disconnect()
-	}
-	m.onDisconnectLocked()
-	return nil
+	client, done := m.client, m.streamDone
+	m.mu.Unlock()
+	return disconnectTAP(client, done)
 }
 
 func (m *RemotetapManager) Status() (connected bool, runID string, spanCount, logCount, metricCount int) {
@@ -356,6 +389,8 @@ func (m *RemotetapManager) Status() (connected bool, runID string, spanCount, lo
 	}
 
 	if m.run != nil {
+		m.run.mu.Lock()
+		defer m.run.mu.Unlock()
 		runID = m.run.ID
 		spanCount = m.run.SpanCount
 		logCount = m.run.LogCount
@@ -375,8 +410,10 @@ func (m *RemotetapManager) GetUsageStats() map[string]interface{} {
 	var evictedCount int64 = 0
 
 	if m.run != nil {
+		m.run.mu.Lock()
 		spanCount = int64(m.run.SpanCount)
 		traceCount = int64(m.run.TraceCount)
+		m.run.mu.Unlock()
 	}
 	if m.buffer != nil {
 		currentBytes = int64(m.buffer.CurrentBytes())
