@@ -6,7 +6,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v1.3.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/xottl v0.164.1
 	go.opentelemetry.io/collector/component v1.70.0
-	go.opentelemetry.io/collector/featuregate v1.70.0
+	go.opentelemetry.io/collector/featuregate v1.71.0
 	go.opentelemetry.io/collector/pdata v1.70.0
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
