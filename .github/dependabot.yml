@@ -4,22 +4,62 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # Worker modules are pinned to the Collector train they implement. The three
+  # supported trains advance together (see docs/otel-version-support.md), so
+  # minor and major bumps of the train modules are adopted deliberately rather
+  # than proposed here. Patch releases and security updates are unaffected.
   - package-ecosystem: gomod
     directory: /workers/ottl-0.163
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: go.opentelemetry.io/collector/component
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: go.opentelemetry.io/collector/pdata
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: go.opentelemetry.io/collector/featuregate
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/xottl
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
   - package-ecosystem: gomod
     directory: /workers/ottl-0.164
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: go.opentelemetry.io/collector/component
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: go.opentelemetry.io/collector/pdata
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: go.opentelemetry.io/collector/featuregate
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/xottl
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+
   - package-ecosystem: npm
     directory: /pipeline-ui
     schedule:
       interval: weekly
+    ignore:
+      # svelte-check requires TypeScript ^5 || ^6, so a major bump cannot be
+      # installed until svelte-check widens that range.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Major plugin releases require a matching Vite major, so they ship with
+      # the Svelte and Vite toolchain upgrade rather than on their own.
+      - dependency-name: "@sveltejs/vite-plugin-svelte"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
