@@ -6,7 +6,7 @@ web workflows. Do not add flags to documentation without checking the actual hel
 
 ## Toolchain and reproducible checks
 
-Use Go **1.26.11** (the minimum in both modules), Node.js **22**, npm, Python 3 and
+Use Go **1.26.11** (the minimum in both modules), Node.js **22.22+**, npm, Python 3 and
 Git. Newer Go versions may require newer Staticcheck binaries. Install the tested
 check tools outside the source tree:
 

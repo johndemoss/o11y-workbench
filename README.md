@@ -33,7 +33,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for verified build/check commands and [AG
 
 ## Quick Start
 
-Prerequisites: Go **1.26.11+** for the CLI; Node.js **22** and npm also required for the web UIs.
+Prerequisites: Go **1.26.11+** for the CLI; Node.js **22.22+** (or 24.15+, or 26+) and npm also required for the web UIs.
 
 ### CLI (traces only)
 
@@ -240,7 +240,7 @@ The **Pipeline Prototyper** is a visual pipeline builder (Svelte SPA) that mirro
 
 ### Build Prerequisites
 
-- Node.js 22 required for building the pipeline UI
+- Node.js 22.22+ required for building the pipeline UI
 - The `./scripts/serve.sh` command handles frontend builds automatically
 
 ## Scenarios
