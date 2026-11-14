@@ -1,7 +1,7 @@
 <script lang="ts">
   import CodeMirrorEditor from './CodeMirrorEditor.svelte'
   import type { PipelinesBySignal } from './types'
-  import yaml from 'js-yaml'
+  import { load } from 'js-yaml'
   import { tick } from 'svelte'
 
   const WIDTH_DEFAULT = 360
@@ -50,7 +50,7 @@
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(async () => {
       try {
-        yaml.load(_newValue)
+        load(_newValue)
         const res = await fetch('/api/ottl/pipeline/from-yaml', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-yaml' },

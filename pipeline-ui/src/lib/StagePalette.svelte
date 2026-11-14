@@ -2,7 +2,7 @@
   import { SNIPPETS, extractOttlLines } from './snippets'
   import type { SignalType, SnippetTemplate, StageType } from './types'
   import { SIGNALS } from './types'
-  import yaml from 'js-yaml'
+  import { dump } from 'js-yaml'
 
   let {
     onImport,
@@ -82,7 +82,7 @@
 
   function previewText(snippet: SnippetTemplate): string {
     try {
-      return yaml.dump(snippet.processor, { indent: 2, noRefs: true, sortKeys: false }).trimEnd()
+      return dump(snippet.processor, { indent: 2, noRefs: true, sortKeys: false }).trimEnd()
     } catch {
       return JSON.stringify(snippet.processor, null, 2)
     }
