@@ -1,9 +1,10 @@
 .DEFAULT_GOAL := help
-.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop otel-desktop-viewer-download otel-desktop-viewer-start otel-desktop-viewer-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps ottl-workers
+.PHONY: build-pipeline-ui build-all test serve serve-stop help otel-start otel-stop dev dev-remotetap clean clean-remotetap otel-demo-sender otel-demo-sender-stop build-images logs ps ottl-workers
 
 .PHONY: ottl-workers
 ottl-workers:
-	cd workers/ottl-0.162 && go build -o ../../bin/ottl-worker-0.162.0 .
+	cd workers/ottl-0.163 && go build -o ../../bin/ottl-worker-0.163.0 .
+	cd workers/ottl-0.164 && go build -o ../../bin/ottl-worker-0.164.0 .
 
 build-pipeline-ui:
 	./scripts/build-ui.sh pipeline-ui
@@ -38,8 +39,8 @@ help:
 	@echo ""
 	@echo "==> Containerized Workflow (Recommended):"
 	@echo "  make build-images        Build all Docker images"
-	@echo "  make dev                 Start otel-desktop-viewer + demo-sender (containerized)"
-	@echo "  make dev-remotetap       Start full stack: collector + viewer + web + sender (containerized)"
+	@echo "  make dev                 Start otel-desktop-viewer + demo-sender (containerized, dev profile)"
+	@echo "  make dev-remotetap       Start collector + web + remotetap demo-sender (no viewer)"
 	@echo "  make serve               Start web server + collector only (containerized)"
 	@echo "  make clean               Stop all containerized services"
 	@echo "  make logs                Show logs from running containers"
@@ -54,9 +55,6 @@ help:
 	@echo "==> Legacy/Binary Targets (use if not using containers):"
 	@echo "  make otel-start          Start OTel collector with remotetap processor (podman/docker)"
 	@echo "  make otel-stop           Stop OTel collector"
-	@echo "  make otel-desktop-viewer-download Download pre-built binaries from GitHub Actions"
-	@echo "  make otel-desktop-viewer-start Start otel-desktop-viewer binary (requires download first)"
-	@echo "  make otel-desktop-viewer-stop  Stop otel-desktop-viewer binary"
 	@echo "  make otel-demo-sender    Start CLI binary sending traces"
 	@echo "  make otel-demo-sender-stop Stop the demo sender binary"
 	@echo "  make serve-stop          Stop the web server binary"
@@ -101,8 +99,8 @@ export DOCKER_CONFIG := $(EMPTY_DOCKER_CONFIG)
 endif
 
 # OTel collector config for remotetap
-OTEL_COLLECTOR_CONTRIB_VERSION ?= 0.151.0
-OTEL_COLLECTOR_CONTRIB_DIGEST ?= sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+OTEL_COLLECTOR_CONTRIB_VERSION ?= 0.165.0
+OTEL_COLLECTOR_CONTRIB_DIGEST ?= sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
 OTEL_COLLECTOR_IMAGE ?= docker.io/otel/opentelemetry-collector-contrib:$(OTEL_COLLECTOR_CONTRIB_VERSION)@$(OTEL_COLLECTOR_CONTRIB_DIGEST)
 OTEL_COLLECTOR_CONFIG := config/otel-collector-remotetap.yaml
 
@@ -125,63 +123,10 @@ otel-stop:
 	$(CONTAINER_RUNTIME) rm otel-collector-remotetap 2>/dev/null || true
 	@echo "OTel collector stopped"
 
-# otel-desktop-viewer configuration
-# Default is loopback. make dev / make dev-remotetap override to 0.0.0.0 so
-# containers can reach the host binary; that mode is not for an untrusted network.
-ODV_HOST ?= 127.0.0.1
-ODV_VERSION := latest
-ODV_BINDIR := $(CURDIR)/bin
-ODV_PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
-ODV_ARTIFACT_URL := https://github.com/johndemoss/o11y-workbench/actions/workflows/build-otel-desktop-viewer.yml
-
-# Download otel-desktop-viewer artifacts from latest successful GitHub Actions run
-.PHONY: otel-desktop-viewer-download
-otel-desktop-viewer-download:
-	@mkdir -p $(ODV_BINDIR)
-	@echo "Downloading otel-desktop-viewer artifacts from GitHub Actions..."
-	@RUN_ID=$$(gh run list --workflow=build-otel-desktop-viewer.yml --status=success --json databaseId --jq '.[0].databaseId') && \
-	if [ -z "$$RUN_ID" ]; then \
-		echo "No successful workflow run found. Trigger the workflow at $(ODV_ARTIFACT_URL)"; \
-		exit 1; \
-	fi && \
-	echo "Downloading from run $$RUN_ID..." && \
-	rm -rf $(ODV_BINDIR)/otel-desktop-viewer-tmp && \
-	mkdir -p $(ODV_BINDIR)/otel-desktop-viewer-tmp && \
-	cd $(ODV_BINDIR)/otel-desktop-viewer-tmp && \
-	gh run download "$$RUN_ID" --pattern "otel-desktop-viewer-*" && \
-	for dir in otel-desktop-viewer-*/; do \
-		cp "$$dir"otel-desktop-viewer-* ../tmp-$$(basename $$dir) && rm -rf "$$dir"; \
-	done && \
-	cd .. && \
-	rm -rf otel-desktop-viewer-tmp && \
-	for f in tmp-otel-desktop-viewer-*; do mv "$$f" "$${f#tmp-}"; done && \
-	ls -lh $(ODV_BINDIR)/otel-desktop-viewer-linux-amd64 $(ODV_BINDIR)/otel-desktop-viewer-darwin-*
-
-# Current platform binary
-ODV_CURRENT_BINARY := $(ODV_BINDIR)/otel-desktop-viewer-$(ODV_PLATFORM)
-
-# Start otel-desktop-viewer (OTLP GUI viewer)
-# Uses ports 4317/4318 (gRPC/HTTP) for OTLP and 8000 for the web UI
-.PHONY: otel-desktop-viewer-start
-otel-desktop-viewer-start: $(ODV_CURRENT_BINARY)
-	@echo "Using otel-desktop-viewer $(ODV_VERSION) ($(ODV_PLATFORM))"
-	@if [ "$(ODV_HOST)" = "0.0.0.0" ]; then echo "WARNING: otel-desktop-viewer is listening on all interfaces so containers can reach it. Do not use this on an untrusted network."; fi
-	@$(ODV_CURRENT_BINARY) --host $(ODV_HOST) > /tmp/otel-desktop-viewer.log 2>&1 & echo $$! > /tmp/otel-desktop-viewer.pid
-	@sleep 1
-	@echo "otel-desktop-viewer started (pid: $$(cat /tmp/otel-desktop-viewer.pid))"
-	@echo "    UI:          http://localhost:8000"
-	@echo "    OTLP gRPC:   localhost:4317"
-	@echo "    OTLP HTTP:   localhost:4318"
-
-# Stop otel-desktop-viewer
-.PHONY: otel-desktop-viewer-stop
-otel-desktop-viewer-stop:
-	@bash scripts/stop-odv.sh
-
 # Fixed container_name values collide across worktrees: compose project names
 # differ by directory, but these containers share global names. Reclaim them
 # before up / during clean so leftover stacks from another checkout cannot block.
-NAMED_CONTAINERS := otel-collector-remotetap o11y-workbench-web demo-sender otel-desktop-viewer
+NAMED_CONTAINERS := otel-collector-remotetap o11y-workbench-web demo-sender remotetap-demo-sender otel-desktop-viewer
 
 .PHONY: reclaim-named-containers
 reclaim-named-containers:
@@ -189,22 +134,34 @@ reclaim-named-containers:
 		$(CONTAINER_RUNTIME) rm -f $$c >/dev/null 2>&1 || true; \
 	done
 
-# Start everything for remotetap testing - HYBRID MODE
-# Web server and collector in containers, viewer as binary
+# Optional OTLP demo: official otel-desktop-viewer container + demo-sender
+.PHONY: dev
+dev: reclaim-named-containers
+	@echo "Starting otel-desktop-viewer + demo-sender (containerized)..."
+	$(COMPOSE) -f docker-compose.yml --profile dev up -d
+	@echo ""
+	@echo "==> Services running:"
+	@echo "    otel-desktop-viewer UI: http://localhost:8000 (container)"
+	@echo "    OTLP endpoint:          localhost:4317 (gRPC) / localhost:4318 (HTTP)"
+	@echo ""
+	@echo "==> Demo sender running in container"
+	@echo "    Command: o11y-workbench --traces 0 --duration 300 --rate 5 --output otlp --endpoint otel-desktop-viewer:4317 --insecure"
+	@echo "    Use 'make clean' to stop everything"
+	@echo "    Use 'make logs' to see container logs"
+
+# Remote TAP stack: collector + dashboard + sender (no otel-desktop-viewer)
 .PHONY: dev-remotetap
 dev-remotetap: reclaim-named-containers
-	@$(MAKE) --no-print-directory otel-desktop-viewer-start ODV_HOST=0.0.0.0
-	@echo "Starting full remotetap stack (hybrid)..."
-	@echo "Demo-sender command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
-	$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap up -d
+	@echo "Starting remotetap stack (containerized)..."
+	@echo "remotetap-demo-sender: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev-remotetap.yml --profile remotetap up -d
 	@echo ""
 	@echo "==> All services running:"
 	@echo "    o11y-workbench dashboard:  http://localhost:$(WEB_PORT) (containerized)"
-	@echo "    otel-desktop-viewer UI:    http://localhost:8000 (binary on host)"
 	@echo "    otel-collector:            localhost:14317 (gRPC) / localhost:14318 (HTTP)"
 	@echo "    remotetap WebSocket:       localhost:12001"
 	@echo ""
-	@echo "==> Demo sender running in container, sending traces to collector"
+	@echo "==> remotetap-demo-sender running in container, sending traces to collector"
 	@echo "    Command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint otel-collector:14317 --insecure --scenario microservice"
 	@echo "    Use 'make clean' to stop everything"
 	@echo "    Use 'make logs' to see container logs"
@@ -218,44 +175,25 @@ otel-demo-sender:
 	@echo "PID written to /tmp/o11y-workbench-demo.pid"
 	@echo $$! > /tmp/o11y-workbench-demo.pid
 
-# Start CLI + otel-desktop-viewer - HYBRID MODE (for macOS ARM64)
-# Runs otel-desktop-viewer as binary on host, demo-sender in container
-.PHONY: dev
-dev:
-	@$(MAKE) --no-print-directory otel-desktop-viewer-start ODV_HOST=0.0.0.0
-	@echo "Starting demo sender (containerized)..."
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev up -d
-	@echo ""
-	@echo "==> Services running:"
-	@echo "    otel-desktop-viewer UI: http://localhost:8000 (binary on host)"
-	@echo "    OTLP endpoint:          localhost:4317 (gRPC) / localhost:4318 (HTTP)"
-	@echo ""
-	@echo "==> Demo sender running in container, sending traces to host"
-	@echo "    Command: o11y-workbench --traces 0 --duration 0 --rate 2 --output otlp --endpoint host.containers.internal:4317 --insecure --scenario microservice"
-	@echo "    Use 'make clean' to stop everything"
-	@echo "    Use 'make logs' to see container logs"
-
 # Stop the demo sender
 .PHONY: otel-demo-sender-stop
 otel-demo-sender-stop:
 	@echo "Stopping demo sender..."
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev stop demo-sender 2>/dev/null || true
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev rm -f demo-sender 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.yml --profile dev stop demo-sender 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.yml --profile dev rm -f demo-sender 2>/dev/null || true
 	kill $$(cat /tmp/o11y-workbench-demo.pid 2>/dev/null) 2>/dev/null || true
 	rm -f /tmp/o11y-workbench-demo.pid
 	@echo "Demo sender stopped"
 
-# Stop all containerized services and binaries
+# Stop all containerized services
 .PHONY: clean
 clean:
 	@echo "Stopping all services..."
 	$(COMPOSE) -f docker-compose.yml down 2>/dev/null || true
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile dev down 2>/dev/null || true
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile remotetap down 2>/dev/null || true
-	@$(COMPOSE) -f docker-compose.hybrid.yml -f docker-compose.hybrid-remotetap.yml --profile remotetap down 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.yml --profile dev down 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev-remotetap.yml --profile remotetap down 2>/dev/null || true
 	@$(MAKE) --no-print-directory reclaim-named-containers
 	@$(MAKE) --no-print-directory otel-stop
-	@$(MAKE) --no-print-directory otel-desktop-viewer-stop
 	@echo "All services stopped"
 
 # Cleanup everything (remotetap-specific, includes collector)
@@ -263,19 +201,19 @@ clean:
 clean-remotetap: clean
 	@echo "Cleanup complete"
 
-# Build all Docker images
+# Build all Docker images (web + CLI; viewer pulls official image at runtime)
 .PHONY: build-images
 build-images:
 	@echo "Building all Docker images..."
-	$(COMPOSE) -f docker-compose.hybrid.yml --profile remotetap --profile dev build --no-cache
+	$(COMPOSE) -f docker-compose.yml --profile remotetap --profile dev build --no-cache
 	@echo "All images built successfully"
 
 # Show logs from running containers
 .PHONY: logs
 logs:
-	$(COMPOSE) logs -f
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev-remotetap.yml --profile dev --profile remotetap logs -f
 
 # Show status of all containers
 .PHONY: ps
 ps:
-	$(COMPOSE) ps
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev-remotetap.yml --profile dev --profile remotetap ps

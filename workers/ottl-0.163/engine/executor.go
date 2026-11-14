@@ -17,7 +17,6 @@ import (
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // TransformRunData parses and executes OTTL transform statements against trace
@@ -127,7 +126,7 @@ func TransformSpans(traces ptrace.Traces, statements []string, errorMode ErrorMo
 	}
 
 	parser, err := ottlspan.NewParser(
-		ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+		ParserFunctions[*ottlspan.TransformContext](),
 		settings,
 	)
 	if err != nil {

@@ -17,7 +17,6 @@ import (
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // TransformMetricRunData parses and executes OTTL transform statements against
@@ -56,7 +55,7 @@ func TransformMetricRunData(metricData json.RawMessage, statements []string) (js
 	}
 
 	parser, err := ottldatapoint.NewParser(
-		ottlfuncs.StandardFuncs[*ottldatapoint.TransformContext](),
+		parserFuncs[*ottldatapoint.TransformContext](),
 		settings,
 	)
 	if err != nil {
@@ -85,7 +84,7 @@ func TransformMetricRunData(metricData json.RawMessage, statements []string) (js
 				case pmetric.MetricTypeGauge:
 					dps := metric.Gauge().DataPoints()
 					for dp := 0; dp < dps.Len(); dp++ {
-						tCtx := ottldatapoint.NewTransformContextPtr(rm, sm, metric, dps.At(dp))
+						tCtx := ottldatapoint.NewTransformContext(rm, sm, metric, dps.At(dp))
 						if err := seq.Execute(ctx, tCtx); err != nil {
 							tCtx.Close()
 							return nil, fmt.Errorf("execute on gauge datapoint %d/%d/%d/%d: %w", i, j, k, dp, err)
@@ -95,7 +94,7 @@ func TransformMetricRunData(metricData json.RawMessage, statements []string) (js
 				case pmetric.MetricTypeSum:
 					dps := metric.Sum().DataPoints()
 					for dp := 0; dp < dps.Len(); dp++ {
-						tCtx := ottldatapoint.NewTransformContextPtr(rm, sm, metric, dps.At(dp))
+						tCtx := ottldatapoint.NewTransformContext(rm, sm, metric, dps.At(dp))
 						if err := seq.Execute(ctx, tCtx); err != nil {
 							tCtx.Close()
 							return nil, fmt.Errorf("execute on sum datapoint %d/%d/%d/%d: %w", i, j, k, dp, err)
@@ -105,7 +104,7 @@ func TransformMetricRunData(metricData json.RawMessage, statements []string) (js
 				case pmetric.MetricTypeHistogram:
 					dps := metric.Histogram().DataPoints()
 					for dp := 0; dp < dps.Len(); dp++ {
-						tCtx := ottldatapoint.NewTransformContextPtr(rm, sm, metric, dps.At(dp))
+						tCtx := ottldatapoint.NewTransformContext(rm, sm, metric, dps.At(dp))
 						if err := seq.Execute(ctx, tCtx); err != nil {
 							tCtx.Close()
 							return nil, fmt.Errorf("execute on histogram datapoint %d/%d/%d/%d: %w", i, j, k, dp, err)

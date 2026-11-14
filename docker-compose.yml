@@ -1,10 +1,10 @@
 services:
   # OTel Collector with remotetap processor
   otel-collector:
-    image: docker.io/otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+    image: docker.io/otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     container_name: otel-collector-remotetap
     volumes:
-      - ./config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:ro,Z
     ports:
       - "127.0.0.1:14317:14317"  # OTLP gRPC
       - "127.0.0.1:14318:14318"  # OTLP HTTP
@@ -18,18 +18,14 @@ services:
     profiles:
       - remotetap  # Only starts with dev-remotetap mode
 
-  # OTel Desktop Viewer (OTLP GUI)
+  # OTel Desktop Viewer (OTLP GUI) — optional demo; official multiarch image (dev profile only)
   otel-desktop-viewer:
-    image: localhost/o11y-workbench-otel-desktop-viewer:latest
-    build:
-      context: .
-      dockerfile: Dockerfile.otel-desktop-viewer
+    image: ghcr.io/ctrlspice/otel-desktop-viewer:v0.7.0@sha256:e1bcd2a895c0e62b1ae97988cbf132d270074cb239b5c37efe59348a60a82ce8
     container_name: otel-desktop-viewer
     ports:
       - "127.0.0.1:4317:4317"  # OTLP gRPC
       - "127.0.0.1:4318:4318"  # OTLP HTTP
       - "127.0.0.1:8000:8000"  # Web UI
-    user: "65532:65532"
     read_only: true
     tmpfs:
       - /tmp:mode=1777,size=67108864
@@ -40,7 +36,7 @@ services:
     networks:
       - o11y-workbench-net
     profiles:
-      - dev  # Starts with both dev and dev-remotetap modes
+      - dev  # Optional demo only (make dev)
 
   # O11y Workbench Web (Dashboard & Pipeline Prototyper)
   o11y-workbench-web:
@@ -101,10 +97,11 @@ services:
     pids_limit: 128
     security_opt:
       - no-new-privileges:true
+    restart: on-failure:5
     depends_on:
       - otel-desktop-viewer
     profiles:
-      - dev  # Starts with both dev and dev-remotetap modes
+      - dev  # Optional demo only (make dev)
 
 networks:
   o11y-workbench-net:

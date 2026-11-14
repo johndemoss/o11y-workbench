@@ -13,33 +13,38 @@ Only the current main branch is maintained; there is no supported-release SLA.
   This is **not authentication**, an SSRF defense, a DNS-rebinding defense, or a
   resource quota. Non-browser callers without an Origin header remain allowed.
 - The API can generate traffic, connect to caller-selected OTLP/Remote TAP
-  endpoints, process imported data, and run admitted local evaluation binaries.
-  Do not grant access to untrusted clients or import untrusted collector configs.
-- HTTP request bodies are capped at 32 MiB, and evaluation JSON at 2 MiB.
+  endpoints, process imported data, and invoke configured local OTTL worker
+  processes. Do not grant access to untrusted clients or import untrusted
+  collector configs.
+- HTTP request bodies are capped at 32 MiB.
   Generation counts, rates and durations still have no comprehensive budget.
   Run the workbench with restricted network access and OS resource limits.
 - Per-run destinations are isolated; server shutdown cancels/joins generated jobs
   and finalizes/closes TAP capture. These lifecycle guarantees do not provide
-  multi-user authorization, quotas or comprehensive per-handler budgets. do not infer multi-tenant safety from routing isolation.
+  multi-user authorization, quotas or comprehensive per-handler budgets; do not
+  infer multi-tenant safety from routing isolation.
 - Use synthetic telemetry. Real traces, logs, attributes, headers, imported
-  configurations, TAP captures, evaluation artifacts, screenshots and terminal
-  output can contain credentials or personal/customer data. Do not commit them.
+  configurations, TAP captures, screenshots and terminal output can contain
+  credentials or personal/customer data. Do not commit them.
 - Docker listens on all container interfaces intentionally. Compose examples
-  and `make otel-start` publish host ports on `127.0.0.1` only. Images run as
-  uid 65532 with a read-only root and a tmpfs `/tmp`, except the upstream
-  collector image, which keeps its own user and is memory-limited.
-  `make dev` and `make dev-remotetap` bind the host desktop viewer to
-  `0.0.0.0` so containers can reach it. Do not run those targets on an
-  untrusted network. A plain `make otel-desktop-viewer-start` stays on loopback.
+  and `make otel-start` publish host ports on `127.0.0.1` only. Workbench
+  images run as uid 65532 with a read-only root and a tmpfs `/tmp`. The
+  upstream collector keeps its own user and is memory-limited.
+- The optional upstream OTel Desktop Viewer image runs as root inside its
+  container (its executable is under `/root`). Its Compose service uses a
+  read-only root, tmpfs `/tmp`, no new privileges, resource limits, and
+  loopback-only published ports. Do not expose its OTLP or UI ports to
+  untrusted clients. `make dev-remotetap` does not start the viewer.
 
 ## Reporting a vulnerability
 
 Do **not** include credentials, captured telemetry, private hostnames, customer
 data, or exploit details in a public issue or pull request.
 
-Use [GitHub private vulnerability reporting](https://github.com/johndemoss/o11y-workbench/security/advisories/new)
-when enabled. If unavailable, ask the maintainer for a private reporting channel
-without posting sensitive details. 
+This repository does not currently use [GitHub private vulnerability
+reporting](https://docs.github.com/code-security/security-advisories/working-with-repository-security-advisories/configuring-private-vulnerability-reporting-for-a-repository).
+Ask the maintainer for a private reporting channel without posting sensitive
+details in a public issue or pull request.
 
 If a credential is discovered in Git, revoke/rotate it first. Removing it from
 the working tree is not sufficient: assess every branch/tag, historical object,

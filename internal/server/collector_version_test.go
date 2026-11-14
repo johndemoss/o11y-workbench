@@ -73,7 +73,7 @@ processors:
 `
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/api/ottl/pipeline/validate?collector_version=0.151.0",
+		"/api/ottl/pipeline/validate?collector_version=0.165.0",
 		bytes.NewBufferString(pipelineYAML),
 	)
 	req.Header.Set("Content-Type", "application/x-yaml")
@@ -162,21 +162,21 @@ func TestServerClose_RunsEngineStops(t *testing.T) {
 }
 
 func TestNew_CloseStopsConfiguredWorkers(t *testing.T) {
-	bin := filepath.Join("..", "..", "bin", "ottl-worker-0.162.0")
+	bin := filepath.Join("..", "..", "bin", "ottl-worker-0.164.0")
 	if _, err := os.Stat(bin); err != nil {
 		t.Skipf("worker binary not found at %s (run make ottl-workers)", bin)
 	}
 
-	t.Setenv("O11Y_OTTL_WORKERS", "0.162.0="+bin)
+	t.Setenv("O11Y_OTTL_WORKERS", "0.164.0="+bin)
 	srv, err := New("127.0.0.1:0", false)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer srv.Close()
 
-	eng, err := srv.ensureEngines().Get("0.162.0")
+	eng, err := srv.ensureEngines().Get("0.164.0")
 	if err != nil {
-		t.Fatalf("Get(0.162.0): %v", err)
+		t.Fatalf("Get(0.164.0): %v", err)
 	}
 	wc, ok := eng.(*ottlengine.WorkerClient)
 	if !ok {

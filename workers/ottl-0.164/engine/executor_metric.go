@@ -17,7 +17,6 @@ import (
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // TransformMetricRunData parses and executes OTTL transform statements against
@@ -56,7 +55,7 @@ func TransformMetricRunData(metricData json.RawMessage, statements []string) (js
 	}
 
 	parser, err := ottldatapoint.NewParser(
-		ottlfuncs.StandardFuncs[*ottldatapoint.TransformContext](),
+		parserFunctions[*ottldatapoint.TransformContext](),
 		settings,
 	)
 	if err != nil {

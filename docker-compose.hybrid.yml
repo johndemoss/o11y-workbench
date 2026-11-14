@@ -1,14 +1,8 @@
-# Hybrid setup for macOS ARM64
-# Uses host network for otel-desktop-viewer binary (runs on host, not in container)
-# Containerizes other services
+# Deprecated: prefer docker-compose.yml (+ profiles). Retained for manual experiments only.
 
 services:
-  # Run otel-desktop-viewer on the host instead (not in container)
-  # Use: make otel-desktop-viewer-start
-
-  # OTel Collector with remotetap processor
   otel-collector:
-    image: docker.io/otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+    image: docker.io/otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     container_name: otel-collector-remotetap
     volumes:
       - ./config/otel-collector-remotetap.yaml:/etc/otelcol-contrib/config.yaml:ro,Z
@@ -25,7 +19,6 @@ services:
     profiles:
       - remotetap
 
-  # O11y Workbench Web
   o11y-workbench-web:
     image: localhost/o11y-workbench-web:latest
     build:
@@ -33,7 +26,6 @@ services:
       dockerfile: Dockerfile.web
     container_name: o11y-workbench-web
     ports:
-      # Host port defaults to 18080 so it does not clash with other listeners on :8080.
       - "127.0.0.1:${WEB_PORT:-18080}:8080"
     user: "65532:65532"
     read_only: true
@@ -53,14 +45,12 @@ services:
     profiles:
       - remotetap
 
-  # Demo Sender
   demo-sender:
     image: localhost/o11y-workbench-cli:latest
     build:
       context: .
       dockerfile: Dockerfile.cli
     container_name: demo-sender
-    # Use host.containers.internal (podman's host machine hostname)
     command:
       - --traces
       - "0"
@@ -71,7 +61,7 @@ services:
       - --output
       - otlp
       - --endpoint
-      - host.containers.internal:4317
+      - otel-collector:14317
       - --insecure
       - --scenario
       - microservice
@@ -85,8 +75,11 @@ services:
       - no-new-privileges:true
     networks:
       - o11y-workbench-net
+    depends_on:
+      - otel-collector
     profiles:
       - dev
+      - remotetap
 
 networks:
   o11y-workbench-net:

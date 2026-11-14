@@ -101,8 +101,8 @@
   }
 
   .app-logo {
-    width: 112px;
-    height: 32px;
+    width: 210px;
+    height: 60px;
     object-fit: contain;
   }
 

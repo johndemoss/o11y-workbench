@@ -18,7 +18,6 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // FilterMetricRunData evaluates OTTL conditions against each metric data point
@@ -60,7 +59,7 @@ func FilterMetricRunData(metricData json.RawMessage, conditions []string, mode F
 	}
 
 	parser, err := ottldatapoint.NewParser(
-		ottlfuncs.StandardFuncs[*ottldatapoint.TransformContext](),
+		ParserFunctions[*ottldatapoint.TransformContext](),
 		settings,
 	)
 	if err != nil {

@@ -74,6 +74,23 @@ export const SNIPPETS: SnippetTemplate[] = [
       ],
     },
   },
+  {
+    id: 'filter-production-tags-lambda',
+    name: 'Keep production tags (lambda)',
+    type: 'transform',
+    description: 'Copies only prod values from a span tags array into prod_tags using an experimental OTTL lambda.',
+    processor: {
+      error_mode: 'ignore',
+      trace_statements: [
+        {
+          context: 'span',
+          statements: [
+            'set(attributes["prod_tags"], Filter(attributes["tags"], (_, value) => value == "prod")) where attributes["tags"] != nil',
+          ],
+        },
+      ],
+    },
+  },
 ]
 
 /** Extract native OTTL lines from a processor config for the inspector textarea. */

@@ -68,11 +68,11 @@ func TestRegistryListIncludesLocal(t *testing.T) {
 
 func TestRegistryRegister(t *testing.T) {
 	r := NewRegistry(DefaultContribVersion, &LocalEngine{})
-	wc := NewWorkerClient("0.162.0", "1.68.0", "http://127.0.0.1:9")
-	r.Register("0.162.0", wc)
-	eng, err := r.Get("0.162.0")
+	wc := NewWorkerClient("0.164.0", "1.70.0", "http://127.0.0.1:9")
+	r.Register("0.164.0", wc)
+	eng, err := r.Get("0.164.0")
 	if err != nil {
-		t.Fatalf("Get(0.162.0): %v", err)
+		t.Fatalf("Get(0.164.0): %v", err)
 	}
 	if eng.Info().Source != "worker" {
 		t.Fatalf("source = %q", eng.Info().Source)
@@ -84,11 +84,11 @@ func TestRegistryRegister(t *testing.T) {
 }
 
 func TestParseWorkerBindings(t *testing.T) {
-	b, err := parseWorkerBindings("0.162.0=/tmp/w,0.170.0=/bin/x")
+	b, err := parseWorkerBindings("0.164.0=/tmp/w,0.163.0=/bin/x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) != 2 || b[0].Version != "0.162.0" || b[0].Path != "/tmp/w" {
+	if len(b) != 2 || b[0].Version != "0.164.0" || b[0].Path != "/tmp/w" {
 		t.Fatalf("unexpected bindings: %+v", b)
 	}
 	if _, err := parseWorkerBindings("bad"); err == nil {
@@ -97,11 +97,14 @@ func TestParseWorkerBindings(t *testing.T) {
 }
 
 func TestContribToStable(t *testing.T) {
-	if got := contribToStable("0.162.0"); got != "1.68.0" {
-		t.Fatalf("contribToStable(0.162.0) = %q, want 1.68.0", got)
+	if got := contribToStable("0.165.0"); got != "1.71.0" {
+		t.Fatalf("contribToStable(0.165.0) = %q, want 1.71.0", got)
 	}
-	if got := contribToStable("0.151.0"); got != "1.57.0" {
-		t.Fatalf("contribToStable(0.151.0) = %q, want 1.57.0", got)
+	if got := contribToStable("0.164.0"); got != "1.70.0" {
+		t.Fatalf("contribToStable(0.164.0) = %q, want 1.70.0", got)
+	}
+	if got := contribToStable("0.163.0"); got != "1.69.0" {
+		t.Fatalf("contribToStable(0.163.0) = %q, want 1.69.0", got)
 	}
 }
 

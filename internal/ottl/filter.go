@@ -24,7 +24,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // ValidateFilterConditionsParse parses and validates OTTL filter conditions
@@ -57,7 +56,7 @@ func ValidateFilterConditionsParse(conditions []string, signals gen.Signals) Val
 			switch sig {
 			case "traces":
 				p, err := ottlspan.NewParser(
-					ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+					parserFuncs[*ottlspan.TransformContext](),
 					settings,
 				)
 				if err != nil {
@@ -72,7 +71,7 @@ func ValidateFilterConditionsParse(conditions []string, signals gen.Signals) Val
 				})
 			case "logs":
 				p, err := ottllog.NewParser(
-					ottlfuncs.StandardFuncs[*ottllog.TransformContext](),
+					parserFuncs[*ottllog.TransformContext](),
 					settings,
 				)
 				if err != nil {
@@ -87,7 +86,7 @@ func ValidateFilterConditionsParse(conditions []string, signals gen.Signals) Val
 				})
 			case "metrics":
 				p, err := ottldatapoint.NewParser(
-					ottlfuncs.StandardFuncs[*ottldatapoint.TransformContext](),
+					parserFuncs[*ottldatapoint.TransformContext](),
 					settings,
 				)
 				if err != nil {
@@ -266,7 +265,7 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 	}
 
 	parser, err := ottlspan.NewParser(
-		ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+		parserFuncs[*ottlspan.TransformContext](),
 		settings,
 	)
 	if err != nil {
@@ -304,7 +303,7 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 			spans := ss.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				tCtx := ottlspan.NewTransformContextPtr(rs, ss, span)
+				tCtx := ottlspan.NewTransformContext(rs, ss, span)
 
 				isMatch, evalErr := condSeq.Eval(ctx, tCtx)
 				tCtx.Close()

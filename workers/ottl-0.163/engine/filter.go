@@ -22,7 +22,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // ValidateFilterConditionsParse parses and validates OTTL filter conditions
@@ -55,7 +54,7 @@ func ValidateFilterConditionsParse(conditions []string, signals Signals) Validat
 			switch sig {
 			case "traces":
 				p, err := ottlspan.NewParser(
-					ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+					ParserFunctions[*ottlspan.TransformContext](),
 					settings,
 				)
 				if err != nil {
@@ -70,7 +69,7 @@ func ValidateFilterConditionsParse(conditions []string, signals Signals) Validat
 				})
 			case "logs":
 				p, err := ottllog.NewParser(
-					ottlfuncs.StandardFuncs[*ottllog.TransformContext](),
+					ParserFunctions[*ottllog.TransformContext](),
 					settings,
 				)
 				if err != nil {
@@ -85,7 +84,7 @@ func ValidateFilterConditionsParse(conditions []string, signals Signals) Validat
 				})
 			case "metrics":
 				p, err := ottldatapoint.NewParser(
-					ottlfuncs.StandardFuncs[*ottldatapoint.TransformContext](),
+					ParserFunctions[*ottldatapoint.TransformContext](),
 					settings,
 				)
 				if err != nil {
@@ -264,7 +263,7 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 	}
 
 	parser, err := ottlspan.NewParser(
-		ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+		ParserFunctions[*ottlspan.TransformContext](),
 		settings,
 	)
 	if err != nil {

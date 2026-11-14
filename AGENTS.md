@@ -43,6 +43,7 @@ Do not load these unless the task matches. In chat, attach with `@path`.
 - Handlers call `StartRun(ctx, store, cfg, endpoints, insecure, output)`; do not construct generators in handlers
 - Versioned OTTL goes through `internal/ottlengine`; retain worker stoppers from `StartConfiguredWorkers` and stop them on Close/SIGTERM. Pins live in `versions/otel.env` (see `docs/agents/gotchas.md`)
 - Dashboard and Pipeline Prototyper are one product — not two competing apps
+- Public-facing commentary, including commit messages, release notes, and documentation, describes the product and shipped changes; omit internal preparation and process details.
 
 
 

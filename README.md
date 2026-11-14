@@ -1,5 +1,8 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="o11y workbench" width="500">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo.svg">
+    <img src="assets/logo-light.svg" alt="o11y workbench" width="420">
+  </picture>
 </div>
 
 **Seeded mock OTLP telemetry generator and local development workbench** for testing distributed system scenarios, trace-ID-aware load balancing, [OpenTelemetry Transformation Language (OTTL)](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) prototyping, and pipeline authoring.
@@ -20,12 +23,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for verified build/check commands and [AG
 - **Flexible output** — write to files (JSON/protobuf) or stream via OTLP gRPC to any collector.
 - **Multi-endpoint routing** — distribute telemetry across collector endpoints by region.
 - **Rate-limited generation** — pace trace output to a target traces/second for load testing.
-- **OTTL Prototyper** — web-based sandbox to write, validate, and test OTTL transform and filter statements against live generated telemetry.
+- **OTTL Prototyper** — web-based sandbox to write, validate, and test OTTL transform and filter statements against generated telemetry, including experimental lambda expressions in supported collector trains.
 - **Pipeline Prototyper** — visual, multi-signal pipeline builder that mirrors the OTel Collector's processor model. Chain transform/filter stages with `error_mode` support and per-stage result inspection.
 - **Web dashboard** — browser UI for interactive generation, run management, scenario management, trace import, and OTTL prototyping.
 - **Run lifecycle management** — start, stop, pause, and resume generation jobs with live progress tracking.
 - **Trace import** — upload existing OTLP JSON traces for inspection and OTTL experimentation.
-- **Remote TAP** — connect to a remote OTel Desktop Viewer instance to stream live telemetry from real collector deployments. Endpoint configuration, connect/disconnect, and live status in the web dashboard.
+- **Remote TAP** — connect to an OTel Collector `remotetap` WebSocket endpoint to stream live telemetry from collector deployments. Endpoint configuration, connect/disconnect, and live status are in the web dashboard.
 - **YAML-first configuration** — CLI flags, env vars, and config files all backed by the same schema.
 
 ## Quick Start
@@ -84,15 +87,17 @@ docker build -f Dockerfile.web -t o11y-workbench-web .
 docker run -p 127.0.0.1:18080:8080 o11y-workbench-web
 ```
 
-Docker Compose profiles are also available for local development with OTel Desktop Viewer:
+Docker Compose offers two independent local fixtures:
 
 ```bash
-# Standard development environment
-docker compose -f docker-compose.dev.yml up
+# Optional upstream OTel Desktop Viewer + demo sender (viewer at localhost:8000).
+docker compose -f docker-compose.yml --profile dev up -d
 
-# With Remote TAP support
-docker compose -f docker-compose.dev-remotetap.yml up
+# Remote TAP: collector + workbench + demo sender; no desktop viewer required.
+docker compose -f docker-compose.yml -f docker-compose.dev-remotetap.yml --profile remotetap up -d
 ```
+
+`make dev` and `make dev-remotetap` provide the corresponding managed workflows.
 
 ## CLI Reference
 
@@ -146,7 +151,7 @@ The web dashboard at `http://localhost:18080` provides:
 - **Trace import** — upload existing OTLP JSON traces for analysis and OTTL experimentation.
 - **Scenario upload** — register user-defined scenarios via YAML/JSON.
 - **OTTL Prototyper** — interactive sandbox for transform and filter statements against generated data.
-- **Remote TAP** — connect to a remote OTel Desktop Viewer endpoint for live telemetry streaming, with connection status and usage monitoring.
+- **Remote TAP** — stream live telemetry from an OTel Collector `remotetap` WebSocket endpoint, with connection status and usage monitoring.
 - **Signal selection** — generate traces, logs, and metrics independently or together.
 
 ### API Endpoints
@@ -172,7 +177,7 @@ The web dashboard at `http://localhost:18080` provides:
 | `POST` | `/api/ottl/pipeline/validate` | Validate a full pipeline definition |
 | `POST` | `/api/ottl/pipeline/execute` | Execute a pipeline against trace data |
 | `POST` | `/api/ottl/pipeline/import-config` | Import OTel Collector config YAML |
-| `POST` | `/api/remotetap/connect` | Connect to a remote OTel Desktop Viewer endpoint |
+| `POST` | `/api/remotetap/connect` | Connect to a collector `remotetap` WebSocket endpoint |
 | `POST` | `/api/remotetap/disconnect` | Disconnect from the remote endpoint |
 | `GET` | `/api/remotetap/status` | Get remote TAP connection status |
 | `GET` | `/api/remotetap/usage/{runID}` | Get remote TAP usage stats for a run |
@@ -183,7 +188,7 @@ The web dashboard at `http://localhost:18080` provides:
 
 The **OTTL Prototyper** is a browser-based sandbox for writing and testing [OpenTelemetry Transformation Language](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) statements — no collector setup required.
 
-OTTL execution is dual-train: the web binary embeds one in-process collector version (see `go.mod` / `versions/otel.env`), and optional worker binaries under `workers/` provide additional trains selected via `collector_version`. Local serve builds workers with `make ottl-workers` and exports `O11Y_OTTL_WORKERS` from `versions/otel.env`.
+OTTL execution supports Collector Contrib `0.165.0` (in-process default), `0.164.0`, and `0.163.0` (versioned workers). The Pipeline Prototyper selects available trains via `collector_version`; `./scripts/serve.sh` builds the workers and sets `O11Y_OTTL_WORKERS` from `versions/otel.env`. See the [version support policy](docs/otel-version-support.md) for module pins and upgrade steps.
 
 ### Transform Mode
 
@@ -230,7 +235,7 @@ The **Pipeline Prototyper** is a visual pipeline builder (Svelte SPA) that mirro
 - **Backend**: Pipeline data model and execution engine in `internal/ottl/`
 - **API**: REST endpoints at `/api/ottl/pipeline/*`
 - **Frontend**: Svelte SPA served at `/pipeline/`
-- **Remote TAP**: `internal/remotetap/` client connects to OTel Desktop Viewer for live telemetry streaming
+- **Remote TAP**: `internal/remotetap/` client connects to the collector `remotetap` WebSocket; it does not require OTel Desktop Viewer
 - **Enabled via**: `--pipeline-prototyper` flag or `O11Y_WORKBENCH_PIPELINE_PROTOTYPER=true` env var
 
 ### Build Prerequisites
@@ -331,6 +336,15 @@ make build-all
 ./scripts/serve.sh
 ```
 
+### Branding
+
+Olly's wordmark lives in [`assets/logo.svg`](assets/logo.svg) for dark backgrounds and
+[`assets/logo-light.svg`](assets/logo-light.svg) for light backgrounds. The square
+mascot mark is [`assets/favicon.svg`](assets/favicon.svg). When updating the artwork,
+keep the Dashboard copies in `internal/server/web/assets/` and the Pipeline
+Prototyper copies in `pipeline-ui/public/` aligned, then rebuild with
+`./scripts/serve.sh` to refresh the embedded UI assets.
+
 ### Testing
 
 ```bash
@@ -388,8 +402,8 @@ internal/
     pipeline_result.go     #   Pipeline execution results
     pipeline_types.go      #   Pipeline data model
   region/                  # Multi-endpoint routing
-  remotetap/               # Remote TAP client (OTel Desktop Viewer)
-    client.go              #   Remote TAP gRPC client
+  remotetap/               # Remote TAP WebSocket client
+    client.go              #   Collector remotetap client
     mock.go                #   Mock remote endpoint for testing
   server/                  # Web server + vanilla JS dashboard
     server.go              #   Route registration, HTTP server setup
@@ -409,5 +423,4 @@ testdata/                  # Sample data for imports
 tests/                     # Playwright smoke tests
 scripts/
   serve.sh                 # Build and serve launcher
-  stop-odv.sh              # OTel Desktop Viewer cleanup
 ```

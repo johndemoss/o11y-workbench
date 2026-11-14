@@ -16,16 +16,19 @@ COPY . .
 # Copy the built frontends from stage 1
 COPY --from=pipeline-ui-builder /src/pipeline-ui/dist ./internal/server/pipeline-ui/dist
 RUN CGO_ENABLED=0 go build -o /o11y-workbench-web ./cmd/o11y-workbench-web/
-WORKDIR /src/workers/ottl-0.162
-RUN CGO_ENABLED=0 go build -o /ottl-worker-0.162.0 .
+WORKDIR /src/workers/ottl-0.163
+RUN CGO_ENABLED=0 go build -o /ottl-worker-0.163.0 .
+WORKDIR /src/workers/ottl-0.164
+RUN CGO_ENABLED=0 go build -o /ottl-worker-0.164.0 .
 
 # Stage 3: Runtime
 FROM alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
 RUN apk add --no-cache ca-certificates \
 	&& adduser -D -u 65532 -H -s /sbin/nologin nonroot
 COPY --from=go-builder /o11y-workbench-web /o11y-workbench-web
-COPY --from=go-builder /ottl-worker-0.162.0 /usr/local/lib/o11y/ottl-worker-0.162.0
-ENV O11Y_OTTL_WORKERS=0.162.0=/usr/local/lib/o11y/ottl-worker-0.162.0
+COPY --from=go-builder /ottl-worker-0.163.0 /usr/local/lib/o11y/ottl-worker-0.163.0
+COPY --from=go-builder /ottl-worker-0.164.0 /usr/local/lib/o11y/ottl-worker-0.164.0
+ENV O11Y_OTTL_WORKERS=0.163.0=/usr/local/lib/o11y/ottl-worker-0.163.0,0.164.0=/usr/local/lib/o11y/ottl-worker-0.164.0
 ENV HOME=/tmp
 USER nonroot
 EXPOSE 8080

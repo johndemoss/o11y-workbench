@@ -10,7 +10,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // ValidateResult holds the result of validating one or more OTTL statements.
@@ -54,7 +53,7 @@ func ValidateStatements(statements []string) ValidateResult {
 	}
 
 	parser, err := ottl.NewParser[any](
-		ottlfuncs.StandardFuncs[any](),
+		parserFuncs[any](),
 		stubPathParser,
 		settings,
 	)

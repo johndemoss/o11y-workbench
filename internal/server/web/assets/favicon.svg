@@ -1,79 +1,54 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <!--
-    CONCEPT 2: Otter Icon Mark
-    Simplified geometric otter face designed for small-size applications
-    (favicon, app icon, badge). Warm amber face with lighter muzzle, dark
-    eyes with teal catchlights, and six waveform whiskers (3 per side).
-    Minimal shapes ensure legibility at 32×32 and below while signal-wave
-    whiskers keep the observability connection.
-  -->
-  <rect width="200" height="200" rx="40" fill="#0f172a"/>
-
-  <!-- ============================================================ -->
-  <!-- HEAD                                                            -->
-  <!-- ============================================================ -->
-
-  <!-- Head base — wide circle for otter's round face -->
-  <circle cx="100" cy="108" r="64" fill="#d97706"/>
-
-  <!-- Cheek accents — subtle wider shape below eyes (otter face structure) -->
-  <ellipse cx="100" cy="115" rx="68" ry="42" fill="#d97706" opacity="0.4"/>
-
-  <!-- Muzzle — lighter patch on lower face for warmth and dimension -->
-  <ellipse cx="100" cy="122" rx="38" ry="28" fill="#fbbf24"/>
-
-  <!-- ============================================================ -->
-  <!-- EARS — small, rounded, classic otter                          -->
-  <!-- ============================================================ -->
-  <circle cx="50" cy="62" r="17" fill="#d97706"/>
-  <circle cx="150" cy="62" r="17" fill="#d97706"/>
-  <!-- Inner ear shadows -->
-  <circle cx="50" cy="62" r="9" fill="#1e293b" opacity="0.45"/>
-  <circle cx="150" cy="62" r="9" fill="#1e293b" opacity="0.45"/>
-
-  <!-- ============================================================ -->
-  <!-- EYES — large, dark, with teal-tinted catchlights              -->
-  <!-- ============================================================ -->
-  <circle cx="78" cy="102" r="12" fill="#0f172a"/>
-  <circle cx="122" cy="102" r="12" fill="#0f172a"/>
-  <!-- Primary catchlights (teal = brand connection) -->
-  <circle cx="82" cy="98" r="4.5" fill="#ccfbf1"/>
-  <circle cx="126" cy="98" r="4.5" fill="#ccfbf1"/>
-  <!-- Secondary catchlights (small reflection offset) -->
-  <circle cx="75" cy="106" r="2" fill="#5eead4" opacity="0.5"/>
-  <circle cx="119" cy="106" r="2" fill="#5eead4" opacity="0.5"/>
-
-  <!-- ============================================================ -->
-  <!-- NOSE — dark, rounded, centered on muzzle                      -->
-  <!-- ============================================================ -->
-  <ellipse cx="100" cy="126" rx="12" ry="8" fill="#1e293b"/>
-  <!-- Nose highlight -->
-  <ellipse cx="100" cy="124" rx="5" ry="3" fill="#475569"/>
-
-  <!-- Subtle smile -->
-  <path d="M 90 134 Q 100 140 110 134" stroke="#1e293b" fill="none" stroke-width="1.5" stroke-linecap="round" opacity="0.35"/>
-
-  <!-- ============================================================ -->
-  <!-- WHISKERS — signal-waveform style, 3 per side                  -->
-  <!-- Each whisker follows a subtle S-curve (╱╲╱) like a trace      -->
-  <!-- Thicker strokes (3px) ensure visibility at favicon sizes      -->
-  <!-- ============================================================ -->
-
-  <!-- Left whiskers — waveform S-curves radiating outward -->
-  <path d="M 64 116 C 46 108, 38 126, 22 118" stroke="#94a3b8" fill="none" stroke-width="3" stroke-linecap="round"/>
-  <path d="M 62 126 C 44 120, 36 138, 20 132" stroke="#94a3b8" fill="none" stroke-width="3" stroke-linecap="round"/>
-  <path d="M 64 136 C 48 132, 40 150, 26 144" stroke="#94a3b8" fill="none" stroke-width="3" stroke-linecap="round"/>
-
-  <!-- Right whiskers — symmetric waveform S-curves -->
-  <path d="M 136 116 C 154 108, 162 126, 178 118" stroke="#94a3b8" fill="none" stroke-width="3" stroke-linecap="round"/>
-  <path d="M 138 126 C 156 120, 164 138, 180 132" stroke="#94a3b8" fill="none" stroke-width="3" stroke-linecap="round"/>
-  <path d="M 136 136 C 152 132, 160 150, 174 144" stroke="#94a3b8" fill="none" stroke-width="3" stroke-linecap="round"/>
-
-  <!-- ============================================================ -->
-  <!-- Subtle span-bar nod — invisible at small sizes, adds context  -->
-  <!-- at larger display sizes (favicon 32+). A tiny teal line that  -->
-  <!-- suggests the workbench/span connection underpinning the brand  -->
-  <!-- ============================================================ -->
-  <rect x="76" y="172" width="48" height="4" rx="2" fill="#0d9488" opacity="0.3"/>
-  <rect x="84" y="172" width="12" height="4" rx="2" fill="#14b8a6" opacity="0.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <title>Olly the otter</title>
+  <rect width="100" height="100" rx="22" fill="#0f172a"/>
+  <defs>
+    <linearGradient id="fur" x1="0" y1="0" x2="0.85" y2="1">
+      <stop stop-color="#bc8656"/>
+      <stop offset="0.55" stop-color="#8c5735"/>
+      <stop offset="1" stop-color="#694026"/>
+    </linearGradient>
+    <linearGradient id="cream" x1="0" y1="0" x2="0.6" y2="1">
+      <stop stop-color="#fff3df"/>
+      <stop offset="1" stop-color="#d5b992"/>
+    </linearGradient>
+  </defs>
+  <g transform="scale(0.833333)">
+    <!-- Small, side-set ears behind the head. -->
+    <path d="M 20 38 C 8 34 8 18 20 17 C 31 16 36 26 31 35 Z" fill="#8d5938" stroke="#432b23" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M 91 33 C 97 23 109 24 112 35 C 115 47 106 53 98 50 Z" fill="#7b4b2e" stroke="#432b23" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M 99 38 C 103 32 109 35 108 42 C 108 46 104 47 101 44 Z" fill="#b97955"/>
+    <!-- Broad, near-front head with slightly asymmetric fur planes. -->
+    <path d="M 17 30 C 31 11 62 7 84 17 C 101 24 108 40 105 59 C 110 62 108 69 104 72 C 108 77 102 83 99 85 C 97 98 79 110 61 112 C 43 112 26 102 17 85 C 8 80 8 72 12 67 C 5 57 9 40 17 30 Z" fill="url(#fur)" stroke="#392b28" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M 19 57 C 20 39 30 26 43 22 C 59 17 72 17 84 22 C 72 17 61 19 51 25 C 38 31 32 40 30 52 Z" fill="#d5a074" opacity="0.55"/>
+    <path d="M 80 24 C 92 30 99 41 99 55 C 97 58 95 62 93 64 C 92 44 86 33 80 24 Z" fill="#5d3b2a" opacity="0.48"/>
+    <!-- Balanced muzzle pads above a pale chin. -->
+    <path d="M 27 63 C 38 58 48 63 58 65 C 70 60 84 58 94 66 C 103 77 97 94 82 105 C 65 114 43 109 29 99 C 16 87 16 73 27 63 Z" fill="url(#cream)" stroke="#583d30" stroke-width="2.5"/>
+    <path d="M 63 63 C 74 56 88 57 97 65 C 104 72 101 83 92 89 C 82 95 69 92 61 84 C 55 76 56 69 63 63 Z" fill="#f5e6d0" stroke="#634531" stroke-width="2"/>
+    <path d="M 24 65 C 31 57 45 56 56 62 C 64 68 64 80 56 87 C 47 95 32 91 24 83 C 18 77 18 70 24 65 Z" fill="url(#cream)" stroke="#634531" stroke-width="2.4"/>
+    <path d="M 29 88 C 40 94 52 92 59 86 C 69 96 82 95 94 88 C 84 107 65 112 52 107 C 39 104 32 98 29 88 Z" fill="#e4cfb0" opacity="0.75"/>
+    <!-- Evenly placed eyes, with a small difference in expression. -->
+    <path d="M 28 44 C 27 34 34 28 43 29 C 52 30 56 39 53 49 C 51 57 44 60 36 57 C 31 55 28 50 28 44 Z" fill="#fff8ec" stroke="#765747" stroke-width="1.7"/>
+    <ellipse cx="42" cy="44" rx="6.5" ry="9" fill="#171f29"/>
+    <ellipse cx="44" cy="40.5" rx="2.3" ry="3" fill="white"/>
+    <path d="M 68 44 C 67 34 74 28 83 29 C 92 30 96 40 94 49 C 92 57 85 60 78 58 C 72 56 68 51 68 44 Z" fill="#fff8ec" stroke="#765747" stroke-width="1.7"/>
+    <ellipse cx="81" cy="44" rx="6.8" ry="9.2" fill="#171f29"/>
+    <ellipse cx="83" cy="40.5" rx="2.4" ry="3" fill="white"/>
+    <path d="M 31 24 Q 40 21 49 25 M 72 25 Q 81 21 90 24" fill="none" stroke="#855f45" stroke-width="1.8" opacity="0.8" stroke-linecap="round"/>
+    <!-- Nose and smile share the centerline. -->
+    <path d="M 49 62 C 53 57 65 57 69 63 C 72 69 67 75 60 77 C 53 78 47 72 48 67 Z" fill="#1e252b" stroke="#49352d" stroke-width="2"/>
+    <path d="M 52 62 Q 60 58 67 63 Q 61 65 55 65 Z" fill="#52606a"/>
+    <path d="M 51 80 Q 60 87 69 80 Q 67 90 61 92 Q 55 92 51 80 Z" fill="#402b2b"/>
+    <path d="M 57 88 Q 61 84 65 87" fill="none" stroke="#cc7c79" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Sparse whiskers stay visible without becoming a wireframe at small size. -->
+    <g fill="none" stroke="#f5e9d8" stroke-width="2" stroke-linecap="round">
+      <path d="M 34 77 C 22 73 12 71 3 68"/>
+      <path d="M 34 83 C 22 81 12 85 3 84"/>
+      <path d="M 85 77 C 99 73 108 72 117 69"/>
+      <path d="M 85 83 C 99 82 108 86 117 85"/>
+    </g>
+    <g fill="#735139">
+      <circle cx="39" cy="77" r="1.4"/><circle cx="45" cy="79" r="1.2"/>
+      <circle cx="77" cy="78" r="1.4"/><circle cx="83" cy="80" r="1.2"/>
+    </g>
+  </g>
 </svg>

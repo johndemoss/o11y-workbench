@@ -1,8 +1,8 @@
 # Contributing
 
 Read [AGENTS.md](AGENTS.md) for package boundaries and the linked coding rules.
-The CLI is traces-only; multi-signal generation and Pipeline Evaluation are web
-workflows. Do not add flags to documentation without checking the actual help.
+The CLI is traces-only; multi-signal generation and the Pipeline Prototyper are
+web workflows. Do not add flags to documentation without checking the actual help.
 
 ## Toolchain and reproducible checks
 
@@ -20,7 +20,7 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 # build, race tests and reachable-vulnerability checks.
 GOTOOLCHAIN=go1.26.11 ./scripts/check-go.sh
 ./scripts/check-secrets.sh
-./scripts/check-publication.sh
+./scripts/check-publication.sh   # container image pins and loopback-only publishes
 
 (cd pipeline-ui && npm ci && npm test && npm run build && npm audit --audit-level=moderate)
 ```
@@ -48,9 +48,8 @@ graphify explain routesForEndpoints --graph graphify-out/graph.json
 ```
 
 `.graphifyignore` explicitly excludes credentials, local IDE or automation
-session state,
-compiled assets and test scaffolding. Graphify now merges it with `.gitignore`.
-The generated graph/report/HTML stay local in ignored `graphify-out/`;
+session state, compiled assets and test scaffolding. Graphify now merges it with
+`.gitignore`. The generated graph/report/HTML stay local in ignored `graphify-out/`;
 review them for sensitive content before sharing. `update` makes no LLM requests;
 it preserves eligible prior semantic nodes but does **not** refresh documentation
 semantics. Do not substitute `graphify extract` without `--code-only` or run
@@ -71,7 +70,12 @@ The launcher replaces the instance named in its PID file; do not use it to start
 an independent second server. Do not expose this unauthenticated workbench to
 untrusted users; read [SECURITY.md](SECURITY.md).
 
-`go test ./...` alone omits `workers/ottl-0.162`.
+For container fixtures, `make dev-remotetap` starts the collector, workbench,
+and demo sender without OTel Desktop Viewer. `make dev` opts into the pinned
+upstream viewer image and demo sender; no local viewer binary is downloaded.
+
+`go test ./...` alone omits both `workers/ottl-0.163` and `workers/ottl-0.164`;
+use `./scripts/check-go.sh` to check all three Go modules.
 
 ### Source-only versus distributable web builds
 
@@ -119,9 +123,8 @@ available; the optional Phase2 collector is **not** needed for these smoke tests
 
 Playwright invokes only `./scripts/serve.sh --foreground`: locked frontend builds,
 Go embedding and workers are rebuilt, then a fresh loopback server is health-checked.
-The runner owns graceful SIGTERM/join, does not replace the operator's daemon PID
-file and uses an isolated synthetic evaluation store. Existing servers are never
-silently accepted. Both SPAs must execute their real embedded bundles; missing
+The runner owns graceful SIGTERM/join and does not replace the operator's daemon
+PID file. Existing servers are never silently accepted. Both SPAs must execute their real embedded bundles; missing
 static assets must return 404 rather than HTML. Reports, traces and screenshots
 stay ignored/local. These tests complement, not replace, UI unit/Go race checks;
 CI runs the full check workflow on every push and pull request.
@@ -132,7 +135,7 @@ CI runs the full check workflow on every push and pull request.
 - Format Go with `gofmt`; handle/wrap errors; propagate cancellation and close
   owned resources. Avoid process-global mutable configuration in request paths.
 - Use synthetic fixtures only. Never commit local `.env` files, credentials,
-  screenshots of real telemetry, runtime evaluation stores or agent session state.
+  screenshots of real telemetry, or IDE or automation session artifacts.
 - Do not publish scanner match/context reports. A secret in history requires
   rotation and coordinated cleanup, not just a deletion commit.
 

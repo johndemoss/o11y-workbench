@@ -215,14 +215,19 @@ func (c *WorkerClient) ExecutePipeline(data json.RawMessage, pipeline ottl.Pipel
 }
 
 func (c *WorkerClient) ExecutePipelineForSignal(data json.RawMessage, pipeline ottl.Pipeline, signal string) (*ottl.PipelineResult, error) {
-	switch signal {
-	case "", "traces":
-		return c.ExecutePipeline(data, pipeline)
-	default:
-		// Worker pipeline execute is still traces-only; transform/filter RPCs already
-		// accept signal. Fail closed until the worker grows a signal-aware stage loop.
-		return nil, fmt.Errorf("worker train does not yet execute %s pipelines", signal)
+	var res ottl.PipelineResult
+	body := map[string]any{
+		"data":     data,
+		"pipeline": pipeline,
 	}
+	if signal != "" {
+		body["signal"] = signal
+	}
+	err := c.post("/v1/pipeline/execute", body, &res)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 func (c *WorkerClient) ImportCollectorConfig(configYAML string) (ottl.PipelinesBySignal, error) {

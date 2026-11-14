@@ -8,14 +8,14 @@ import (
 )
 
 const (
-	DefaultContribVersion = "0.151.0"
-	DefaultStableVersion  = "1.57.0"
+	DefaultContribVersion = "0.165.0"
+	DefaultStableVersion  = "1.71.0"
 )
 
 // VersionInfo describes a registered OTTL engine train.
 type VersionInfo struct {
-	Contrib string `json:"contrib"` // e.g. "0.151.0"
-	Stable  string `json:"stable"`  // e.g. "1.57.0"
+	Contrib string `json:"contrib"` // e.g. "0.165.0"
+	Stable  string `json:"stable"`  // e.g. "1.71.0"
 	Source  string `json:"source"`  // "in-process" | "worker"
 }
 

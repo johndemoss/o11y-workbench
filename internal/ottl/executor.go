@@ -18,7 +18,6 @@ import (
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspan"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // TransformRunData parses and executes OTTL transform statements against trace
@@ -128,7 +127,7 @@ func TransformSpans(traces ptrace.Traces, statements []string, errorMode ErrorMo
 	}
 
 	parser, err := ottlspan.NewParser(
-		ottlfuncs.StandardFuncs[*ottlspan.TransformContext](),
+		parserFuncs[*ottlspan.TransformContext](),
 		settings,
 	)
 	if err != nil {
@@ -155,7 +154,7 @@ func TransformSpans(traces ptrace.Traces, statements []string, errorMode ErrorMo
 			spans := ss.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				tCtx := ottlspan.NewTransformContextPtr(rs, ss, span)
+				tCtx := ottlspan.NewTransformContext(rs, ss, span)
 				execErr := seq.Execute(ctx, tCtx)
 				tCtx.Close()
 				if execErr != nil {

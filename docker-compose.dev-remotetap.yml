@@ -1,37 +1,41 @@
 # Override for 'make dev-remotetap' mode
-# Runs: Full stack (collector + desktop-viewer + web + demo-sender)
+# Adds remotetap-demo-sender (separate service so compose merge cannot inherit dev demo-sender depends_on).
 
 services:
-  otel-collector:
-    profiles:
-      - ""  # Remove profile requirement - always run
-
-  otel-desktop-viewer:
-    profiles:
-      - ""  # Remove profile requirement - always run
-
-  o11y-workbench-web:
-    profiles:
-      - ""  # Remove profile requirement - always run
-
-  demo-sender:
-    profiles:
-      - ""  # Remove profile requirement - always run
-    # Override: send traces to collector instead of desktop-viewer
+  remotetap-demo-sender:
+    image: localhost/o11y-workbench-cli:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.cli
+    container_name: remotetap-demo-sender
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:14317
     command:
       - --traces
       - "0"
       - --duration
-      - "300"
+      - "0"
       - --rate
-      - "5"
+      - "2"
       - --output
       - otlp
       - --endpoint
       - otel-collector:14317
       - --insecure
+      - --scenario
+      - microservice
+    networks:
+      - o11y-workbench-net
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=67108864
+    mem_limit: 256m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    restart: on-failure:5
     depends_on:
       - otel-collector
-      - otel-desktop-viewer
+    profiles:
+      - remotetap

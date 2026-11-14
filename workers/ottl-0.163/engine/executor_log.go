@@ -17,7 +17,6 @@ import (
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // TransformLogRunData parses and executes OTTL transform statements against log
@@ -56,7 +55,7 @@ func TransformLogRunData(logData json.RawMessage, statements []string) (json.Raw
 	}
 
 	parser, err := ottllog.NewParser(
-		ottlfuncs.StandardFuncs[*ottllog.TransformContext](),
+		ParserFunctions[*ottllog.TransformContext](),
 		settings,
 	)
 	if err != nil {

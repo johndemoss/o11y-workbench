@@ -818,7 +818,7 @@ function showOtterToast(run) {
 
   const toast = document.createElement('div');
   toast.className = 'otter-toast';
-  toast.innerHTML = '<span class="toast-icon">🦦</span><span class="toast-text">o11y the Otter finished <strong>' +
+  toast.innerHTML = '<img src="/assets/favicon.svg" alt="" class="toast-icon" width="28" height="28"><span class="toast-text">Olly the otter finished <strong>' +
     (run.label || 'run #' + run.id.slice(0,8)) + '</strong></span>';
   document.body.appendChild(toast);
 

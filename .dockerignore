@@ -3,9 +3,6 @@
 .gitignore
 .github/
 
-# Downloaded binaries (otel-desktop-viewer binaries are needed for Dockerfile.otel-desktop-viewer)
-# bin/  # DON'T exclude - needed for otel-desktop-viewer container build
-
 # Node modules (will be installed fresh in container)
 node_modules/
 pipeline-ui/node_modules/
@@ -51,9 +48,7 @@ plans/
 # Claude plans
 .claude/
 
-# Local binaries (worker rebuilt inside image). The desktop-viewer image
-# copies only the Linux amd64 binary, which is not rebuilt in that Dockerfile.
+# Local binaries (worker rebuilt inside image)
 bin/*
-!bin/otel-desktop-viewer-linux-amd64
 o11y-workbench
 o11y-workbench-web

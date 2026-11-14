@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/johndemoss/o11y-workbench/internal/ottl"
 	"github.com/johndemoss/o11y-workbench/internal/ottlengine"
 )
 
@@ -45,6 +46,10 @@ func New(addr string, pipelineEnabled bool) (*Server, error) {
 }
 
 func newServer(cfg serverConfig) (*Server, error) {
+	if err := ottl.EnableLambdaExpressions(); err != nil {
+		return nil, fmt.Errorf("enable OTTL lambda expressions: %w", err)
+	}
+
 	store := NewRunStore()
 
 	engines := ottlengine.NewRegistry(ottlengine.DefaultContribVersion, &ottlengine.LocalEngine{})

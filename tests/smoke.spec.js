@@ -80,19 +80,21 @@ test.describe('Smoke Tests', () => {
       await expect(logo).toHaveAttribute('alt', 'o11y workbench');
     });
 
-    test('empty state shows otter illustration', async ({ page }) => {
+    test('empty state shows Olly mark', async ({ page }) => {
       await page.goto('/');
       await page.waitForTimeout(1500);
       // Clear any runs from previous tests and stop polling so otter SVG empty state stays visible
       await page.evaluate(() => { clearInterval(pollTimer); pollTimer = null; runs = {}; renderRunList(); });
       const empty = page.locator('.otter-empty-svg');
       await expect(empty).toBeVisible();
+      await expect(empty).toHaveAttribute('src', '/assets/favicon.svg');
+      await expect.poll(() => empty.evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
     });
 
     test('footer has otter icon', async ({ page }) => {
       await page.goto('/');
       await expect(page.locator('.app-footer')).toBeVisible();
-      await expect(page.locator('.footer-otter')).toBeVisible();
+      await expect(page.locator('.footer-mark')).toBeVisible();
     });
 
     test('header has signal EQ bars', async ({ page }) => {

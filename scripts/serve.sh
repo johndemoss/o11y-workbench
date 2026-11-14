@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/serve.sh — Reliable o11y-workbench-web server launcher for agents.
+# scripts/serve.sh — Reliable o11y-workbench-web server launcher.
 set -euo pipefail
 
 ADDR="127.0.0.1:18080"
@@ -33,8 +33,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# On background-launch failure, wipe the pidfile so agents know the server is dead.
-# On success (exit 0) we leave it — the agent reads it for cleanup.
+# On background-launch failure, wipe the pidfile so callers know the server is dead.
+# On success (exit 0) we leave it — read the PID file when stopping the daemon.
 cleanup() {
   local rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -70,8 +70,8 @@ else
   echo "WARNING: --skip-build reuses $BINARY without checking source/asset freshness" >&2
 fi
 
-# Dual-train pins: in-process default comes from the Go binary (0.151.x);
-# extra OTTL trains are worker subprocesses listed in versions/otel.env.
+# The in-process OTTL default is pinned in the Go binary; extra supported
+# collector trains run in workers listed in versions/otel.env.
 if [ -f "$PROJECT_DIR/versions/otel.env" ]; then
   set -a
   # shellcheck disable=SC1091

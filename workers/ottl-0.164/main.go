@@ -10,17 +10,21 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/johndemoss/o11y-workbench/workers/ottl-0.162/engine"
+	"github.com/johndemoss/o11y-workbench/workers/ottl-0.164/engine"
 )
 
 const (
-	contribVersion = "0.162.0"
-	stableVersion  = "1.68.0"
+	contribVersion = "0.164.0"
+	stableVersion  = "1.70.0"
 )
 
 func main() {
 	listen := flag.String("listen", "127.0.0.1:0", "listen address")
 	flag.Parse()
+
+	if err := engine.EnableOTTLLambdaFunctions(); err != nil {
+		log.Fatalf("enable ottl.functions.enableLambda: %v", err)
+	}
 
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -190,6 +194,7 @@ func handlePipelineValidateOTTL(w http.ResponseWriter, r *http.Request) {
 
 func handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Signal   string          `json:"signal"`
 		Data     json.RawMessage `json:"data"`
 		Pipeline engine.Pipeline `json:"pipeline"`
 	}
@@ -197,7 +202,7 @@ func handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	result, err := engine.ExecutePipeline(req.Data, req.Pipeline)
+	result, err := engine.ExecutePipelineForSignal(req.Data, req.Pipeline, req.Signal)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return

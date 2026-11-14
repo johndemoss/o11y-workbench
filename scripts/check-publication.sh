@@ -8,7 +8,7 @@ cd "$(git rev-parse --show-toplevel)"
 python3 - <<'PY'
 import pathlib, re, sys
 fail = False
-digest = "sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d"
+digest = "sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea"
 for path in list(pathlib.Path(".").glob("Dockerfile*")) + list(pathlib.Path(".").glob("docker-compose*.yml")) + [pathlib.Path("Makefile")]:
     text = path.read_text()
     if "opentelemetry-collector-contrib" in text and digest not in text:
@@ -33,10 +33,26 @@ for path in pathlib.Path(".").glob("Dockerfile*"):
         if line.startswith("FROM ") and "@sha256:" not in line:
             print(f"{path}:{lineno}: base image is not digest-pinned", file=sys.stderr)
             fail = True
-workflow = pathlib.Path(".github/workflows/build-otel-desktop-viewer.yml").read_text()
-if "d540ad65882786fd795adb584201d8ad87810180" not in workflow:
-    print("desktop-viewer workflow is not pinned to v0.7.0", file=sys.stderr)
+odv_digest = "sha256:e1bcd2a895c0e62b1ae97988cbf132d270074cb239b5c37efe59348a60a82ce8"
+if pathlib.Path(".github/workflows/build-otel-desktop-viewer.yml").exists():
+    print("build-otel-desktop-viewer workflow must not publish viewer binaries", file=sys.stderr)
     fail = True
+compose_path = pathlib.Path("docker-compose.yml")
+if compose_path.exists():
+    compose = compose_path.read_text()
+    if "otel-desktop-viewer:" in compose:
+        if odv_digest not in compose:
+            print(f"docker-compose.yml: otel-desktop-viewer image is not pinned to {odv_digest}", file=sys.stderr)
+            fail = True
+        if "ghcr.io/ctrlspice/otel-desktop-viewer:v0.7.0" not in compose:
+            print("docker-compose.yml: otel-desktop-viewer must use upstream ghcr.io/ctrlspice/otel-desktop-viewer:v0.7.0", file=sys.stderr)
+            fail = True
+        if re.search(r"ghcr\.io/ctrlspice/otel-desktop-viewer[^@\n]*:latest", compose):
+            print("docker-compose.yml: otel-desktop-viewer must not use a floating latest tag", file=sys.stderr)
+            fail = True
+        if "Dockerfile.otel-desktop-viewer" in compose:
+            print("docker-compose.yml: must not build a local otel-desktop-viewer image", file=sys.stderr)
+            fail = True
 sys.exit(1 if fail else 0)
 PY
 

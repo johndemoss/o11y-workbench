@@ -18,7 +18,6 @@ import (
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
 )
 
 // FilterLogRunData evaluates OTTL conditions against each log record in the log data
@@ -59,7 +58,7 @@ func FilterLogRunData(logData json.RawMessage, conditions []string, mode FilterM
 	}
 
 	parser, err := ottllog.NewParser(
-		ottlfuncs.StandardFuncs[*ottllog.TransformContext](),
+		ParserFunctions[*ottllog.TransformContext](),
 		settings,
 	)
 	if err != nil {

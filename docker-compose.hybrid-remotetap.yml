@@ -1,5 +1,4 @@
-# Hybrid remotetap override
-# Changes demo-sender to target the collector instead of desktop-viewer
+# Deprecated: prefer docker-compose.yml + docker-compose.dev-remotetap.yml.
 
 services:
   otel-collector:
@@ -13,7 +12,8 @@ services:
   demo-sender:
     profiles:
       - remotetap
-    # Override: send to collector (containerized) instead of viewer (on host)
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:14317
     restart: on-failure:5
     entrypoint: ["/bin/sh", "-c"]
     command:

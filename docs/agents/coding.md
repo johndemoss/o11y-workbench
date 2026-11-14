@@ -31,7 +31,7 @@ Load this when changing Go, the API, OTTL, or `pipeline-ui` types. Follow these;
 19. Handlers must not construct generators/exporters. Call `StartRun(ctx, store, cfg, endpoints, insecure, output)`; `executeRun` owns generator/exporter cleanup. The RunStore owns accepted jobs independently of request cancellation and joins them on Close.
 20. Version-sensitive OTTL work goes through `@internal/ottlengine` (`Engine` + `Registry`). Handlers call `resolveEngine` / `ensureEngines` — do not import `internal/ottl` directly for execute/validate/transform/filter once an engine is selected.
 21. Extra collector trains are worker subprocesses supervised by `@internal/ottlengine` (`StartConfiguredWorkers`). `server.New` must retain stoppers; `Close` / `Shutdown` / SIGTERM must stop them. Do not discard the stoppers slice.
-22. OTTL `collector_version` keys are bare contrib versions (`0.151.0`).
+22. OTTL `collector_version` keys are bare contrib train versions (`0.165.0`), not `pkg/ottl` Go module tags (`v1.4.1`).
 
 ## Tests
 
