@@ -14,7 +14,7 @@
   import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
   import { debounce } from './lib/debounce'
   import { withCollectorVersion } from './lib/collector-version'
-  import yaml from 'js-yaml'
+  import { dump } from 'js-yaml'
   import { onDestroy } from 'svelte'
 
   let pipelinesBySignal: PipelinesBySignal = $state({
@@ -330,7 +330,7 @@
     out += 'processors:\n'
     for (const [k, v] of Object.entries(p.processors)) {
       if (v && typeof v === 'object' && Object.keys(v).length > 0) {
-        const lines = yaml.dump(v, { indent: 2, noRefs: true, sortKeys: false }).trimEnd().split('\n')
+        const lines = dump(v, { indent: 2, noRefs: true, sortKeys: false }).trimEnd().split('\n')
         out += `  ${k}:\n`
         for (const l of lines) out += `    ${l}\n`
       } else out += `  ${k}: {}\n`
