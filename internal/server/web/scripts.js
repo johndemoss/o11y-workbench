@@ -1373,13 +1373,16 @@ function renderDetail(r) {
 
   el.innerHTML = summaryHtml + tabHtml;
   if (availableTabs.length) {
+    const actions = document.createElement('div');
+    actions.className = 'detail-actions';
     const download = document.createElement('a');
     const format = r.format === 'protobuf' ? 'protobuf' : 'json';
     download.href = '/api/runs/' + encodeURIComponent(r.id) + '/download?signal=' + encodeURIComponent(detailTab) + '&format=' + format;
     download.textContent = 'Download ' + detailTab + ' (' + format.toUpperCase() + ')';
     download.className = 'btn btn-secondary';
     download.setAttribute('download', '');
-    el.appendChild(download);
+    actions.appendChild(download);
+    el.appendChild(actions);
   }
 
   if (detailTab === 'logs' && hasLogData) {
