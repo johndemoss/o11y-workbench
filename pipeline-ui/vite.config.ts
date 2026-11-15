@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [svelte()],
   server: {
     proxy: {
-      '/api': { target: 'http://127.0.0.1:18080', changeOrigin: false }
+      '/api': { target: process.env.O11Y_VITE_API_TARGET ?? 'http://127.0.0.1:18080', changeOrigin: false }
     }
   },
   build: {
