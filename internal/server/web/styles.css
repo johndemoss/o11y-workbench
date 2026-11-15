@@ -417,14 +417,14 @@ body.party-mode .brand-bar .logo::before {
   50% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
 }
 
-/* Party hat on otter */
+/* Seat the brim on the crown of the 96px-tall mascot lockup, above the eyes. */
 .brand-bar .logo::after {
   content: '';
   position: absolute;
-  top: 5px;
-  left: 39px;
-  width: 22px;
-  height: 22px;
+  top: -10px;
+  left: 32px;
+  width: 30px;
+  height: 26px;
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;

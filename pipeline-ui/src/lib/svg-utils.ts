@@ -66,23 +66,16 @@ export function swimlaneWidthForStageCount(stageCount: number): number {
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
-/**
- * Compute a deterministic hash of pipeline structure for change detection.
- * Compares stage IDs and processor keys rather than full deep equality.
- */
-export function getPipelinesHash(p: PipelinesBySignal): string {
-  return JSON.stringify({
-    traces: {
-      stageIds: p.traces?.stages?.map((s) => s.id) ?? [],
-      processorKeys: Object.keys(p.traces?.processors ?? {}),
-    },
-    logs: {
-      stageIds: p.logs?.stages?.map((s) => s.id) ?? [],
-      processorKeys: Object.keys(p.logs?.processors ?? {}),
-    },
-    metrics: {
-      stageIds: p.metrics?.stages?.map((s) => s.id) ?? [],
-      processorKeys: Object.keys(p.metrics?.processors ?? {}),
-    },
-  })
+/** Fingerprint the pipeline topology that requires rebuilding the flow. */
+export function getPipelinesTopologyHash(p: PipelinesBySignal): string {
+  return JSON.stringify(
+    (['traces', 'logs', 'metrics'] as const).map((signal) => {
+      const pipeline = p[signal]
+      return pipeline && {
+        stageIds: pipeline.stages.map((stage) => stage.id),
+        receivers: pipeline.receivers ?? ['otlp'],
+        exporters: pipeline.exporters ?? ['debug'],
+      }
+    }),
+  )
 }

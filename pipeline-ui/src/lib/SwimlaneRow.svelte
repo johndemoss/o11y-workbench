@@ -15,6 +15,7 @@
   import type { StageNodeData } from './flow-sync'
   import { wouldCreateCycle, reorderStage } from './flow-sync'
   import type {
+    Stage,
     StageType,
     SignalType,
     ProcessorConfig,
@@ -54,7 +55,7 @@
     hasStages: boolean
     snippetModal: boolean
     snippetConfig: SnippetTemplate | null
-    onNodeEdit?: (data: { stage: any; processor: ProcessorConfig }) => void
+    onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig; signal: SignalType }) => void
     onNodeSelected?: (nodeId: string | null) => void
     onResultClear?: () => void
     ondragover?: (event: DragEvent) => void
@@ -151,8 +152,10 @@
       return
     }
     if (node.type !== 'stage') return
+    const signal = node.parentId?.replace('swimlane-', '')
+    if (signal !== 'traces' && signal !== 'logs' && signal !== 'metrics') return
     onNodeSelected?.(node.id)
-    onNodeEdit?.({ stage: node.data.stage, processor: node.data.processor })
+    onNodeEdit?.({ stage: node.data.stage, processor: node.data.processor, signal })
   }
 
   // ─── Node drag stop → reorder within swimlane ───────────────────────────
