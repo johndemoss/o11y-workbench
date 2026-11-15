@@ -19,6 +19,9 @@ func (g *Generator) RunMetrics(ctx context.Context, exp export.MetricExporter) e
 	if g == nil {
 		return fmt.Errorf("generator is nil")
 	}
+	if err := ValidateConfig(g.config); err != nil {
+		return err
+	}
 	return g.runMetricWorkloadProfile(ctx, exp)
 }
 
@@ -40,15 +43,19 @@ func (g *Generator) runMetricWorkloadProfile(ctx context.Context, exp export.Met
 	}
 
 	var seq uint64
+	pacer := workloadPacer{profile: p, fallbackRate: g.config.Rate}
 	requestBudget := 0
 	if g.config.TraceCount > 0 {
 		// Reuse TraceCount as request budget for flat evidence workloads.
 		requestBudget = g.config.TraceCount
 	} else if g.config.MetricConfig.MetricCount > 0 && !p.pacingActive() && g.config.Duration == 0 {
-		requestBudget = (g.config.MetricConfig.MetricCount + items - 1) / items
+		requestBudget = (g.config.MetricConfig.MetricCount-1)/items + 1
 	}
 
 	for {
+		if requestBudget > 0 && int(seq) >= requestBudget {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
@@ -58,31 +65,12 @@ func (g *Generator) runMetricWorkloadProfile(ctx context.Context, exp export.Met
 		default:
 		}
 
-		if requestBudget > 0 && int(seq) >= requestBudget {
-			return nil
-		}
-
-		rate := p.requestRate(time.Now())
-		if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(p.Mode, "burst") {
-			rate = float64(g.config.Rate)
-		}
-		if rate <= 0 {
-			select {
-			case <-ctx.Done():
-				if ctx.Err() == context.DeadlineExceeded {
-					return nil
-				}
-				return ctx.Err()
-			case <-time.After(10 * time.Millisecond):
+		if err := pacer.start(ctx, items); err != nil {
+			if err == context.DeadlineExceeded {
+				return nil
 			}
-			continue
+			return err
 		}
-
-		interval := time.Duration(float64(time.Second) / rate)
-		if interval <= 0 {
-			interval = time.Millisecond
-		}
-
 		seq++
 		rm := g.workloadResourceMetrics(expID, svc, seq, items)
 		if err := g.exportAccountMetrics(ctx, exp, []*metricspb.ResourceMetrics{rm}, items); err != nil {
@@ -93,14 +81,6 @@ func (g *Generator) runMetricWorkloadProfile(ctx context.Context, exp export.Met
 			g.OnProgress(int(seq), requestBudget)
 		}
 
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				return nil
-			}
-			return ctx.Err()
-		case <-time.After(interval):
-		}
 	}
 }
 
