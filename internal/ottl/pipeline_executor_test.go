@@ -329,7 +329,7 @@ func TestExecutePipeline_ErrorModeIgnore(t *testing.T) {
 		},
 		Processors: map[string]ProcessorConfig{
 			"badproc": {
-				"statements": []interface{}{`this is not valid ottl`},
+				"statements": []interface{}{`set(attributes["bad"], Substring("x", -1, 3))`},
 			},
 			"goodproc": {
 				"statements": []interface{}{`set(attributes["env"], "prod")`},
@@ -346,8 +346,8 @@ func TestExecutePipeline_ErrorModeIgnore(t *testing.T) {
 		t.Fatalf("got %d stages, want 2", len(result.Stages))
 	}
 
-	if len(result.Stages[0].Errors) == 0 {
-		t.Error("expected error in stage 0, got none")
+	if len(result.Stages[0].Errors) != 0 {
+		t.Error("unexpected stage error for ignored evaluation error")
 	}
 
 	if result.Stages[0].InputSpanCount != 1 {
@@ -495,7 +495,7 @@ func TestExecutePipeline_ErrorModeSilent(t *testing.T) {
 		},
 		Processors: map[string]ProcessorConfig{
 			"badproc": {
-				"statements": []interface{}{`this is not valid ottl`},
+				"statements": []interface{}{`set(attributes["bad"], Substring("x", -1, 3))`},
 			},
 			"goodproc": {
 				"statements": []interface{}{`set(attributes["env"], "prod")`},
@@ -588,5 +588,53 @@ func TestExecutePipeline_MissingProcessorConfig(t *testing.T) {
 	_, err = ExecutePipeline(context.Background(), traceData, pipeline)
 	if err == nil {
 		t.Fatal("expected error for missing processor ref")
+	}
+}
+
+func TestExecutePipeline_ParseAndEvaluationErrors(t *testing.T) {
+	traceData, err := marshalTrace(makeSampleTrace())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		stageType  StageType
+		expression string
+		parseError bool
+	}{
+		{"transform_parse", StageTypeTransform, `set(attributes["x"], NOT_A_FUNCTION(()`, true},
+		{"transform_evaluation", StageTypeTransform, `set(attributes["bad"], Substring("x", -1, 3))`, false},
+		{"filter_parse", StageTypeFilter, `NOT_A_FUNCTION(()`, true},
+		{"filter_evaluation", StageTypeFilter, `Substring("x", -1, 3) == "x"`, false},
+	}
+	for _, tt := range tests {
+		for _, mode := range []ErrorMode{ErrorModeIgnore, ErrorModeSilent, ErrorModePropagate} {
+			t.Run(tt.name+"/"+string(mode), func(t *testing.T) {
+				cfg := ProcessorConfig{"statements": []interface{}{tt.expression}}
+				if tt.stageType == StageTypeFilter {
+					cfg = ProcessorConfig{"traces": map[string]interface{}{"span": []interface{}{tt.expression}}}
+				}
+				pipeline := Pipeline{
+					Stages:     []Stage{{ID: "stage", Type: tt.stageType, ErrorMode: mode, ProcessorRef: "proc"}},
+					Processors: map[string]ProcessorConfig{"proc": cfg},
+				}
+				result, err := ExecutePipeline(context.Background(), traceData, pipeline)
+				wantErr := tt.parseError || mode == ErrorModePropagate
+				if (err != nil) != wantErr {
+					t.Fatalf("error = %v, want error %v", err, wantErr)
+				}
+				if wantErr {
+					return
+				}
+				var got collectortracev1.ExportTraceServiceRequest
+				if err := protojson.Unmarshal(result.FinalData, &got); err != nil {
+					t.Fatal(err)
+				}
+				spans := flattenSpans(&got)
+				if len(spans) != 1 || attrString(spans[0].Attributes, "bad") != "" || attrString(spans[0].Attributes, "original.key") != "original" {
+					t.Fatalf("evaluation error changed trace: %v", &got)
+				}
+			})
+		}
 	}
 }

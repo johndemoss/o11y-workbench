@@ -267,6 +267,9 @@ func TestTAPRecordsFilteringAndBoundedPayloads(t *testing.T) {
 	if snapshot.SpanCount != 2 || snapshot.LogCount != 1 || snapshot.MetricCount != 2 {
 		t.Fatalf("counts = %d/%d/%d, want 2/1/2", snapshot.SpanCount, snapshot.LogCount, snapshot.MetricCount)
 	}
+	if snapshot.LogCountCompleted != 1 || snapshot.MetricCountCompleted != 2 {
+		t.Fatalf("completed logs/metrics = %d/%d, want 1/2", snapshot.LogCountCompleted, snapshot.MetricCountCompleted)
+	}
 	traces, retainedLogs, retainedMetrics := m.buffer.payloads()
 	if len(traces) != 1 || len(retainedLogs) != 1 || len(retainedMetrics) != 2 || m.buffer.EvictedCount() != 1 {
 		t.Fatalf("retained traces/logs/metrics=%d/%d/%d, evictions=%d", len(traces), len(retainedLogs), len(retainedMetrics), m.buffer.EvictedCount())
@@ -280,7 +283,7 @@ func TestTAPConnectDrainAndUsageHandler(t *testing.T) {
 		frames := []string{
 			`{"resourceSpans":[{"scopeSpans":[{"spans":[{"name":"one"},{"name":"two"}]}]}]}`,
 			`{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"one"}},{"body":{"stringValue":"two"}}]}]}]}`,
-			`{"resourceMetrics":[{"scopeMetrics":[{"metrics":[{"name":"one"},{"name":"two"}]}]}]}`,
+			`{"resourceMetrics":[{"scopeMetrics":[{"metrics":[{"name":"one","gauge":{"dataPoints":[{"asDouble":1}]}},{"name":"two","gauge":{"dataPoints":[{"asDouble":2}]}}]}]}]}`,
 		}
 		for _, frame := range frames {
 			if err := websocket.Message.Send(conn, frame); err != nil {
@@ -321,13 +324,27 @@ func TestTAPConnectDrainAndUsageHandler(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("wrong run usage: %d", w.Code)
 	}
-	close(release)
 	deadline := time.Now().Add(3 * time.Second)
+	for {
+		snapshot := store.Get(result.RunID)
+		if snapshot != nil && snapshot.Status == RunStatusStreaming && snapshot.LogCountCompleted == 2 && snapshot.MetricCountCompleted == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("streaming counts did not arrive: %+v", snapshot)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	deadline = time.Now().Add(3 * time.Second)
 	for {
 		snapshot := store.Get(result.RunID)
 		if snapshot != nil && snapshot.Status == RunStatusCompleted {
 			if snapshot.SpanCount != 2 || snapshot.LogCount != 2 || snapshot.MetricCount != 2 || snapshot.TraceData == nil || snapshot.LogData == nil || snapshot.MetricData == nil {
 				t.Fatalf("capture not drained: %+v", snapshot)
+			}
+			if snapshot.LogRecordCount != 2 || snapshot.MetricRecordCount != 2 {
+				t.Fatalf("retained logs/metrics = %d/%d, want 2/2", snapshot.LogRecordCount, snapshot.MetricRecordCount)
 			}
 			for _, signal := range []string{"traces", "logs", "metrics"} {
 				if _, err := runPayloadForSignal(snapshot, signal); err != nil {

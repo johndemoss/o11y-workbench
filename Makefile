@@ -10,7 +10,7 @@ build-pipeline-ui:
 	./scripts/build-ui.sh pipeline-ui
 
 # Build everything
-build-all: build-pipeline-ui
+build-all: build-pipeline-ui ottl-workers
 	go build ./cmd/o11y-workbench-web/...
 
 # Run tests

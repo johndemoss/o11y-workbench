@@ -31,6 +31,15 @@ import (
 // Combined types like "both", "all", "traces+metrics", "logs+metrics" are also
 // supported — a condition is valid if it parses correctly in ANY selected context.
 func ValidateFilterConditionsParse(conditions []string, signals Signals) ValidateResult {
+	return validateConditionsParse(conditions, signals, false)
+}
+
+// ValidateTransformConditionsParse accepts qualified span paths in transform groups.
+func ValidateTransformConditionsParse(conditions []string, signals Signals) ValidateResult {
+	return validateConditionsParse(conditions, signals, true)
+}
+
+func validateConditionsParse(conditions []string, signals Signals, qualifiedSpan bool) ValidateResult {
 	if len(conditions) == 0 {
 		return ValidateResult{
 			Valid:  false,
@@ -60,10 +69,24 @@ func ValidateFilterConditionsParse(conditions []string, signals Signals) Validat
 				if err != nil {
 					return nil, fmt.Errorf("create span parser: %w", err)
 				}
+				var qualifiedParse func(string) error
+				if qualifiedSpan {
+					qualified, err := ottlspan.NewParser(ParserFunctions[*ottlspan.TransformContext](), settings, ottlspan.EnablePathContextNames())
+					if err != nil {
+						return nil, fmt.Errorf("create qualified span parser: %w", err)
+					}
+					qualifiedParse = func(cond string) error {
+						_, err := qualified.ParseCondition(cond)
+						return err
+					}
+				}
 				parsers = append(parsers, namedParser{
 					name: "span context",
 					parse: func(cond string) error {
 						_, err := p.ParseCondition(cond)
+						if err != nil && qualifiedParse != nil && qualifiedParse(cond) == nil {
+							return nil
+						}
 						return err
 					},
 				})

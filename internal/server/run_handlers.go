@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -191,24 +192,30 @@ func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePauseRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	run := s.store.Get(id)
-	if run == nil {
+	err := s.store.PauseRun(r.Context(), id)
+	switch {
+	case errors.Is(err, ErrRunNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + id})
-		return
+	case errors.Is(err, context.DeadlineExceeded):
+		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "pause timed out before in-flight exports finished"})
+	case err != nil:
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "paused", "id": id})
 	}
-	s.store.PauseRun(id)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "paused", "id": id})
 }
 
 func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	run := s.store.Get(id)
-	if run == nil {
+	err := s.store.ResumeRun(id)
+	switch {
+	case errors.Is(err, ErrRunNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run not found: " + id})
-		return
+	case err != nil:
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
 	}
-	s.store.ResumeRun(id)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
 }
 
 func (s *Server) handleDownloadRun(w http.ResponseWriter, r *http.Request) {

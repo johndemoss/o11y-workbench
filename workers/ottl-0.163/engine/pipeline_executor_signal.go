@@ -94,25 +94,13 @@ func executeJSONPipeline(
 			return nil, err
 		}
 
-		intermediate := current
-		if stageErr == nil {
-			intermediate = output
-		}
-
-		var errors []string
+		// Per-record evaluation errors are handled by the stage itself.
+		// Errors returned here include invalid configuration and must be fatal.
 		if stageErr != nil {
-			switch errorMode {
-			case ErrorModePropagate:
-				return nil, fmt.Errorf("stage %s: %w", stage.ID, stageErr)
-			case ErrorModeIgnore:
-				errors = append(errors, stageErr.Error())
-				output = current
-				outputCount = inputCount
-			case ErrorModeSilent:
-				output = current
-				outputCount = inputCount
-			}
+			return nil, fmt.Errorf("stage %s: %w", stage.ID, stageErr)
 		}
+		intermediate := output
+		var errors []string
 
 		stageResults = append(stageResults, StageResult{
 			StageIndex:       i,

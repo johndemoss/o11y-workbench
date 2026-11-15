@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/johndemoss/o11y-workbench/internal/ottl"
+	"github.com/johndemoss/o11y-workbench/internal/ottlengine"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,14 +39,50 @@ func parsePipelineFromYAMLForSignal(pipelineYAML, signal string) (*ottl.Pipeline
 	return &pipeline, nil
 }
 
+// looksLikeCollectorConfig reports whether the YAML is a full Collector config
+// rather than a native workbench stages/processors pipeline.
 func looksLikeCollectorConfig(pipelineYAML string) bool {
-	return strings.Contains(pipelineYAML, "receivers:") ||
-		strings.Contains(pipelineYAML, "processors:") ||
-		strings.Contains(pipelineYAML, "service:")
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(pipelineYAML), &raw); err != nil {
+		return false
+	}
+	if _, ok := raw["stages"]; ok {
+		return false
+	}
+	if _, ok := raw["service"]; ok {
+		return true
+	}
+	_, ok := raw["receivers"]
+	return ok
 }
 
 func pipelineFromCollectorConfig(pipelineYAML, signal string) (*ottl.Pipeline, error) {
 	pipelines, err := ottl.ImportCollectorConfig(pipelineYAML)
+	if err != nil {
+		return nil, fmt.Errorf("parse as collector config: %w", err)
+	}
+	if signal == "" {
+		signal = resolveSignalFromPipelines("", pipelines)
+	}
+	p, ok := pipelines[signal]
+	if !ok || p == nil || len(p.Stages) == 0 {
+		return nil, fmt.Errorf("no %s pipeline stages found in collector config", signal)
+	}
+	return p, nil
+}
+
+// enginePipelineForRequest parses native workbench YAML locally, or imports a
+// full Collector config through the selected engine so imported stage IDs match
+// the IDs the same engine reports when executing.
+func enginePipelineForRequest(ctx context.Context, eng ottlengine.Engine, pipelineYAML, signal string) (*ottl.Pipeline, error) {
+	var native ottl.Pipeline
+	if err := yaml.Unmarshal([]byte(pipelineYAML), &native); err == nil && len(native.Stages) > 0 {
+		return &native, nil
+	}
+	if !looksLikeCollectorConfig(pipelineYAML) {
+		return parsePipelineFromYAMLForSignal(pipelineYAML, signal)
+	}
+	pipelines, err := eng.ImportCollectorConfig(ctx, pipelineYAML)
 	if err != nil {
 		return nil, fmt.Errorf("parse as collector config: %w", err)
 	}
@@ -121,35 +159,40 @@ func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) 
 
 	// Collector configs: validate every non-empty signal pipeline (or a requested signal).
 	if looksLikeCollectorConfig(pipelineYAML) {
-		if pipelines, importErr := eng.ImportCollectorConfig(r.Context(), pipelineYAML); importErr == nil {
-			var errs []string
-			validated := 0
-			for _, sig := range []string{"traces", "logs", "metrics"} {
-				if signal != "" && sig != signal {
-					continue
-				}
-				p, ok := pipelines[sig]
-				if !ok || p == nil || len(p.Stages) == 0 {
-					continue
-				}
-				validated++
-				if err := p.Validate(); err != nil {
-					errs = append(errs, fmt.Sprintf("%s: %s", sig, err.Error()))
-				}
-				result := eng.ValidatePipelineOTTL(r.Context(), *p)
-				for _, msg := range result.Errors {
-					errs = append(errs, fmt.Sprintf("%s: %s", sig, msg))
-				}
+		pipelines, importErr := eng.ImportCollectorConfig(r.Context(), pipelineYAML)
+		if importErr != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": []string{importErr.Error()}})
+			return
+		}
+		var errs []string
+		validated := 0
+		for _, sig := range []string{"traces", "logs", "metrics"} {
+			if signal != "" && sig != signal {
+				continue
 			}
-			if validated > 0 {
-				if len(errs) > 0 {
-					writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": errs})
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]any{"valid": true, "errors": []string{}})
-				return
+			p, ok := pipelines[sig]
+			if !ok || p == nil || len(p.Stages) == 0 {
+				continue
+			}
+			validated++
+			if err := p.Validate(); err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %s", sig, err.Error()))
+			}
+			result := eng.ValidatePipelineOTTL(r.Context(), *p)
+			for _, msg := range result.Errors {
+				errs = append(errs, fmt.Sprintf("%s: %s", sig, msg))
 			}
 		}
+		if validated == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": []string{"no representable pipeline stages found in collector config"}})
+			return
+		}
+		if len(errs) > 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": errs})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"valid": true, "errors": []string{}})
+		return
 	}
 
 	if signal == "" {
@@ -195,9 +238,15 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eng, err := s.resolveEngine(r, "")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
 	// Resolve signal from collector config when omitted and only one signal has stages.
-	if looksLikeCollectorConfig(pipelineYAML) {
-		if pipelines, importErr := ottl.ImportCollectorConfig(pipelineYAML); importErr == nil {
+	if signal == "" && looksLikeCollectorConfig(pipelineYAML) {
+		if pipelines, importErr := eng.ImportCollectorConfig(r.Context(), pipelineYAML); importErr == nil {
 			signal = resolveSignalFromPipelines(signal, pipelines)
 		}
 	}
@@ -205,7 +254,7 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		signal = "traces"
 	}
 
-	pipeline, err := parsePipelineFromYAMLForSignal(pipelineYAML, signal)
+	pipeline, err := enginePipelineForRequest(r.Context(), eng, pipelineYAML, signal)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -217,12 +266,6 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data, err := runPayloadForSignal(run, signal)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	eng, err := s.resolveEngine(r, "")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

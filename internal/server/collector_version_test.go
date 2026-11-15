@@ -163,33 +163,41 @@ func TestServerClose_RunsEngineStops(t *testing.T) {
 }
 
 func TestNew_CloseStopsConfiguredWorkers(t *testing.T) {
-	bin := filepath.Join("..", "..", "bin", "ottl-worker-0.164.0")
-	if _, err := os.Stat(bin); err != nil {
-		t.Skipf("worker binary not found at %s (run make ottl-workers)", bin)
-	}
+	requireWorkers := os.Getenv("O11Y_REQUIRE_WORKERS") == "1"
+	for _, version := range []string{"0.163.0", "0.164.0"} {
+		t.Run(version, func(t *testing.T) {
+			bin := filepath.Join("..", "..", "bin", "ottl-worker-"+version)
+			if _, err := os.Stat(bin); err != nil {
+				if requireWorkers {
+					t.Fatalf("worker binary not found at %s (run make ottl-workers)", bin)
+				}
+				t.Skipf("worker binary not found at %s (run make ottl-workers)", bin)
+			}
 
-	t.Setenv("O11Y_OTTL_WORKERS", "0.164.0="+bin)
-	srv, err := New("127.0.0.1:0", false, nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	defer srv.Close()
+			t.Setenv("O11Y_OTTL_WORKERS", version+"="+bin)
+			srv, err := New("127.0.0.1:0", false, nil)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			defer srv.Close()
 
-	eng, err := srv.ensureEngines().Get("0.164.0")
-	if err != nil {
-		t.Fatalf("Get(0.164.0): %v", err)
-	}
-	wc, ok := eng.(*ottlengine.WorkerClient)
-	if !ok {
-		t.Fatalf("engine type %T, want *ottlengine.WorkerClient", eng)
-	}
-	if _, _, err := wc.Health(context.Background()); err != nil {
-		t.Fatalf("worker health before Close: %v", err)
-	}
-	if err := srv.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if _, _, err := wc.Health(context.Background()); err == nil {
-		t.Fatal("worker health succeeded after Close; stopper was not retained/run")
+			eng, err := srv.ensureEngines().Get(version)
+			if err != nil {
+				t.Fatalf("Get(%s): %v", version, err)
+			}
+			wc, ok := eng.(*ottlengine.WorkerClient)
+			if !ok {
+				t.Fatalf("engine type %T, want *ottlengine.WorkerClient", eng)
+			}
+			if _, _, err := wc.Health(context.Background()); err != nil {
+				t.Fatalf("worker health before Close: %v", err)
+			}
+			if err := srv.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if _, _, err := wc.Health(context.Background()); err == nil {
+				t.Fatal("worker health succeeded after Close; stopper was not retained/run")
+			}
+		})
 	}
 }

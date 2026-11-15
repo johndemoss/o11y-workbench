@@ -43,7 +43,7 @@ func TestServerCloseStopsDetachedAndDeletedRuns(t *testing.T) {
 		t.Cleanup(raw.Stop)
 	}
 	waitShutdownCondition(t, func() bool { return collector.traces.Load() >= 4 }, "request cancellation stopped a detached run")
-	store.PauseRun(live[0].ID)
+	store.PauseRun(context.Background(), live[0].ID)
 	store.Delete(live[1].ID) // Removing UI history must not orphan an executing job.
 	if err := srv.Close(); err != nil {
 		t.Fatal(err)

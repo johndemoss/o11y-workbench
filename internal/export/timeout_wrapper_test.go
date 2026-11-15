@@ -14,9 +14,13 @@ import (
 type timeoutProbe struct {
 	started chan struct{}
 	block   bool
+	err     error
 }
 
 func (p *timeoutProbe) observe(ctx context.Context) error {
+	if p.err != nil {
+		return p.err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -92,6 +96,47 @@ func TestExportTimeoutOwnerLifetime(t *testing.T) {
 				}
 			case <-time.After(time.Second):
 				t.Fatal("owner shutdown did not cancel an in-flight export")
+			}
+		})
+	}
+}
+
+func TestExportTimeoutOwnerErrorClassification(t *testing.T) {
+	rpcErr := errors.New("rpc failure")
+	for name, wrap := range map[string]func(context.Context, *timeoutProbe) error{
+		"traces": func(owner context.Context, p *timeoutProbe) error {
+			return WithExportTimeoutContext(owner, timeoutTraces{p}, time.Minute).Export(context.Background(), nil)
+		},
+		"logs": func(owner context.Context, p *timeoutProbe) error {
+			return WithLogExportTimeoutContext(owner, timeoutLogs{p}, time.Minute).Export(context.Background(), nil)
+		},
+		"metrics": func(owner context.Context, p *timeoutProbe) error {
+			return WithMetricExportTimeoutContext(owner, timeoutMetrics{p}, time.Minute).Export(context.Background(), nil)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			defer cancelDeadline()
+			canceled, cancel := context.WithCancel(context.Background())
+			cancel()
+			for _, tt := range []struct {
+				name  string
+				owner context.Context
+				want  error
+			}{
+				{"alive", context.Background(), rpcErr},
+				{"deadline", deadline, context.DeadlineExceeded},
+				{"canceled", canceled, context.Canceled},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					err := wrap(tt.owner, &timeoutProbe{err: rpcErr})
+					if !errors.Is(err, tt.want) {
+						t.Fatalf("error = %v, want %v", err, tt.want)
+					}
+					if tt.name == "alive" && err != rpcErr {
+						t.Fatalf("error = %v, want original error", err)
+					}
+				})
 			}
 		})
 	}

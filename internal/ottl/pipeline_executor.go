@@ -68,27 +68,13 @@ func ExecutePipeline(ctx context.Context, traceData json.RawMessage, pipeline Pi
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		var intermediate json.RawMessage
-		if stageErr == nil {
-			intermediate, _ = MarshalTracesToJSON(outputTraces)
-		} else {
-			intermediate, _ = MarshalTracesToJSON(currentTraces)
-		}
-
-		var errors []string
+		// Per-record evaluation errors are handled by the stage itself.
+		// Errors returned here include invalid configuration and must be fatal.
 		if stageErr != nil {
-			switch errorMode {
-			case ErrorModePropagate:
-				return nil, fmt.Errorf("stage %s: %w", stage.ID, stageErr)
-			case ErrorModeIgnore:
-				errors = append(errors, stageErr.Error())
-				outputTraces = currentTraces
-				outputSpanCount = inputSpanCount
-			case ErrorModeSilent:
-				outputTraces = currentTraces
-				outputSpanCount = inputSpanCount
-			}
+			return nil, fmt.Errorf("stage %s: %w", stage.ID, stageErr)
 		}
+		intermediate, _ := MarshalTracesToJSON(outputTraces)
+		var errors []string
 
 		// A transform keeps every span, so a zero "selected" count still means the
 		// input count. A filter can legitimately drop every span, and reporting the

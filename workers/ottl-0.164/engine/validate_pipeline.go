@@ -3,6 +3,12 @@ package engine
 import (
 	"context"
 	"fmt"
+
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlmetric"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlresource"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlscope"
+	"go.opentelemetry.io/collector/component"
+	"go.uber.org/zap"
 )
 
 // ValidatePipelineOTTL walks transform/filter processors and validates their
@@ -39,8 +45,24 @@ func ValidatePipelineOTTL(ctx context.Context, pipeline Pipeline) ValidateResult
 				allErrors = append(allErrors, fmt.Sprintf("processor %s: %v", name, err))
 				continue
 			}
-			for _, groups := range [][]ContextStatements{meta.TraceGroups, meta.LogGroups, meta.MetricGroups} {
-				stmts := ExtractStatements(groups)
+			for _, section := range []struct {
+				groups  []ContextStatements
+				signals Signals
+			}{
+				{meta.TraceGroups, Signals{Traces: true}},
+				{meta.LogGroups, Signals{Logs: true}},
+				{meta.MetricGroups, Signals{Metrics: true}},
+			} {
+				for _, group := range section.groups {
+					if len(group.Conditions) == 0 {
+						continue
+					}
+					res := validateGroupConditions(group, section.signals)
+					for _, e := range res.Errors {
+						allErrors = append(allErrors, fmt.Sprintf("processor %s: %s", name, e))
+					}
+				}
+				stmts := ExtractStatements(section.groups)
 				if len(stmts) == 0 {
 					continue
 				}
@@ -80,4 +102,64 @@ func ValidatePipelineOTTL(ctx context.Context, pipeline Pipeline) ValidateResult
 		return ValidateResult{Valid: false, Errors: allErrors, Parsed: parsed}
 	}
 	return ValidateResult{Valid: true, Parsed: parsed}
+}
+
+func validateGroupConditions(group ContextStatements, signals Signals) ValidateResult {
+	kind := ""
+	if signals.Traces {
+		traceKind, err := parseTraceGroupContext(group.Context)
+		if err != nil {
+			return ValidateResult{Errors: []string{err.Error()}}
+		}
+		switch traceKind {
+		case traceGroupScope:
+			kind = "scope"
+		case traceGroupResource:
+			kind = "resource"
+		}
+	} else if signals.Logs {
+		switch logGroupExecutionKind(group.Context) {
+		case logGroupScope:
+			kind = "scope"
+		case logGroupResource:
+			kind = "resource"
+		}
+	} else if signals.Metrics {
+		switch metricGroupExecutionKind(group.Context) {
+		case metricGroupScope:
+			kind = "scope"
+		case metricGroupResource:
+			kind = "resource"
+		case metricGroupMetric:
+			kind = "metric"
+		}
+	}
+	settings := component.TelemetrySettings{Logger: zap.NewNop()}
+	var err error
+	switch kind {
+	case "scope":
+		parser, parseErr := ottlscope.NewParser(parserFunctions[*ottlscope.TransformContext](), settings)
+		err = parseErr
+		if err == nil {
+			_, err = parser.ParseConditions(group.Conditions)
+		}
+	case "resource":
+		parser, parseErr := ottlresource.NewParser(parserFunctions[*ottlresource.TransformContext](), settings)
+		err = parseErr
+		if err == nil {
+			_, err = parser.ParseConditions(group.Conditions)
+		}
+	case "metric":
+		parser, parseErr := ottlmetric.NewParser(parserFunctions[*ottlmetric.TransformContext](), settings)
+		err = parseErr
+		if err == nil {
+			_, err = parser.ParseConditions(group.Conditions)
+		}
+	default:
+		return ValidateTransformConditionsParse(group.Conditions, signals)
+	}
+	if err != nil {
+		return ValidateResult{Errors: []string{fmt.Sprintf("%s context: %v", kind, err)}}
+	}
+	return ValidateResult{Valid: true}
 }

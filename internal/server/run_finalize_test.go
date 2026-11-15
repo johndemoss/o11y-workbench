@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -205,15 +206,22 @@ func TestStopIsNonterminalUntilFinalization(t *testing.T) {
 }
 
 func TestPausedGateObservesDeadline(t *testing.T) {
-	run := &Run{Status: RunStatusRunning}
-	run.Pause()
+	gate := newRunPauseGate()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { waitIfPaused(run, ctx); close(done) }()
+	done := make(chan error, 1)
+	go func() { _, err := gate.pause(ctx); done <- err }()
 	cancel()
 	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("paused gate ignored cancellation")
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("pause error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pause did not observe cancellation")
 	}
+	if err := gate.beginExport(context.Background()); err != nil {
+		t.Fatalf("admission did not reopen after cancelled pause: %v", err)
+	}
+	gate.endExport()
+	gate.stop()
 }
