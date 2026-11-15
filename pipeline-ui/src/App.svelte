@@ -22,7 +22,7 @@
     metrics: defaultPipeline()
   })
   let selectedSignal: SignalType = $state('traces')
-  let pipeline = $derived(pipelinesBySignal[selectedSignal] || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
+  let pipeline = $derived(pipelinesBySignal[selectedSignal] || defaultPipeline())
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
   let originalData: unknown = $state(null)
@@ -156,14 +156,9 @@
     }
   }
 
-  function normalizePipelines(p: PipelinesBySignal): PipelinesBySignal {
-    const empty = (): Pipeline => ({ stages: [], processors: {}, receivers: [], exporters: [] })
-    return { traces: p.traces ?? empty(), logs: p.logs ?? empty(), metrics: p.metrics ?? empty() }
-  }
-
   function handlePipelinesChange(p: PipelinesBySignal, fromEditor = false) {
     if (!fromEditor) authoredYaml = null
-    pipelinesBySignal = normalizePipelines(p)
+    pipelinesBySignal = normalizePipelines(p, pipelinesBySignal)
     // Keep inspector bound to current stage identity after graph sync
     if (inspectorSelection?.kind === 'stage') {
       const selected = inspectorSelection
