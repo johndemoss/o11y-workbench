@@ -1,6 +1,7 @@
 package region_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/johndemoss/o11y-workbench/internal/region"
@@ -68,4 +69,38 @@ func TestResourceAttributes_ContainsRegion(t *testing.T) {
 		}
 	}
 	t.Fatalf("cloud.region attribute not found in %d attributes", len(attrs))
+}
+
+func TestConcurrentEndpointAccess(t *testing.T) {
+	defer region.SetEndpoints(nil)
+	var wg sync.WaitGroup
+	for worker := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 1000 {
+				if worker%2 == 0 {
+					if i%2 == 0 {
+						region.SetEndpoints([]string{"one", "two"})
+					} else {
+						region.SetEndpoints(nil)
+					}
+				} else {
+					for _, name := range region.All() {
+						_ = region.GetEndpoint(name)
+					}
+					_ = region.Assign(int64(worker), i)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestDefaultEndpointsAreIndependent(t *testing.T) {
+	defaults := region.DefaultEndpoints()
+	defaults[0].Endpoint = "changed"
+	if got := region.DefaultEndpoints()[0].Endpoint; got != "localhost:4317" {
+		t.Fatalf("default endpoint = %q", got)
+	}
 }
