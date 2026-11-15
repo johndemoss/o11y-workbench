@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -182,13 +183,13 @@ func TestNew_CloseStopsConfiguredWorkers(t *testing.T) {
 	if !ok {
 		t.Fatalf("engine type %T, want *ottlengine.WorkerClient", eng)
 	}
-	if _, _, err := wc.Health(); err != nil {
+	if _, _, err := wc.Health(context.Background()); err != nil {
 		t.Fatalf("worker health before Close: %v", err)
 	}
 	if err := srv.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, _, err := wc.Health(); err == nil {
+	if _, _, err := wc.Health(context.Background()); err == nil {
 		t.Fatal("worker health succeeded after Close; stopper was not retained/run")
 	}
 }

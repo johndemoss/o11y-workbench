@@ -113,10 +113,15 @@ func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "errors": []string{err.Error()}})
 		return
 	}
+	eng, err := s.resolveEngine(r, "")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 
 	// Collector configs: validate every non-empty signal pipeline (or a requested signal).
 	if looksLikeCollectorConfig(pipelineYAML) {
-		if pipelines, importErr := ottl.ImportCollectorConfig(pipelineYAML); importErr == nil {
+		if pipelines, importErr := eng.ImportCollectorConfig(r.Context(), pipelineYAML); importErr == nil {
 			var errs []string
 			validated := 0
 			for _, sig := range []string{"traces", "logs", "metrics"} {
@@ -130,6 +135,10 @@ func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) 
 				validated++
 				if err := p.Validate(); err != nil {
 					errs = append(errs, fmt.Sprintf("%s: %s", sig, err.Error()))
+				}
+				result := eng.ValidatePipelineOTTL(r.Context(), *p)
+				for _, msg := range result.Errors {
+					errs = append(errs, fmt.Sprintf("%s: %s", sig, msg))
 				}
 			}
 			if validated > 0 {
@@ -152,17 +161,11 @@ func (s *Server) handlePipelineValidate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	eng, err := s.resolveEngine(r, "")
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
 	var errs []string
 	if err := pipeline.Validate(); err != nil {
 		errs = append(errs, err.Error())
 	}
-	ottlRes := eng.ValidatePipelineOTTL(*pipeline)
+	ottlRes := eng.ValidatePipelineOTTL(r.Context(), *pipeline)
 	if !ottlRes.Valid {
 		errs = append(errs, ottlRes.Errors...)
 	}
@@ -225,7 +228,7 @@ func (s *Server) handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := eng.ExecutePipelineForSignal(data, *pipeline, signal)
+	result, err := eng.ExecutePipelineForSignal(r.Context(), data, *pipeline, signal)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -258,8 +261,9 @@ func runPayloadForSignal(run *Run, signal string) (json.RawMessage, error) {
 
 func (s *Server) handlePipelineDiff(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Stages       []ottl.StageResult `json:"stages"`
-		OriginalData json.RawMessage    `json:"original_data"`
+		StageIndex int             `json:"stage_index"`
+		BeforeData json.RawMessage `json:"before_data"`
+		AfterData  json.RawMessage `json:"after_data"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -267,9 +271,23 @@ func (s *Server) handlePipelineDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diffs := ottl.ComputeAllStageDiffs(req.Stages, req.OriginalData)
+	signal := r.URL.Query().Get("signal")
+	if signal == "" {
+		signal = "traces"
+	}
+	if signal != "traces" && signal != "logs" && signal != "metrics" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported signal: " + signal})
+		return
+	}
+	// Diffs are requested one stage at a time so request size stays bounded.
+	stages := []ottl.StageResult{{StageIndex: req.StageIndex, IntermediateData: req.AfterData}}
+	diffs := ottl.ComputeAllStageDiffs(stages, req.BeforeData, signal)
+	if len(diffs) == 0 {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
 
-	writeJSON(w, http.StatusOK, diffs)
+	writeJSON(w, http.StatusOK, diffs[0])
 }
 
 func (s *Server) handlePipelineImport(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +321,7 @@ func (s *Server) handlePipelineImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipelines, err := eng.ImportCollectorConfig(configYAML)
+	pipelines, err := eng.ImportCollectorConfig(r.Context(), configYAML)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

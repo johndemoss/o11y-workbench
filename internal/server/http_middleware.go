@@ -141,10 +141,11 @@ func validateHostEntry(entry string) (string, error) {
 	if net.ParseIP(entry) != nil {
 		return canonicalIPKey(net.ParseIP(entry)), nil
 	}
+	entry = strings.TrimSuffix(entry, ".")
 	if !validDNSNameASCII(entry) {
 		return "", fmt.Errorf("malformed hostname")
 	}
-	return strings.ToLower(strings.TrimSuffix(entry, ".")), nil
+	return strings.ToLower(entry), nil
 }
 
 func validDNSNameASCII(name string) bool {
@@ -181,10 +182,11 @@ func canonicalHostKey(host string) (string, error) {
 	if ip := net.ParseIP(host); ip != nil {
 		return canonicalIPKey(ip), nil
 	}
+	host = strings.TrimSuffix(host, ".")
 	if !validDNSNameASCII(host) {
 		return "", fmt.Errorf("malformed hostname %q", host)
 	}
-	return strings.ToLower(strings.TrimSuffix(host, ".")), nil
+	return strings.ToLower(host), nil
 }
 
 func hostHeaderAllowedChars(host string) bool {

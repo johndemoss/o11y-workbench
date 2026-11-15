@@ -1,10 +1,20 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"time"
+
+	"github.com/johndemoss/o11y-workbench/internal/remotetap"
+	"golang.org/x/net/websocket"
 	"testing"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )
@@ -232,5 +242,111 @@ func TestShouldKeepLog_Severity(t *testing.T) {
 	lrInfo := makeLogRecord(logsv1.SeverityNumber_SEVERITY_NUMBER_INFO)
 	if m.shouldKeepLog(lrInfo) {
 		t.Error("expected to reject INFO severity")
+	}
+}
+
+func TestTAPRecordsFilteringAndBoundedPayloads(t *testing.T) {
+	store := NewRunStore()
+	run := &Run{ID: "capture", Status: RunStatusStreaming}
+	store.Add(run)
+	m := NewRemotetapManager(store)
+	m.run = run
+	m.filters = RemotetapFilters{Services: []string{"service"}, SpanKinds: []string{"SERVER"}, MinLogSeverity: "WARN", MaxSpans: 1, MaxBytes: 1 << 20}
+	m.sampler = newSampler("none", 0)
+	m.buffer = newRingBuffer(1, 1<<20)
+	rs := makeResourceSpans("service", tracev1.Span_SPAN_KIND_SERVER)
+	rs.ScopeSpans[0].Spans = append(rs.ScopeSpans[0].Spans,
+		&tracev1.Span{Name: "excluded", Kind: tracev1.Span_SPAN_KIND_CLIENT},
+		&tracev1.Span{Name: "second", Kind: tracev1.Span_SPAN_KIND_SERVER})
+	logs := &logsv1.ResourceLogs{Resource: rs.Resource, ScopeLogs: []*logsv1.ScopeLogs{{LogRecords: []*logsv1.LogRecord{
+		makeLogRecord(logsv1.SeverityNumber_SEVERITY_NUMBER_INFO), makeLogRecord(logsv1.SeverityNumber_SEVERITY_NUMBER_ERROR),
+	}}}}
+	metrics := &metricsv1.ResourceMetrics{Resource: rs.Resource, ScopeMetrics: []*metricsv1.ScopeMetrics{{Metrics: []*metricsv1.Metric{{Name: "requests"}, {Name: "errors"}}}}}
+	m.processData(&remotetap.RemotetapData{Traces: []*tracev1.ResourceSpans{rs}, Logs: []*logsv1.ResourceLogs{logs}, Metrics: []*metricsv1.ResourceMetrics{metrics}})
+	snapshot := run.snapshot()
+	if snapshot.SpanCount != 2 || snapshot.LogCount != 1 || snapshot.MetricCount != 2 {
+		t.Fatalf("counts = %d/%d/%d, want 2/1/2", snapshot.SpanCount, snapshot.LogCount, snapshot.MetricCount)
+	}
+	traces, retainedLogs, retainedMetrics := m.buffer.payloads()
+	if len(traces) != 1 || len(retainedLogs) != 1 || len(retainedMetrics) != 2 || m.buffer.EvictedCount() != 1 {
+		t.Fatalf("retained traces/logs/metrics=%d/%d/%d, evictions=%d", len(traces), len(retainedLogs), len(retainedMetrics), m.buffer.EvictedCount())
+	}
+}
+
+func TestTAPConnectDrainAndUsageHandler(t *testing.T) {
+	release := make(chan struct{})
+	peer := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		defer conn.Close()
+		frames := []string{
+			`{"resourceSpans":[{"scopeSpans":[{"spans":[{"name":"one"},{"name":"two"}]}]}]}`,
+			`{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"one"}},{"body":{"stringValue":"two"}}]}]}]}`,
+			`{"resourceMetrics":[{"scopeMetrics":[{"metrics":[{"name":"one"},{"name":"two"}]}]}]}`,
+		}
+		for _, frame := range frames {
+			if err := websocket.Message.Send(conn, frame); err != nil {
+				return
+			}
+		}
+		<-release
+	}))
+	defer peer.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	store := NewRunStore()
+	manager := NewRemotetapManager(store)
+	defer manager.Close()
+	s := &Server{store: store, remotetap: manager, mux: http.NewServeMux()}
+	if err := s.registerRoutes(); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"endpoint": strings.TrimPrefix(peer.URL, "http://"), "filters": map[string]any{"maxSpans": 10, "maxBytes": 65536}})
+	connect := httptest.NewRecorder()
+	s.mux.ServeHTTP(connect, httptest.NewRequest(http.MethodPost, "/api/remotetap/connect", bytes.NewReader(body)))
+	if connect.Code != http.StatusOK {
+		t.Fatalf("connect: %d %s", connect.Code, connect.Body)
+	}
+	var result struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(connect.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/remotetap/usage/not-current", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("wrong run usage: %d", w.Code)
+	}
+	close(release)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		snapshot := store.Get(result.RunID)
+		if snapshot != nil && snapshot.Status == RunStatusCompleted {
+			if snapshot.SpanCount != 2 || snapshot.LogCount != 2 || snapshot.MetricCount != 2 || snapshot.TraceData == nil || snapshot.LogData == nil || snapshot.MetricData == nil {
+				t.Fatalf("capture not drained: %+v", snapshot)
+			}
+			for _, signal := range []string{"traces", "logs", "metrics"} {
+				if _, err := runPayloadForSignal(snapshot, signal); err != nil {
+					t.Errorf("%s payload: %v", signal, err)
+				}
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("capture did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestTAPSamplingValidation(t *testing.T) {
+	for _, rate := range []float64{0, 0.5, -1} {
+		if err := validateTAPFilters(RemotetapFilters{SamplingType: "tail", SamplingRate: rate, MaxSpans: 1, MaxBytes: 1}); err == nil {
+			t.Errorf("accepted tail sampling rate %v", rate)
+		}
 	}
 }
