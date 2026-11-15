@@ -8,6 +8,7 @@ import {
   pipelinesToFlow,
   flowToPipelines,
   reorderStage,
+  rebuildLane,
   type StageNodeData,
 } from '../flow-sync'
 import type { Edge, Node } from '@xyflow/svelte'
@@ -266,6 +267,23 @@ describe('flowToPipeline', () => {
     }
     const result = await flowToPipeline(nodes, edges, currentPipeline)
     expect(result.processors['proc-a']).toEqual({ existingKey: 'existingValue' })
+  })
+
+  it('preserves infrastructure config maps through serialization', async () => {
+    const s1 = makeStage('a', 'proc-a')
+    const nodes = [makeNode('a', { stage: s1, processor: {} })]
+    const edges: Edge[] = []
+    const currentPipeline: Pipeline = {
+      stages: [s1],
+      processors: { 'proc-a': {} },
+      receivers: ['otlp', 'kafka'],
+      exporters: ['debug', 'file'],
+      receiver_configs: { otlp: { protocols: { http: {} } }, kafka: { topic: 't' } },
+      exporter_configs: { debug: { verbosity: 'basic' }, file: { path: '/tmp/out' } },
+    }
+    const result = await flowToPipeline(nodes, edges, currentPipeline)
+    expect(result.receiver_configs).toEqual(currentPipeline.receiver_configs)
+    expect(result.exporter_configs).toEqual(currentPipeline.exporter_configs)
   })
 
   it('merges new processor refs from nodes', async () => {
@@ -672,6 +690,7 @@ describe('reorderStage', () => {
       metrics: { stages: [], processors: {} },
     }
     const { nodes, edges } = pipelinesToFlow(p)
+    expect(nodes.filter((node) => node.type === 'stage').every((node) => node.draggable && node.extent === 'parent')).toBe(true)
     const result = reorderStage(nodes, edges, 't1', 500)
     const reconstructed = await flowToPipelines(result.nodes, result.edges, p)
     expect(reconstructed.traces.stages[0].id).toBe('t2')
@@ -696,6 +715,61 @@ describe('reorderStage', () => {
     reorderStage(nodes, edges, 't1', 400)
     expect(nodes).toEqual(nodesCopy)
     expect(edges).toEqual(edgesCopy)
+  })
+})
+
+describe('lane edits preserve the executable path', () => {
+  it('reconnects endpoints and removes only unused deleted processor refs', async () => {
+    const p: PipelinesBySignal = {
+      traces: {
+        stages: [
+          { id: 'a', type: 'transform', processor_ref: 'shared' },
+          { id: 'b', type: 'filter', processor_ref: 'removed' },
+          { id: 'c', type: 'transform', processor_ref: 'shared' },
+        ],
+        processors: { shared: {}, removed: {}, unrelated: {} },
+        receivers: ['one', 'two'],
+        exporters: ['out', 'other'],
+        receiver_configs: { one: { region: 'a' }, two: { region: 'b' } },
+        exporter_configs: { out: { headers: { a: '1' } }, other: { timeout: 2 } },
+      },
+      logs: { stages: [{ id: 'log', type: 'filter', processor_ref: 'logp' }], processors: { logp: {} } },
+      metrics: { stages: [], processors: {} },
+    }
+    const flow = pipelinesToFlow(p)
+    const remaining = flow.nodes.filter((node) => node.id !== 'b')
+    const rebuilt = rebuildLane(remaining, flow.edges.filter((edge) => edge.source !== 'b' && edge.target !== 'b'), 'swimlane-traces')
+    expect(rebuilt.edges.some((edge) => edge.source === 'a' && edge.target === 'c')).toBe(true)
+    expect(rebuilt.edges.some((edge) => edge.source === 'infra-traces-receiver-two' && edge.target === 'a')).toBe(true)
+    expect(rebuilt.edges.some((edge) => edge.source === 'c' && edge.target === 'infra-traces-exporter-other')).toBe(true)
+    const result = await flowToPipelines(rebuilt.nodes, rebuilt.edges, p)
+    expect(result.traces.stages.map((stage) => stage.id)).toEqual(['a', 'c'])
+    expect(Object.keys(result.traces.processors).sort()).toEqual(['shared', 'unrelated'])
+    expect(result.traces.receiver_configs).toEqual(p.traces.receiver_configs)
+    expect(result.traces.exporter_configs).toEqual(p.traces.exporter_configs)
+    expect(result.logs.stages.map((stage) => stage.id)).toEqual(['log'])
+    const reordered = reorderStage(rebuilt.nodes, rebuilt.edges, 'c', 0)
+    expect(reordered.edges.some((edge) => edge.source === 'infra-traces-receiver-one' && edge.target === 'c')).toBe(true)
+    expect(reordered.edges.some((edge) => edge.source === 'a' && edge.target === 'infra-traces-exporter-out')).toBe(true)
+    const afterReorder = await flowToPipelines(reordered.nodes, reordered.edges, result)
+    expect(afterReorder.traces.stages.map((stage) => stage.id)).toEqual(['c', 'a'])
+    expect(afterReorder.traces.receiver_configs).toEqual(p.traces.receiver_configs)
+    expect(afterReorder.traces.exporter_configs).toEqual(p.traces.exporter_configs)
+  })
+
+  it('allocates separate vertical room for multiple infrastructure cards', () => {
+    const p: PipelinesBySignal = {
+      traces: { stages: [], processors: {}, receivers: ['one', 'two'], exporters: ['a', 'b', 'c'] },
+      logs: { stages: [], processors: {} },
+      metrics: { stages: [], processors: {} },
+    }
+    const { nodes } = pipelinesToFlow(p)
+    const lane = nodes.find((node) => node.id === 'swimlane-traces')!
+    const logs = nodes.find((node) => node.id === 'swimlane-logs')!
+    const exporters = nodes.filter((node) => node.parentId === lane.id && node.data.type === 'exporter')
+    expect(new Set(exporters.map((node) => node.position.y)).size).toBe(3)
+    expect(lane.height!).toBeGreaterThan(exporters[2].position.y + exporters[2].height!)
+    expect(logs.position.y).toBeGreaterThan(lane.position.y + lane.height!)
   })
 })
 

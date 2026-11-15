@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"log"
 	"os"
 	"testing"
@@ -54,7 +55,7 @@ func TestTransformRunData_LambdaFilter(t *testing.T) {
 }`)
 
 	stmt := `set(attributes["prod_tags"], Filter(attributes["tags"], (_, v) => v == "prod"))`
-	out, count, err := TransformRunData(traceJSON, []string{stmt})
+	out, count, err := TransformRunData(context.Background(), traceJSON, []string{stmt})
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}

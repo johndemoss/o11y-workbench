@@ -11,11 +11,6 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-
-	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottldatapoint"
 )
@@ -27,30 +22,51 @@ import (
 //
 // Conditions are ORed together — if ANY condition evaluates to true for a data
 // point, the data point is considered a match.
-func FilterMetricRunData(metricData json.RawMessage, conditions []string, mode FilterMode) (json.RawMessage, int, int, error) {
+func FilterMetricRunData(ctx context.Context, metricData json.RawMessage, conditions []string, mode FilterMode) (json.RawMessage, int, int, error) {
+	return FilterMetricRunDataWithErrorMode(ctx, metricData, conditions, mode, ErrorModePropagate)
+}
+
+// FilterMetricRunDataWithErrorMode is the pipeline entry point; use FilterModeExclude
+// for collector-aligned filter processors (drop matching telemetry).
+func FilterMetricRunDataWithErrorMode(ctx context.Context, metricData json.RawMessage, conditions []string, mode FilterMode, errorMode ErrorMode) (json.RawMessage, int, int, error) {
+	if err := checkFilterCtx(ctx); err != nil {
+		return nil, 0, 0, err
+	}
 	if len(conditions) == 0 {
 		return nil, 0, 0, fmt.Errorf("no conditions provided")
 	}
 
-	// Step 1: unmarshal JSON metric data into protobuf types.
-	var srcReq collectormetricsv1.ExportMetricsServiceRequest
-	if err := protojson.Unmarshal(metricData, &srcReq); err != nil {
-		return nil, 0, 0, fmt.Errorf("unmarshal metric data: %w", err)
-	}
-
-	// Step 2: marshal protobuf to binary wire format, then to pdata for OTTL.
-	protoBytes, err := proto.Marshal(&srcReq)
+	metrics, err := UnmarshalMetricsFromJSON(metricData)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("marshal protobuf: %w", err)
+		return nil, 0, 0, err
 	}
 
-	var unmarshaler pmetric.ProtoUnmarshaler
-	metrics, err := unmarshaler.UnmarshalMetrics(protoBytes)
+	filtered, total, kept, err := FilterMetricDataPoints(ctx, metrics, conditions, mode, errorMode)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("unmarshal to pdata: %w", err)
+		return nil, 0, 0, fmt.Errorf("filter metric data points: %w", err)
 	}
 
-	// Step 3: set up OTTL datapoint-context parser and condition sequence.
+	outJSON, err := MarshalMetricsToJSON(filtered)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return outJSON, total, kept, nil
+}
+
+type metricDataPointKey struct {
+	ri, si, mi, dpi int
+}
+
+// FilterMetricDataPoints evaluates OTTL conditions against all metric data points and
+// returns filtered metrics. errorMode controls per-item evaluation errors (same as FilterSpans).
+func FilterMetricDataPoints(ctx context.Context, metrics pmetric.Metrics, conditions []string, mode FilterMode, errorMode ErrorMode) (pmetric.Metrics, int, int, error) {
+	if err := checkFilterCtx(ctx); err != nil {
+		return metrics, 0, 0, err
+	}
+	if len(conditions) == 0 {
+		return metrics, 0, 0, fmt.Errorf("no conditions provided")
+	}
+
 	settings := component.TelemetrySettings{
 		Logger:         zap.NewNop(),
 		TracerProvider: tracenoop.NewTracerProvider(),
@@ -63,27 +79,83 @@ func FilterMetricRunData(metricData json.RawMessage, conditions []string, mode F
 		settings,
 	)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("create OTTL datapoint parser: %w", err)
+		return metrics, 0, 0, fmt.Errorf("create OTTL datapoint parser: %w", err)
 	}
 
 	parsedConditions, err := parser.ParseConditions(conditions)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("parse OTTL conditions: %w", err)
+		return metrics, 0, 0, fmt.Errorf("parse OTTL conditions: %w", err)
 	}
 
 	condSeq := ottldatapoint.NewConditionSequence(parsedConditions, settings)
 
-	// Step 4: evaluate conditions against every metric data point, recording matches.
-	ctx := context.Background()
 	rms := metrics.ResourceMetrics()
-
-	type metricDataPointKey struct {
-		ri, si, mi, dpi int
-	}
 	matched := make(map[metricDataPointKey]bool)
 
 	totalDataPoints := 0
+
+	var ignoreLogger *zap.Logger
+	if errorMode == ErrorModeIgnore {
+		ignoreLogger = zap.NewExample()
+		defer ignoreLogger.Sync()
+	}
+
+	evalDataPoint := func(rm pmetric.ResourceMetrics, sm pmetric.ScopeMetrics, metric pmetric.Metric, dp any, i, j, k, dpIdx int) error {
+		if err := checkFilterCtx(ctx); err != nil {
+			return err
+		}
+
+		var tCtx *ottldatapoint.TransformContext
+		switch v := dp.(type) {
+		case pmetric.NumberDataPoint:
+			tCtx = ottldatapoint.NewTransformContext(rm, sm, metric, v)
+		case pmetric.HistogramDataPoint:
+			tCtx = ottldatapoint.NewTransformContext(rm, sm, metric, v)
+		case pmetric.ExponentialHistogramDataPoint:
+			tCtx = ottldatapoint.NewTransformContext(rm, sm, metric, v)
+		case pmetric.SummaryDataPoint:
+			tCtx = ottldatapoint.NewTransformContext(rm, sm, metric, v)
+		default:
+			return nil
+		}
+
+		isMatch, evalErr := condSeq.Eval(ctx, tCtx)
+		tCtx.Close()
+		if evalErr != nil {
+			switch errorMode {
+			case ErrorModePropagate:
+				return fmt.Errorf("evaluate condition on datapoint %d/%d/%d/%d: %w", i, j, k, dpIdx, evalErr)
+			case ErrorModeIgnore:
+				ignoreLogger.Warn("failed to evaluate condition, skipping metric datapoint",
+					zap.Error(evalErr),
+					zap.Int("resource", i),
+					zap.Int("scope", j),
+					zap.Int("metric", k),
+					zap.Int("datapoint", dpIdx),
+				)
+				isMatch = false
+			case ErrorModeSilent:
+				isMatch = false
+			default:
+				return fmt.Errorf("unknown error mode: %s", errorMode)
+			}
+		}
+
+		keep, err := filterKeep(isMatch, mode)
+		if err != nil {
+			return err
+		}
+		if keep {
+			matched[metricDataPointKey{i, j, k, dpIdx}] = true
+		}
+		totalDataPoints++
+		return nil
+	}
+
 	for i := 0; i < rms.Len(); i++ {
+		if err := checkFilterCtx(ctx); err != nil {
+			return metrics, 0, 0, err
+		}
 		rm := rms.At(i)
 		sms := rm.ScopeMetrics()
 		for j := 0; j < sms.Len(); j++ {
@@ -94,186 +166,199 @@ func FilterMetricRunData(metricData json.RawMessage, conditions []string, mode F
 				switch metric.Type() {
 				case pmetric.MetricTypeGauge:
 					dps := metric.Gauge().DataPoints()
-					for dp := 0; dp < dps.Len(); dp++ {
-						tCtx := ottldatapoint.NewTransformContext(rm, sm, metric, dps.At(dp))
-
-						isMatch, evalErr := condSeq.Eval(ctx, tCtx)
-						tCtx.Close()
-						if evalErr != nil {
-							return nil, 0, 0, fmt.Errorf("evaluate condition on gauge datapoint %d/%d/%d/%d: %w", i, j, k, dp, evalErr)
+					for dpIdx := 0; dpIdx < dps.Len(); dpIdx++ {
+						if err := evalDataPoint(rm, sm, metric, dps.At(dpIdx), i, j, k, dpIdx); err != nil {
+							return metrics, 0, 0, err
 						}
-
-						var keep bool
-						switch mode {
-						case FilterModeInclude:
-							keep = isMatch
-						case FilterModeExclude:
-							keep = !isMatch
-						default:
-							return nil, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
-						}
-
-						if keep {
-							matched[metricDataPointKey{i, j, k, dp}] = true
-						}
-						totalDataPoints++
 					}
 				case pmetric.MetricTypeSum:
 					dps := metric.Sum().DataPoints()
-					for dp := 0; dp < dps.Len(); dp++ {
-						tCtx := ottldatapoint.NewTransformContext(rm, sm, metric, dps.At(dp))
-
-						isMatch, evalErr := condSeq.Eval(ctx, tCtx)
-						tCtx.Close()
-						if evalErr != nil {
-							return nil, 0, 0, fmt.Errorf("evaluate condition on sum datapoint %d/%d/%d/%d: %w", i, j, k, dp, evalErr)
+					for dpIdx := 0; dpIdx < dps.Len(); dpIdx++ {
+						if err := evalDataPoint(rm, sm, metric, dps.At(dpIdx), i, j, k, dpIdx); err != nil {
+							return metrics, 0, 0, err
 						}
-
-						var keep bool
-						switch mode {
-						case FilterModeInclude:
-							keep = isMatch
-						case FilterModeExclude:
-							keep = !isMatch
-						default:
-							return nil, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
-						}
-
-						if keep {
-							matched[metricDataPointKey{i, j, k, dp}] = true
-						}
-						totalDataPoints++
 					}
 				case pmetric.MetricTypeHistogram:
 					dps := metric.Histogram().DataPoints()
-					for dp := 0; dp < dps.Len(); dp++ {
-						tCtx := ottldatapoint.NewTransformContext(rm, sm, metric, dps.At(dp))
-
-						isMatch, evalErr := condSeq.Eval(ctx, tCtx)
-						tCtx.Close()
-						if evalErr != nil {
-							return nil, 0, 0, fmt.Errorf("evaluate condition on histogram datapoint %d/%d/%d/%d: %w", i, j, k, dp, evalErr)
+					for dpIdx := 0; dpIdx < dps.Len(); dpIdx++ {
+						if err := evalDataPoint(rm, sm, metric, dps.At(dpIdx), i, j, k, dpIdx); err != nil {
+							return metrics, 0, 0, err
 						}
-
-						var keep bool
-						switch mode {
-						case FilterModeInclude:
-							keep = isMatch
-						case FilterModeExclude:
-							keep = !isMatch
-						default:
-							return nil, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
+					}
+				case pmetric.MetricTypeExponentialHistogram:
+					dps := metric.ExponentialHistogram().DataPoints()
+					for dpIdx := 0; dpIdx < dps.Len(); dpIdx++ {
+						if err := evalDataPoint(rm, sm, metric, dps.At(dpIdx), i, j, k, dpIdx); err != nil {
+							return metrics, 0, 0, err
 						}
-
-						if keep {
-							matched[metricDataPointKey{i, j, k, dp}] = true
+					}
+				case pmetric.MetricTypeSummary:
+					dps := metric.Summary().DataPoints()
+					for dpIdx := 0; dpIdx < dps.Len(); dpIdx++ {
+						if err := evalDataPoint(rm, sm, metric, dps.At(dpIdx), i, j, k, dpIdx); err != nil {
+							return metrics, 0, 0, err
 						}
-						totalDataPoints++
 					}
 				}
 			}
 		}
 	}
 
-	// Step 5: build a new ExportMetricsServiceRequest containing only matched data points.
-	var filteredReq collectormetricsv1.ExportMetricsServiceRequest
-	for i, rms := range srcReq.ResourceMetrics {
-		var outRms metricspb.ResourceMetrics
-		outRms.Resource = rms.Resource
-		outRms.SchemaUrl = rms.SchemaUrl
+	filtered := pmetric.NewMetrics()
+	outRms := filtered.ResourceMetrics()
 
-		for j, sms := range rms.ScopeMetrics {
-			var outSms metricspb.ScopeMetrics
-			outSms.Scope = sms.Scope
-			outSms.SchemaUrl = sms.SchemaUrl
+	copyMetricDataPoints := func(src, dst pmetric.Metric, i, j, k int) bool {
+		key := func(dpIdx int) metricDataPointKey { return metricDataPointKey{i, j, k, dpIdx} }
 
-			for k, m := range sms.Metrics {
-				var outMetric metricspb.Metric
-				outMetric.Name = m.Name
-				outMetric.Description = m.Description
-				outMetric.Unit = m.Unit
-
-				hasDataPoints := false
-
-				switch data := m.Data.(type) {
-				case *metricspb.Metric_Gauge:
-					var filteredDps []*metricspb.NumberDataPoint
-					for dp, dpProto := range data.Gauge.DataPoints {
-						if matched[metricDataPointKey{i, j, k, dp}] {
-							filteredDps = append(filteredDps, dpProto)
-						}
-					}
-					if len(filteredDps) > 0 {
-						outMetric.Data = &metricspb.Metric_Gauge{
-							Gauge: &metricspb.Gauge{DataPoints: filteredDps},
-						}
-						hasDataPoints = true
-					}
-				case *metricspb.Metric_Sum:
-					var filteredDps []*metricspb.NumberDataPoint
-					for dp, dpProto := range data.Sum.DataPoints {
-						if matched[metricDataPointKey{i, j, k, dp}] {
-							filteredDps = append(filteredDps, dpProto)
-						}
-					}
-					if len(filteredDps) > 0 {
-						outMetric.Data = &metricspb.Metric_Sum{
-							Sum: &metricspb.Sum{
-								DataPoints:             filteredDps,
-								AggregationTemporality: data.Sum.AggregationTemporality,
-								IsMonotonic:            data.Sum.IsMonotonic,
-							},
-						}
-						hasDataPoints = true
-					}
-				case *metricspb.Metric_Histogram:
-					var filteredDps []*metricspb.HistogramDataPoint
-					for dp, dpProto := range data.Histogram.DataPoints {
-						if matched[metricDataPointKey{i, j, k, dp}] {
-							filteredDps = append(filteredDps, dpProto)
-						}
-					}
-					if len(filteredDps) > 0 {
-						outMetric.Data = &metricspb.Metric_Histogram{
-							Histogram: &metricspb.Histogram{
-								DataPoints:             filteredDps,
-								AggregationTemporality: data.Histogram.AggregationTemporality,
-							},
-						}
-						hasDataPoints = true
-					}
-				default:
-					// For unhandled metric types (ExponentialHistogram, Summary),
-					// include the metric as-is if any of its data points matched.
-					// Since we cannot reliably filter individual data points for
-					// unhandled types, include the entire metric.
-					hasDataPoints = true
-					outMetric.Data = m.Data
-				}
-
-				if hasDataPoints {
-					outSms.Metrics = append(outSms.Metrics, &outMetric)
+		switch src.Type() {
+		case pmetric.MetricTypeGauge:
+			srcDps := src.Gauge().DataPoints()
+			dstDps := dst.SetEmptyGauge().DataPoints()
+			for dpIdx := 0; dpIdx < srcDps.Len(); dpIdx++ {
+				if matched[key(dpIdx)] {
+					srcDps.At(dpIdx).CopyTo(dstDps.AppendEmpty())
 				}
 			}
-
-			if len(outSms.Metrics) > 0 {
-				outRms.ScopeMetrics = append(outRms.ScopeMetrics, &outSms)
+			return dstDps.Len() > 0
+		case pmetric.MetricTypeSum:
+			srcDps := src.Sum().DataPoints()
+			dstSum := dst.SetEmptySum()
+			dstSum.SetAggregationTemporality(src.Sum().AggregationTemporality())
+			dstSum.SetIsMonotonic(src.Sum().IsMonotonic())
+			dstDps := dstSum.DataPoints()
+			for dpIdx := 0; dpIdx < srcDps.Len(); dpIdx++ {
+				if matched[key(dpIdx)] {
+					srcDps.At(dpIdx).CopyTo(dstDps.AppendEmpty())
+				}
 			}
-		}
-
-		if len(outRms.ScopeMetrics) > 0 {
-			filteredReq.ResourceMetrics = append(filteredReq.ResourceMetrics, &outRms)
+			return dstDps.Len() > 0
+		case pmetric.MetricTypeHistogram:
+			srcDps := src.Histogram().DataPoints()
+			dstHist := dst.SetEmptyHistogram()
+			dstHist.SetAggregationTemporality(src.Histogram().AggregationTemporality())
+			dstDps := dstHist.DataPoints()
+			for dpIdx := 0; dpIdx < srcDps.Len(); dpIdx++ {
+				if matched[key(dpIdx)] {
+					srcDps.At(dpIdx).CopyTo(dstDps.AppendEmpty())
+				}
+			}
+			return dstDps.Len() > 0
+		case pmetric.MetricTypeExponentialHistogram:
+			srcDps := src.ExponentialHistogram().DataPoints()
+			dstHist := dst.SetEmptyExponentialHistogram()
+			dstHist.SetAggregationTemporality(src.ExponentialHistogram().AggregationTemporality())
+			dstDps := dstHist.DataPoints()
+			for dpIdx := 0; dpIdx < srcDps.Len(); dpIdx++ {
+				if matched[key(dpIdx)] {
+					srcDps.At(dpIdx).CopyTo(dstDps.AppendEmpty())
+				}
+			}
+			return dstDps.Len() > 0
+		case pmetric.MetricTypeSummary:
+			srcDps := src.Summary().DataPoints()
+			dstDps := dst.SetEmptySummary().DataPoints()
+			for dpIdx := 0; dpIdx < srcDps.Len(); dpIdx++ {
+				if matched[key(dpIdx)] {
+					srcDps.At(dpIdx).CopyTo(dstDps.AppendEmpty())
+				}
+			}
+			return dstDps.Len() > 0
+		default:
+			return false
 		}
 	}
 
-	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: false,
-		Indent:        "",
-	}.Marshal(&filteredReq)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("marshal result JSON: %w", err)
+	for i := 0; i < rms.Len(); i++ {
+		rm := rms.At(i)
+		sms := rm.ScopeMetrics()
+
+		hasRmMatch := false
+		for j := 0; j < sms.Len() && !hasRmMatch; j++ {
+			sm := sms.At(j)
+			mSlice := sm.Metrics()
+			for k := 0; k < mSlice.Len() && !hasRmMatch; k++ {
+				dpsLen := metricDataPointCount(mSlice.At(k))
+				for dpIdx := 0; dpIdx < dpsLen && !hasRmMatch; dpIdx++ {
+					if matched[metricDataPointKey{i, j, k, dpIdx}] {
+						hasRmMatch = true
+					}
+				}
+			}
+		}
+		if !hasRmMatch {
+			continue
+		}
+
+		outRm := outRms.AppendEmpty()
+		rm.Resource().CopyTo(outRm.Resource())
+		outRm.SetSchemaUrl(rm.SchemaUrl())
+		outSms := outRm.ScopeMetrics()
+
+		for j := 0; j < sms.Len(); j++ {
+			sm := sms.At(j)
+			mSlice := sm.Metrics()
+
+			hasSmMatch := false
+			for k := 0; k < mSlice.Len() && !hasSmMatch; k++ {
+				dpsLen := metricDataPointCount(mSlice.At(k))
+				for dpIdx := 0; dpIdx < dpsLen && !hasSmMatch; dpIdx++ {
+					if matched[metricDataPointKey{i, j, k, dpIdx}] {
+						hasSmMatch = true
+					}
+				}
+			}
+			if !hasSmMatch {
+				continue
+			}
+
+			outSm := outSms.AppendEmpty()
+			sm.Scope().CopyTo(outSm.Scope())
+			outSm.SetSchemaUrl(sm.SchemaUrl())
+			outMetrics := outSm.Metrics()
+
+			for k := 0; k < mSlice.Len(); k++ {
+				metric := mSlice.At(k)
+				dpsLen := metricDataPointCount(metric)
+				hasMetricMatch := false
+				for dpIdx := 0; dpIdx < dpsLen; dpIdx++ {
+					if matched[metricDataPointKey{i, j, k, dpIdx}] {
+						hasMetricMatch = true
+						break
+					}
+				}
+				if !hasMetricMatch {
+					continue
+				}
+
+				scratch := pmetric.NewMetric()
+				scratch.SetName(metric.Name())
+				scratch.SetDescription(metric.Description())
+				scratch.SetUnit(metric.Unit())
+				metric.Metadata().CopyTo(scratch.Metadata())
+				if copyMetricDataPoints(metric, scratch, i, j, k) {
+					scratch.CopyTo(outMetrics.AppendEmpty())
+				}
+			}
+		}
 	}
 
 	filteredCount := len(matched)
-	return outJSON, totalDataPoints, filteredCount, nil
+	return filtered, totalDataPoints, filteredCount, nil
+}
+
+func metricDataPointCount(metric pmetric.Metric) int {
+	switch metric.Type() {
+	case pmetric.MetricTypeGauge:
+		return metric.Gauge().DataPoints().Len()
+	case pmetric.MetricTypeSum:
+		return metric.Sum().DataPoints().Len()
+	case pmetric.MetricTypeHistogram:
+		return metric.Histogram().DataPoints().Len()
+	case pmetric.MetricTypeExponentialHistogram:
+		return metric.ExponentialHistogram().DataPoints().Len()
+	case pmetric.MetricTypeSummary:
+		return metric.Summary().DataPoints().Len()
+	default:
+		return 0
+	}
 }

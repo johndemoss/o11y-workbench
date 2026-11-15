@@ -1,19 +1,13 @@
 package ottl
 
 import (
-	"os"
-	"path/filepath"
+	"reflect"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestExportPipelinesToYaml(t *testing.T) {
-	// Load the golden file
-	goldenPath := filepath.Join("testdata", "export-expected.yaml")
-	goldenBytes, err := os.ReadFile(goldenPath)
-	if err != nil {
-		t.Fatalf("failed to read golden file: %v", err)
-	}
-	expected := string(goldenBytes)
 
 	// Build PipelinesBySignal matching the golden file
 	pipelines := PipelinesBySignal{
@@ -65,8 +59,13 @@ func TestExportPipelinesToYaml(t *testing.T) {
 		t.Fatalf("ExportPipelinesToYaml failed: %v", err)
 	}
 
-	if got != expected {
-		t.Errorf("YAML output does not match golden file.\n\nGot:\n%s\n\nExpected:\n%s", got, expected)
+	var decoded map[string]interface{}
+	if err := yaml.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("parse exported YAML: %v", err)
+	}
+	processors := decoded["processors"].(map[string]interface{})
+	if !reflect.DeepEqual(processors["transform/add_env"], map[string]interface{}(pipelines["traces"].Processors["transform/add_env"])) {
+		t.Errorf("processor config changed: %v", processors)
 	}
 }
 
@@ -91,22 +90,47 @@ func TestExportPipelinesToYaml_EmptyPipelines(t *testing.T) {
 		t.Fatalf("ExportPipelinesToYaml failed: %v", err)
 	}
 
-	// Empty pipelines are skipped in output (matching export-yaml.ts behavior)
-	expected := `receivers:
-  otlp:
-    protocols:
-      grpc:
+	var decoded map[string]interface{}
+	if err := yaml.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("parse exported YAML: %v", err)
+	}
+	service := decoded["service"].(map[string]interface{})
+	if len(service["pipelines"].(map[string]interface{})) != 3 {
+		t.Errorf("expected all modeled pipelines: %v", service)
+	}
+}
 
-processors:
-  {}
-
+func TestExportRoundTripAndConflicts(t *testing.T) {
+	config := `receivers:
+  otlp/custom: {protocols: {grpc: {endpoint: "127.0.0.1:4317"}}}
 exporters:
-  debug:
-
+  debug/custom: {verbosity: detailed}
+processors:
+  transform/foo:
+    trace_statements:
+      - context: span
+        statements: ['set(attributes["message"], "a: b # c")']
 service:
   pipelines:
+    traces: {receivers: [otlp/custom], processors: [transform/foo], exporters: [debug/custom]}
 `
-	if got != expected {
-		t.Errorf("empty pipelines:\nGot:\n%s\n\nExpected:\n%s", got, expected)
+	p, err := ImportCollectorConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExportPipelinesToYaml(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := ImportCollectorConfig(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(p["traces"], again["traces"]) {
+		t.Fatalf("round trip changed pipeline:\n%s", out)
+	}
+	p["logs"] = &Pipeline{Stages: []Stage{{ProcessorRef: "transform/foo"}}, Processors: map[string]ProcessorConfig{"transform/foo": {"log_statements": []interface{}{}}}}
+	if _, err := ExportPipelinesToYaml(p); err == nil {
+		t.Fatal("expected conflicting processor error")
 	}
 }

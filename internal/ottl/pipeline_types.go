@@ -35,10 +35,12 @@ type Stage struct {
 
 // Pipeline is a complete pipeline definition with stages and processor configs.
 type Pipeline struct {
-	Stages     []Stage                    `yaml:"stages" json:"stages"`
-	Processors map[string]ProcessorConfig `yaml:"processors" json:"processors"`
-	Receivers  []string                   `yaml:"receivers" json:"receivers"`
-	Exporters  []string                   `yaml:"exporters" json:"exporters"`
+	Stages          []Stage                    `yaml:"stages" json:"stages"`
+	Processors      map[string]ProcessorConfig `yaml:"processors" json:"processors"`
+	Receivers       []string                   `yaml:"receivers" json:"receivers"`
+	Exporters       []string                   `yaml:"exporters" json:"exporters"`
+	ReceiverConfigs map[string]interface{}     `yaml:"receiver_configs,omitempty" json:"receiver_configs,omitempty"`
+	ExporterConfigs map[string]interface{}     `yaml:"exporter_configs,omitempty" json:"exporter_configs,omitempty"`
 }
 
 // PipelinesBySignal maps signal names (e.g. "traces", "logs", "metrics") to their Pipeline definitions.

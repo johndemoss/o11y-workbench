@@ -1,6 +1,7 @@
 package ottl
 
 import (
+	"context"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -42,7 +43,7 @@ func TestExecutePipeline_TwoStageTransform(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestExecutePipeline_ThreeStageTransformFilterTransform(t *testing.T) {
 			},
 			"p2": {
 				"traces": map[string]interface{}{
-					"span": []interface{}{`name != "span-c"`},
+					"span": []interface{}{`name == "span-c"`},
 				},
 			},
 			"p3": {
@@ -114,7 +115,7 @@ func TestExecutePipeline_ThreeStageTransformFilterTransform(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestExecutePipeline_ThreeStageTransformFilterTransform(t *testing.T) {
 	}
 }
 
-func TestExecutePipeline_FilterDropsAllSpans(t *testing.T) {
+func TestExecutePipeline_FilterExcludeNoMatchKeepsAll(t *testing.T) {
 	traceData, err := marshalTrace(makeSampleTrace())
 	if err != nil {
 		t.Fatalf("marshal trace: %v", err)
@@ -200,15 +201,46 @@ func TestExecutePipeline_FilterDropsAllSpans(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
 	if result.Stages[0].StatementsParsed != 1 {
 		t.Fatalf("statements parsed = %d, want 1", result.Stages[0].StatementsParsed)
 	}
+	if result.Stages[0].OutputSpanCount != 1 {
+		t.Errorf("stage output = %d, want 1 (exclude drops only matching spans)", result.Stages[0].OutputSpanCount)
+	}
+	if result.FinalSpanCount != 1 {
+		t.Errorf("FinalSpanCount = %d, want 1", result.FinalSpanCount)
+	}
+}
+
+func TestExecutePipeline_FilterExcludeDropsMatching(t *testing.T) {
+	traceData, err := marshalTrace(makeSampleTrace())
+	if err != nil {
+		t.Fatalf("marshal trace: %v", err)
+	}
+
+	pipeline := Pipeline{
+		Stages: []Stage{
+			{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"},
+		},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"traces": map[string]interface{}{
+					"span": []interface{}{`name == "test-span"`},
+				},
+			},
+		},
+	}
+
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecutePipeline: %v", err)
+	}
 	if result.Stages[0].OutputSpanCount != 0 {
-		t.Errorf("stage output = %d, want 0 (a filter that matches nothing keeps nothing)", result.Stages[0].OutputSpanCount)
+		t.Errorf("stage output = %d, want 0 (exclude drops matching spans)", result.Stages[0].OutputSpanCount)
 	}
 	if result.FinalSpanCount != 0 {
 		t.Errorf("FinalSpanCount = %d, want 0", result.FinalSpanCount)
@@ -227,7 +259,7 @@ func TestExecutePipeline_EmptyStages(t *testing.T) {
 		Processors: map[string]ProcessorConfig{},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
@@ -277,7 +309,7 @@ func TestExecutePipeline_ErrorModePropagate(t *testing.T) {
 		},
 	}
 
-	_, err = ExecutePipeline(traceData, pipeline)
+	_, err = ExecutePipeline(context.Background(), traceData, pipeline)
 	if err == nil {
 		t.Fatal("expected error for ErrorModePropagate, got nil")
 	}
@@ -305,7 +337,7 @@ func TestExecutePipeline_ErrorModeIgnore(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline with ErrorModeIgnore: %v", err)
 	}
@@ -365,7 +397,7 @@ func TestExecutePipeline_StageWithNoStatements(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
@@ -425,7 +457,7 @@ func TestExecutePipeline_IntermediateDataCaptured(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
@@ -471,7 +503,7 @@ func TestExecutePipeline_ErrorModeSilent(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline with ErrorModeSilent: %v", err)
 	}
@@ -509,7 +541,7 @@ func TestExecutePipeline_NilTraceData(t *testing.T) {
 		},
 	}
 
-	_, err := ExecutePipeline(nil, pipeline)
+	_, err := ExecutePipeline(context.Background(), nil, pipeline)
 	if err == nil {
 		t.Fatal("expected error for nil trace data")
 	}
@@ -531,7 +563,7 @@ func TestExecutePipeline_UnknownStageType(t *testing.T) {
 		},
 	}
 
-	_, err = ExecutePipeline(traceData, pipeline)
+	_, err = ExecutePipeline(context.Background(), traceData, pipeline)
 	if err == nil {
 		t.Fatal("expected error for unknown stage type")
 	}
@@ -553,7 +585,7 @@ func TestExecutePipeline_MissingProcessorConfig(t *testing.T) {
 		},
 	}
 
-	_, err = ExecutePipeline(traceData, pipeline)
+	_, err = ExecutePipeline(context.Background(), traceData, pipeline)
 	if err == nil {
 		t.Fatal("expected error for missing processor ref")
 	}

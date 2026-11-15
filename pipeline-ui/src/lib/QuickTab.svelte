@@ -1,33 +1,32 @@
 <script lang="ts">
   import RunSelector from './RunSelector.svelte'
-  import type { PipelineResult } from './types'
+  import type { PipelineResult, SignalType } from './types'
+  import { dump } from 'js-yaml'
 
   let {
-    pipelineYaml = '',
-    onresult
+    onresult,
+    ondraft
   }: {
-    pipelineYaml?: string
-    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalTrace?: unknown) => void
+    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalTrace?: unknown, submittedYaml?: string, signal?: SignalType) => void
+    ondraft?: (yaml: string) => void
   } = $props()
 
   let quickType: 'transform' | 'filter' = $state('transform')
   let statements: string = $state('')
+  let signal: SignalType = $state('traces')
 
   let yaml = $derived.by(() => {
-    const lines: string[] = []
-    lines.push('stages:')
-    lines.push('  - id: quick-stage')
-    lines.push(`    type: ${quickType}`)
-    lines.push('    processor_ref: proc-quick')
-    lines.push('processors:')
-    lines.push('  proc-quick:')
-    lines.push('    statements:')
-    const stmts = statements.split('\n').filter(s => s.trim())
-    for (const s of stmts) {
-      lines.push(`      - ${s.trim()}`)
-    }
-    return lines.join('\n')
+    const lines = statements.split('\n').map(s => s.trim()).filter(Boolean)
+    const field = signal === 'traces' ? 'span' : signal === 'logs' ? 'log_record' : 'datapoint'
+    const processor = quickType === 'filter'
+      ? { [signal]: { [field]: lines } }
+      : { statements: lines }
+    return dump({
+      stages: [{ id: 'quick-stage', type: quickType, processor_ref: `${quickType}/quick` }],
+      processors: { [`${quickType}/quick`]: processor },
+    }, { noRefs: true, lineWidth: -1 })
   })
+  $effect(() => { ondraft?.(yaml) })
 </script>
 
 <div class="quick-tab">
@@ -54,7 +53,7 @@
     ></textarea>
   </div>
 
-  <RunSelector pipelineYaml={yaml} {onresult} />
+  <RunSelector pipelineYaml={yaml} bind:signal {onresult} />
 </div>
 
 <style>

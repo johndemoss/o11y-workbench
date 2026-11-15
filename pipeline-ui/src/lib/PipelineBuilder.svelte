@@ -14,8 +14,12 @@
   let deleteConfirmIdx: number | null = $state(null)
 
   function addStage(): void {
-    const id = `stage-${pipeline.stages.length + 1}`
-    const procName = `proc-${id}`
+    let next = 1
+    while (pipeline.stages.some((stage) => stage.id === `stage-${next}`) ||
+      `transform/stage-${next}` in pipeline.processors ||
+      pipeline.stages.some((stage) => stage.processor_ref === `transform/stage-${next}`)) next++
+    const id = `stage-${next}`
+    const procName = `transform/${id}`
     pipeline.stages = [...pipeline.stages, {
       id,
       type: 'transform' as StageType,
@@ -26,14 +30,28 @@
 
   function removeStage(idx: number): void {
     const removed = pipeline.stages[idx]
-    const { [removed.processor_ref]: _, ...rest } = pipeline.processors
     pipeline.stages = pipeline.stages.filter((_, i) => i !== idx)
-    pipeline.processors = rest
+    if (!pipeline.stages.some((stage) => stage.processor_ref === removed.processor_ref)) {
+      const { [removed.processor_ref]: _, ...rest } = pipeline.processors
+      pipeline.processors = rest
+    }
     deleteConfirmIdx = null
   }
 
   function updateStage(idx: number, stage: Stage): void {
-    pipeline.stages = pipeline.stages.map((s, i) => i === idx ? stage : s)
+    const prev = pipeline.stages[idx]
+    let next = stage
+    const refType = prev.processor_ref.split('/')[0]
+    if (refType !== stage.type) {
+      const suffix = prev.processor_ref.split('/').slice(1).join('/') || prev.processor_ref
+      let ref = `${stage.type}/${suffix}`
+      if (ref !== prev.processor_ref && ref in pipeline.processors) ref = `${ref}-${idx + 1}`
+      const config = pipeline.processors[prev.processor_ref] ?? {}
+      const { [prev.processor_ref]: _, ...rest } = pipeline.processors
+      pipeline.processors = { ...rest, [ref]: config }
+      next = { ...stage, processor_ref: ref }
+    }
+    pipeline.stages = pipeline.stages.map((s, i) => i === idx ? next : s)
   }
 
   function updateProcessor(idx: number, config: ProcessorConfig): void {

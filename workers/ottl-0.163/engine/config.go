@@ -45,6 +45,156 @@ type filterWrapper struct {
 	Filter FilterConfig `yaml:"filter"`
 }
 
+// TransformConfigMeta captures parsed transform groups and whether the YAML was structured.
+type TransformConfigMeta struct {
+	Structured   bool
+	TraceGroups  []ContextStatements
+	LogGroups    []ContextStatements
+	MetricGroups []ContextStatements
+}
+
+// FilterConditionsBySignal holds filter conditions for each signal in a structured config.
+type FilterConditionsBySignal struct {
+	Traces  []string
+	Logs    []string
+	Metrics []string
+}
+
+func filterConfigHasSections(cfg FilterConfig) bool {
+	return len(cfg.Traces.SpanConditions) > 0 ||
+		len(cfg.Logs.LogRecordConditions) > 0 ||
+		len(cfg.Metrics.Conditions) > 0
+}
+
+func parseStructuredFilterConfig(configYAML string) (FilterConfig, bool) {
+	var cfg FilterConfig
+	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil && filterConfigHasSections(cfg) {
+		return cfg, true
+	}
+	var wrapped filterWrapper
+	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil && filterConfigHasSections(wrapped.Filter) {
+		return wrapped.Filter, true
+	}
+	return FilterConfig{}, false
+}
+
+func populatedFilterSections(cfg FilterConfig) int {
+	n := 0
+	if len(cfg.Traces.SpanConditions) > 0 {
+		n++
+	}
+	if len(cfg.Logs.LogRecordConditions) > 0 {
+		n++
+	}
+	if len(cfg.Metrics.Conditions) > 0 {
+		n++
+	}
+	return n
+}
+
+func primaryFilterConditions(cfg FilterConfig) []string {
+	if populatedFilterSections(cfg) > 1 {
+		return cfg.Traces.SpanConditions
+	}
+	if len(cfg.Traces.SpanConditions) > 0 {
+		return cfg.Traces.SpanConditions
+	}
+	if len(cfg.Logs.LogRecordConditions) > 0 {
+		return cfg.Logs.LogRecordConditions
+	}
+	return cfg.Metrics.Conditions
+}
+
+func transformConfigHasAnySection(cfg TransformConfig) bool {
+	return len(cfg.TraceStatements) > 0 ||
+		len(cfg.LogStatements) > 0 ||
+		len(cfg.MetricStatements) > 0
+}
+
+func cloneContextStatementGroups(groups []ContextStatements) []ContextStatements {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]ContextStatements, len(groups))
+	for i, g := range groups {
+		out[i].Context = g.Context
+		if len(g.Conditions) > 0 {
+			out[i].Conditions = append([]string(nil), g.Conditions...)
+		}
+		if len(g.Statements) > 0 {
+			out[i].Statements = append([]string(nil), g.Statements...)
+		}
+	}
+	return out
+}
+
+// ParseTransformConfigMeta parses structured transform YAML and preserves context/condition groups.
+// Unstructured inputs return Structured=false with statements placed in TraceGroups.
+func ParseTransformConfigMeta(configYAML string) (TransformConfigMeta, error) {
+	configYAML = strings.TrimSpace(configYAML)
+	cleaned := trimTrailingSpaces(configYAML)
+	if cleaned == "" {
+		return TransformConfigMeta{}, fmt.Errorf("empty transform config")
+	}
+
+	var cfg TransformConfig
+	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil && transformConfigHasAnySection(cfg) {
+		return TransformConfigMeta{
+			Structured:   true,
+			TraceGroups:  cloneContextStatementGroups(cfg.TraceStatements),
+			LogGroups:    cloneContextStatementGroups(cfg.LogStatements),
+			MetricGroups: cloneContextStatementGroups(cfg.MetricStatements),
+		}, nil
+	}
+
+	var wrapped transformWrapper
+	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil && transformConfigHasAnySection(wrapped.Transform) {
+		t := wrapped.Transform
+		return TransformConfigMeta{
+			Structured:   true,
+			TraceGroups:  cloneContextStatementGroups(t.TraceStatements),
+			LogGroups:    cloneContextStatementGroups(t.LogStatements),
+			MetricGroups: cloneContextStatementGroups(t.MetricStatements),
+		}, nil
+	}
+
+	if LooksLikeFilterConfig(cleaned) {
+		return TransformConfigMeta{}, ErrLooksLikeFilterConfig
+	}
+	stmts, err := ParseTransformStatements(configYAML)
+	if err != nil {
+		return TransformConfigMeta{}, err
+	}
+	if len(stmts) == 0 {
+		return TransformConfigMeta{}, fmt.Errorf("no OTTL statements found in config")
+	}
+	return TransformConfigMeta{
+		Structured:  false,
+		TraceGroups: []ContextStatements{{Statements: stmts}},
+	}, nil
+}
+
+// ParseFilterConditionsBySignal returns per-signal filter conditions from structured YAML.
+// For unstructured configs, conditions are returned only under Traces; structured is false.
+func ParseFilterConditionsBySignal(configYAML string) (FilterConditionsBySignal, bool, error) {
+	configYAML = strings.TrimSpace(configYAML)
+	if configYAML == "" {
+		return FilterConditionsBySignal{}, false, fmt.Errorf("empty filter config")
+	}
+	if cfg, ok := parseStructuredFilterConfig(configYAML); ok {
+		return FilterConditionsBySignal{
+			Traces:  append([]string(nil), cfg.Traces.SpanConditions...),
+			Logs:    append([]string(nil), cfg.Logs.LogRecordConditions...),
+			Metrics: append([]string(nil), cfg.Metrics.Conditions...),
+		}, true, nil
+	}
+	conds, err := ParseFilterConditions(configYAML)
+	if err != nil {
+		return FilterConditionsBySignal{}, false, err
+	}
+	return FilterConditionsBySignal{Traces: conds}, false, nil
+}
+
 func ParseTransformStatements(configYAML string) ([]string, error) {
 	configYAML = strings.TrimSpace(configYAML)
 	if configYAML == "" {
@@ -56,17 +206,21 @@ func ParseTransformStatements(configYAML string) ([]string, error) {
 	}
 
 	var cfg TransformConfig
-	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil {
-		if stmts := cfg.statements(); len(stmts) > 0 {
+	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil && transformConfigHasAnySection(cfg) {
+		stmts := ExtractStatements(cfg.TraceStatements)
+		if len(stmts) > 0 {
 			return stmts, nil
 		}
+		return nil, fmt.Errorf("no OTTL statements found in config")
 	}
 
 	var wrapped transformWrapper
-	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil {
-		if stmts := wrapped.Transform.statements(); len(stmts) > 0 {
+	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil && transformConfigHasAnySection(wrapped.Transform) {
+		stmts := ExtractStatements(wrapped.Transform.TraceStatements)
+		if len(stmts) > 0 {
 			return stmts, nil
 		}
+		return nil, fmt.Errorf("no OTTL statements found in config")
 	}
 
 	var simple struct {
@@ -99,18 +253,11 @@ func ParseFilterConditions(configYAML string) ([]string, error) {
 		return nil, fmt.Errorf("empty filter config")
 	}
 
-	var cfg FilterConfig
-	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
-		if conds := filterConditions(cfg); len(conds) > 0 {
+	if cfg, ok := parseStructuredFilterConfig(configYAML); ok {
+		if conds := primaryFilterConditions(cfg); len(conds) > 0 {
 			return conds, nil
 		}
-	}
-
-	var wrapped filterWrapper
-	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
-		if conds := filterConditions(wrapped.Filter); len(conds) > 0 {
-			return conds, nil
-		}
+		return nil, fmt.Errorf("no OTTL conditions found in config")
 	}
 
 	var flat []string
@@ -124,33 +271,6 @@ func ParseFilterConditions(configYAML string) ([]string, error) {
 	}
 
 	return nil, fmt.Errorf("no OTTL conditions found in config")
-}
-
-func filterConditions(cfg FilterConfig) []string {
-	if conds := cfg.Traces.SpanConditions; len(conds) > 0 {
-		return conds
-	}
-	if conds := cfg.Logs.LogRecordConditions; len(conds) > 0 {
-		return conds
-	}
-	if conds := cfg.Metrics.Conditions; len(conds) > 0 {
-		return conds
-	}
-	return nil
-}
-
-func (tc *TransformConfig) statements() []string {
-	var out []string
-	for _, g := range tc.TraceStatements {
-		out = append(out, g.Statements...)
-	}
-	for _, g := range tc.LogStatements {
-		out = append(out, g.Statements...)
-	}
-	for _, g := range tc.MetricStatements {
-		out = append(out, g.Statements...)
-	}
-	return out
 }
 
 // ExtractStatements flattens a slice of ContextStatements into a single string slice.
@@ -167,39 +287,14 @@ func ExtractStatements(groups []ContextStatements) []string {
 // single config. For unstructured formats (flat list, lines), all statements are
 // returned as trace statements for backward compatibility.
 func ParseCombinedTransformConfig(configYAML string) (traceStmts, logStmts []string, err error) {
-	configYAML = strings.TrimSpace(configYAML)
-	cleaned := trimTrailingSpaces(configYAML)
-	if cleaned == "" {
-		return nil, nil, fmt.Errorf("empty transform config")
-	}
-
-	var cfg TransformConfig
-	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil {
-		t := ExtractStatements(cfg.TraceStatements)
-		l := ExtractStatements(cfg.LogStatements)
-		if len(t) > 0 || len(l) > 0 {
-			return t, l, nil
-		}
-	}
-
-	var wrapped transformWrapper
-	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil {
-		t := ExtractStatements(wrapped.Transform.TraceStatements)
-		l := ExtractStatements(wrapped.Transform.LogStatements)
-		if len(t) > 0 || len(l) > 0 {
-			return t, l, nil
-		}
-	}
-
-	// Fallback to generic parse (all statements treated as trace for backward compat)
-	if LooksLikeFilterConfig(cleaned) {
-		return nil, nil, ErrLooksLikeFilterConfig
-	}
-	stmts, err := ParseTransformStatements(configYAML)
+	meta, err := ParseTransformConfigMeta(configYAML)
 	if err != nil {
 		return nil, nil, err
 	}
-	return stmts, nil, nil
+	if meta.Structured {
+		return ExtractStatements(meta.TraceGroups), ExtractStatements(meta.LogGroups), nil
+	}
+	return ExtractStatements(meta.TraceGroups), nil, nil
 }
 
 // ParseCombinedTransformConfigAll parses a YAML config and returns separate trace, log,
@@ -207,41 +302,17 @@ func ParseCombinedTransformConfig(configYAML string) (traceStmts, logStmts []str
 // transformations from a single config. For unstructured formats (flat list, lines),
 // all statements are returned as trace statements for backward compatibility.
 func ParseCombinedTransformConfigAll(configYAML string) (traceStmts, logStmts, metricStmts []string, err error) {
-	configYAML = strings.TrimSpace(configYAML)
-	cleaned := trimTrailingSpaces(configYAML)
-	if cleaned == "" {
-		return nil, nil, nil, fmt.Errorf("empty transform config")
-	}
-
-	var cfg TransformConfig
-	if err := yaml.Unmarshal([]byte(cleaned), &cfg); err == nil {
-		t := ExtractStatements(cfg.TraceStatements)
-		l := ExtractStatements(cfg.LogStatements)
-		m := ExtractStatements(cfg.MetricStatements)
-		if len(t) > 0 || len(l) > 0 || len(m) > 0 {
-			return t, l, m, nil
-		}
-	}
-
-	var wrapped transformWrapper
-	if err := yaml.Unmarshal([]byte(cleaned), &wrapped); err == nil {
-		t := ExtractStatements(wrapped.Transform.TraceStatements)
-		l := ExtractStatements(wrapped.Transform.LogStatements)
-		m := ExtractStatements(wrapped.Transform.MetricStatements)
-		if len(t) > 0 || len(l) > 0 || len(m) > 0 {
-			return t, l, m, nil
-		}
-	}
-
-	// Fallback to generic parse (all statements treated as trace for backward compat)
-	if LooksLikeFilterConfig(cleaned) {
-		return nil, nil, nil, ErrLooksLikeFilterConfig
-	}
-	stmts, err := ParseTransformStatements(configYAML)
+	meta, err := ParseTransformConfigMeta(configYAML)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return stmts, nil, nil, nil
+	if meta.Structured {
+		return ExtractStatements(meta.TraceGroups),
+			ExtractStatements(meta.LogGroups),
+			ExtractStatements(meta.MetricGroups),
+			nil
+	}
+	return ExtractStatements(meta.TraceGroups), nil, nil, nil
 }
 
 // ParseCombinedFilterConfig parses a YAML filter config returning separate trace and
@@ -252,17 +323,10 @@ func ParseCombinedFilterConfig(configYAML string) (traceConditions, logCondition
 		return nil, nil, fmt.Errorf("empty filter config")
 	}
 
-	var cfg FilterConfig
-	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
+	if cfg, ok := parseStructuredFilterConfig(configYAML); ok {
 		return cfg.Traces.SpanConditions, cfg.Logs.LogRecordConditions, nil
 	}
 
-	var wrapped filterWrapper
-	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
-		return wrapped.Filter.Traces.SpanConditions, wrapped.Filter.Logs.LogRecordConditions, nil
-	}
-
-	// Fallback to generic parse
 	conds, err := ParseFilterConditions(configYAML)
 	if err != nil {
 		return nil, nil, err
@@ -278,17 +342,10 @@ func ParseCombinedFilterConfigAll(configYAML string) (traceConditions, logCondit
 		return nil, nil, nil, fmt.Errorf("empty filter config")
 	}
 
-	var cfg FilterConfig
-	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err == nil {
+	if cfg, ok := parseStructuredFilterConfig(configYAML); ok {
 		return cfg.Traces.SpanConditions, cfg.Logs.LogRecordConditions, cfg.Metrics.Conditions, nil
 	}
 
-	var wrapped filterWrapper
-	if err := yaml.Unmarshal([]byte(configYAML), &wrapped); err == nil {
-		return wrapped.Filter.Traces.SpanConditions, wrapped.Filter.Logs.LogRecordConditions, wrapped.Filter.Metrics.Conditions, nil
-	}
-
-	// Fallback to generic parse
 	conds, err := ParseFilterConditions(configYAML)
 	if err != nil {
 		return nil, nil, nil, err

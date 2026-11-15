@@ -11,11 +11,6 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-
-	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 )
@@ -26,30 +21,47 @@ import (
 //
 // Conditions are ORed together — if ANY condition evaluates to true for a log,
 // the log is considered a match.
-func FilterLogRunData(logData json.RawMessage, conditions []string, mode FilterMode) (json.RawMessage, int, int, error) {
+func FilterLogRunData(ctx context.Context, logData json.RawMessage, conditions []string, mode FilterMode) (json.RawMessage, int, int, error) {
+	return FilterLogRunDataWithErrorMode(ctx, logData, conditions, mode, ErrorModePropagate)
+}
+
+// FilterLogRunDataWithErrorMode is the pipeline entry point; use FilterModeExclude
+// for collector-aligned filter processors (drop matching telemetry).
+func FilterLogRunDataWithErrorMode(ctx context.Context, logData json.RawMessage, conditions []string, mode FilterMode, errorMode ErrorMode) (json.RawMessage, int, int, error) {
+	if err := checkFilterCtx(ctx); err != nil {
+		return nil, 0, 0, err
+	}
 	if len(conditions) == 0 {
 		return nil, 0, 0, fmt.Errorf("no conditions provided")
 	}
 
-	// Step 1: unmarshal JSON log data into protobuf types.
-	var srcReq collectorlogsv1.ExportLogsServiceRequest
-	if err := protojson.Unmarshal(logData, &srcReq); err != nil {
-		return nil, 0, 0, fmt.Errorf("unmarshal log data: %w", err)
-	}
-
-	// Step 2: marshal protobuf to binary wire format, then to pdata for OTTL.
-	protoBytes, err := proto.Marshal(&srcReq)
+	logs, err := UnmarshalLogsFromJSON(logData)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("marshal protobuf: %w", err)
+		return nil, 0, 0, err
 	}
 
-	var unmarshaler plog.ProtoUnmarshaler
-	logs, err := unmarshaler.UnmarshalLogs(protoBytes)
+	filtered, total, kept, err := FilterLogRecords(ctx, logs, conditions, mode, errorMode)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("unmarshal to pdata: %w", err)
+		return nil, 0, 0, fmt.Errorf("filter log records: %w", err)
 	}
 
-	// Step 3: set up OTTL log-context parser and condition sequence.
+	outJSON, err := MarshalLogsToJSON(filtered)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return outJSON, total, kept, nil
+}
+
+// FilterLogRecords evaluates OTTL conditions against all log records in plog.Logs and
+// returns filtered logs. errorMode controls per-item evaluation errors (same as FilterSpans).
+func FilterLogRecords(ctx context.Context, logs plog.Logs, conditions []string, mode FilterMode, errorMode ErrorMode) (plog.Logs, int, int, error) {
+	if err := checkFilterCtx(ctx); err != nil {
+		return logs, 0, 0, err
+	}
+	if len(conditions) == 0 {
+		return logs, 0, 0, fmt.Errorf("no conditions provided")
+	}
+
 	settings := component.TelemetrySettings{
 		Logger:         zap.NewNop(),
 		TracerProvider: tracenoop.NewTracerProvider(),
@@ -62,18 +74,16 @@ func FilterLogRunData(logData json.RawMessage, conditions []string, mode FilterM
 		settings,
 	)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("create OTTL log parser: %w", err)
+		return logs, 0, 0, fmt.Errorf("create OTTL log parser: %w", err)
 	}
 
 	parsedConditions, err := parser.ParseConditions(conditions)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("parse OTTL conditions: %w", err)
+		return logs, 0, 0, fmt.Errorf("parse OTTL conditions: %w", err)
 	}
 
 	condSeq := ottllog.NewConditionSequence(parsedConditions, settings)
 
-	// Step 4: evaluate conditions against every log record, recording matches.
-	ctx := context.Background()
 	rls := logs.ResourceLogs()
 
 	type logKey struct {
@@ -82,30 +92,53 @@ func FilterLogRunData(logData json.RawMessage, conditions []string, mode FilterM
 	matched := make(map[logKey]bool)
 
 	totalLogs := 0
+
+	var ignoreLogger *zap.Logger
+	if errorMode == ErrorModeIgnore {
+		ignoreLogger = zap.NewExample()
+		defer ignoreLogger.Sync()
+	}
+
 	for i := 0; i < rls.Len(); i++ {
+		if err := checkFilterCtx(ctx); err != nil {
+			return logs, 0, 0, err
+		}
 		rl := rls.At(i)
 		sls := rl.ScopeLogs()
 		for j := 0; j < sls.Len(); j++ {
 			sl := sls.At(j)
 			lrs := sl.LogRecords()
 			for k := 0; k < lrs.Len(); k++ {
+				if err := checkFilterCtx(ctx); err != nil {
+					return logs, 0, 0, err
+				}
 				lr := lrs.At(k)
 				tCtx := ottllog.NewTransformContext(rl, sl, lr)
 
 				isMatch, evalErr := condSeq.Eval(ctx, tCtx)
 				tCtx.Close()
 				if evalErr != nil {
-					return nil, 0, 0, fmt.Errorf("evaluate condition on log %d/%d/%d: %w", i, j, k, evalErr)
+					switch errorMode {
+					case ErrorModePropagate:
+						return logs, 0, 0, fmt.Errorf("evaluate condition on log %d/%d/%d: %w", i, j, k, evalErr)
+					case ErrorModeIgnore:
+						ignoreLogger.Warn("failed to evaluate condition, skipping log record",
+							zap.Error(evalErr),
+							zap.Int("resource", i),
+							zap.Int("scope", j),
+							zap.Int("log", k),
+						)
+						isMatch = false
+					case ErrorModeSilent:
+						isMatch = false
+					default:
+						return logs, 0, 0, fmt.Errorf("unknown error mode: %s", errorMode)
+					}
 				}
 
-				var keep bool
-				switch mode {
-				case FilterModeInclude:
-					keep = isMatch
-				case FilterModeExclude:
-					keep = !isMatch
-				default:
-					return nil, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
+				keep, err := filterKeep(isMatch, mode)
+				if err != nil {
+					return logs, 0, 0, err
 				}
 
 				if keep {
@@ -116,42 +149,60 @@ func FilterLogRunData(logData json.RawMessage, conditions []string, mode FilterM
 		}
 	}
 
-	// Step 5: build a new ExportLogsServiceRequest containing only matched logs.
-	var filteredReq collectorlogsv1.ExportLogsServiceRequest
-	for i, rls := range srcReq.ResourceLogs {
-		var outRls logsv1.ResourceLogs
-		outRls.Resource = rls.Resource
-		outRls.SchemaUrl = rls.SchemaUrl
+	filtered := plog.NewLogs()
+	outRls := filtered.ResourceLogs()
 
-		for j, sls := range rls.ScopeLogs {
-			var outSls logsv1.ScopeLogs
-			outSls.Scope = sls.Scope
-			outSls.SchemaUrl = sls.SchemaUrl
+	for i := 0; i < rls.Len(); i++ {
+		rl := rls.At(i)
+		sls := rl.ScopeLogs()
 
-			for k, lr := range sls.LogRecords {
+		hasRlMatch := false
+		for j := 0; j < sls.Len() && !hasRlMatch; j++ {
+			lrs := sls.At(j).LogRecords()
+			for k := 0; k < lrs.Len() && !hasRlMatch; k++ {
 				if matched[logKey{i, j, k}] {
-					outSls.LogRecords = append(outSls.LogRecords, lr)
+					hasRlMatch = true
 				}
 			}
+		}
+		if !hasRlMatch {
+			continue
+		}
 
-			if len(outSls.LogRecords) > 0 {
-				outRls.ScopeLogs = append(outRls.ScopeLogs, &outSls)
+		outRl := outRls.AppendEmpty()
+		rl.Resource().CopyTo(outRl.Resource())
+		outRl.SetSchemaUrl(rl.SchemaUrl())
+		outSls := outRl.ScopeLogs()
+
+		for j := 0; j < sls.Len(); j++ {
+			sl := sls.At(j)
+			lrs := sl.LogRecords()
+
+			hasSlMatch := false
+			for k := 0; k < lrs.Len() && !hasSlMatch; k++ {
+				if matched[logKey{i, j, k}] {
+					hasSlMatch = true
+				}
+			}
+			if !hasSlMatch {
+				continue
+			}
+
+			outSl := outSls.AppendEmpty()
+			sl.Scope().CopyTo(outSl.Scope())
+			outSl.SetSchemaUrl(sl.SchemaUrl())
+			outLrs := outSl.LogRecords()
+
+			for k := 0; k < lrs.Len(); k++ {
+				if matched[logKey{i, j, k}] {
+					lr := lrs.At(k)
+					outLr := outLrs.AppendEmpty()
+					lr.CopyTo(outLr)
+				}
 			}
 		}
-
-		if len(outRls.ScopeLogs) > 0 {
-			filteredReq.ResourceLogs = append(filteredReq.ResourceLogs, &outRls)
-		}
-	}
-
-	outJSON, err := protojson.MarshalOptions{
-		UseProtoNames: false,
-		Indent:        "",
-	}.Marshal(&filteredReq)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("marshal result JSON: %w", err)
 	}
 
 	filteredCount := len(matched)
-	return outJSON, totalLogs, filteredCount, nil
+	return filtered, totalLogs, filteredCount, nil
 }

@@ -1,123 +1,47 @@
 import type { PipelinesBySignal } from './types'
+import { dump } from 'js-yaml'
 
-/**
- * Generates a full OTel Collector config YAML string from PipelinesBySignal.
- * Uses the Go backend API with fallback to client-side generation for export.
- * Each signal type becomes a pipeline under service.pipelines.
- * Processor configs are merged into the top-level processors section.
- */
+/** Generate a Collector config only when every infrastructure definition is retained. */
 export async function exportPipelinesToYaml(pipelines: PipelinesBySignal): Promise<string> {
-  try {
-    const res = await fetch('/api/ottl/pipeline/export', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pipelines),
-    })
-    if (!res.ok) throw new Error(`API error: ${res.status}`)
-    return await res.text()
-  } catch {
-    // Fallback to client-side YAML generation
-    return exportPipelinesToYamlLocal(pipelines)
-  }
+  return serializePipelines(pipelines, true)
 }
 
-/**
- * Client-side YAML generation (fallback for when API is unavailable).
- * Used directly by tests and when the backend is offline.
- */
+/** Preview the graph, including placeholders for definitions not yet supplied. */
 export function exportPipelinesToYamlLocal(pipelines: PipelinesBySignal): string {
-  const lines: string[] = []
-
-  // Receivers section
-  lines.push('receivers:')
-  lines.push('  otlp:')
-  lines.push('    protocols:')
-  lines.push('      grpc:')
-  lines.push('')
-
-  // Processors section — merge all processor configs from all signals
-  lines.push('processors:')
-  const allProcessorKeys = new Set<string>()
-  for (const signal of ['traces', 'logs', 'metrics'] as const) {
-    const p = pipelines[signal]
-    if (p) {
-      for (const key of Object.keys(p.processors)) {
-        allProcessorKeys.add(key)
-      }
-    }
-  }
-  if (allProcessorKeys.size === 0) {
-    lines.push('  {}')
-  } else {
-    for (const key of allProcessorKeys) {
-      for (const signal of ['traces', 'logs', 'metrics'] as const) {
-        const p = pipelines[signal]
-        if (p && p.processors[key]) {
-          lines.push(`  ${key}:`)
-          const config = p.processors[key]
-          lines.push(...yamlDump(config, 4))
-          break
-        }
-      }
-    }
-  }
-  lines.push('')
-
-  // Exporters section
-  lines.push('exporters:')
-  lines.push('  debug:')
-  lines.push('')
-
-  // Service pipelines section
-  lines.push('service:')
-  lines.push('  pipelines:')
-  for (const signal of ['traces', 'logs', 'metrics'] as const) {
-    const p = pipelines[signal]
-    if (!p) continue
-    lines.push(`    ${signal}:`)
-    lines.push('      receivers: [otlp]')
-    if (p.stages.length > 0) {
-      lines.push(`      processors: [${p.stages.map(s => s.processor_ref).join(', ')}]`)
-    } else {
-      lines.push('      processors: []')
-    }
-    lines.push('      exporters: [debug]')
-  }
-
-  return lines.join('\n')
+  return serializePipelines(pipelines, false)
 }
 
-function yamlDump(obj: unknown, indent: number): string[] {
-  const lines: string[] = []
-  function recurse(value: unknown, depth: number): void {
-    const prefix = ' '.repeat(depth)
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === 'object' && item !== null) {
-          lines.push(`${prefix}-`)
-          recurse(item, depth + 2)
-        } else {
-          lines.push(`${prefix}- ${JSON.stringify(item)}`)
+function serializePipelines(pipelines: PipelinesBySignal, strict: boolean): string {
+  const receivers: Record<string, unknown> = {}
+  const exporters: Record<string, unknown> = {}
+  const processors: Record<string, unknown> = {}
+  const servicePipelines: Record<string, unknown> = {}
+  for (const signal of ['traces', 'logs', 'metrics'] as const) {
+    const pipeline = pipelines[signal]
+    if (!pipeline) continue
+    const receiverNames = pipeline.receivers ?? []
+    const exporterNames = pipeline.exporters ?? []
+    for (const [names, configs, target, kind] of [
+      [receiverNames, pipeline.receiver_configs, receivers, 'receiver'],
+      [exporterNames, pipeline.exporter_configs, exporters, 'exporter'],
+    ] as const) {
+      for (const name of names) {
+        const config = configs?.[name]
+        if (config === undefined && strict) throw new Error(`Missing ${kind} configuration: ${name}`)
+        if (strict && name in target && JSON.stringify(target[name]) !== JSON.stringify(config)) {
+          throw new Error(`Conflicting ${kind} configurations: ${name}`)
         }
+        target[name] = config ?? {}
       }
-    } else if (typeof value === 'object' && value !== null) {
-      for (const [k, v] of Object.entries(value)) {
-        if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
-          lines.push(`${prefix}${k}:`)
-          recurse(v, depth + 2)
-        } else if (Array.isArray(v)) {
-          lines.push(`${prefix}${k}:`)
-          recurse(v, depth + 2)
-        } else {
-          lines.push(`${prefix}${k}: ${JSON.stringify(v)}`)
-        }
-      }
-    } else {
-      lines.push(`${prefix}${JSON.stringify(value)}`)
+    }
+    Object.assign(processors, pipeline.processors)
+    servicePipelines[signal] = {
+      receivers: receiverNames,
+      processors: pipeline.stages.map(stage => stage.processor_ref),
+      exporters: exporterNames,
     }
   }
-  recurse(obj, indent)
-  return lines
+  return dump({ receivers, processors, exporters, service: { pipelines: servicePipelines } }, { noRefs: true, lineWidth: -1 })
 }
 
 /**

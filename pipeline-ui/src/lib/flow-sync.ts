@@ -1,12 +1,46 @@
 // Re-export from sub-modules for backward compatibility
 export type { StageNodeData } from "./flow-graph";
 export { topologicalSort, wouldCreateCycle } from "./flow-graph";
-export { pipelineToFlow, flowToPipeline, pipelinesToFlow, flowToPipelines } from "./flow-serialization";
+export {
+	pipelineToFlow,
+	flowToPipeline,
+	pipelinesToFlow,
+	flowToPipelines,
+	preserveInfraConfigs,
+} from "./flow-serialization";
 
 import { type Edge, type Node } from "@xyflow/svelte";
 import type { SignalType, StageResult } from "./types";
 import { signalEdgeProps } from "./types";
 import type { StageNodeData } from "./flow-graph";
+import { FIRST_STAGE_X, STAGE_GAP_TOTAL, NODE_Y } from "./svg-utils";
+
+/** Rebuild the complete linear path for one signal, including endpoints. */
+export function rebuildLane(
+	flowNodes: Node<StageNodeData>[], flowEdges: Edge[], parentId: string,
+): { nodes: Node<StageNodeData>[]; edges: Edge[] } {
+	const lane = flowNodes.filter((node) => node.parentId === parentId);
+	const stages = lane.filter((node) => node.type === "stage").sort((a, b) => a.position.x - b.position.x);
+	const ids = new Set(lane.map((node) => node.id));
+	const edges = flowEdges.filter((edge) => !(ids.has(edge.source) && ids.has(edge.target)));
+	const signal = parentId.replace("swimlane-", "") as SignalType;
+	const connect = (source: string, target: string) => edges.push({
+		id: `e-${source}-${target}`, source, target, type: "straight", ...signalEdgeProps(signal),
+	});
+	if (stages.length) {
+		for (const node of lane.filter((node) => node.type === "infra")) {
+			if (node.data.type === "receiver") connect(node.id, stages[0].id);
+			if (node.data.type === "exporter") connect(stages[stages.length - 1].id, node.id);
+		}
+		for (let i = 1; i < stages.length; i++) connect(stages[i - 1].id, stages[i].id);
+	}
+	const index = new Map(stages.map((node, i) => [node.id, i]));
+	const nodes = flowNodes.map((node) => {
+		const i = index.get(node.id);
+		return i === undefined ? node : { ...node, position: { x: FIRST_STAGE_X + i * STAGE_GAP_TOTAL, y: NODE_Y }, data: { ...node.data, stageIndex: i } };
+	});
+	return { nodes, edges };
+}
 
 /**
  * Merges StageResults back into their corresponding Svelte Flow nodes.
@@ -70,24 +104,9 @@ export function reorderStage(
 	}
 
 	const allInLane = [...siblings.slice(0, newIndex), draggedNode, ...siblings.slice(newIndex)];
-
 	for (let i = 0; i < allInLane.length; i++) {
-		allInLane[i].position = { x: 230 + i * 210, y: allInLane[i].position.y };
+		allInLane[i].position = { x: FIRST_STAGE_X + i * STAGE_GAP_TOTAL, y: NODE_Y };
 	}
 
-	const swimlaneIds = new Set(allInLane.map((n) => n.id));
-	const remainingEdges = edges.filter((e) => !(swimlaneIds.has(e.source) && swimlaneIds.has(e.target)));
-
-	const signal = ((parentId ?? "").replace("swimlane-", "") || "traces") as SignalType;
-	for (let i = 1; i < allInLane.length; i++) {
-		remainingEdges.push({
-			id: `e-${allInLane[i - 1].id}-${allInLane[i].id}`,
-			source: allInLane[i - 1].id,
-			target: allInLane[i].id,
-			type: "straight",
-			...signalEdgeProps(signal),
-		});
-	}
-
-	return { nodes: [...nodes], edges: remainingEdges };
+	return rebuildLane(nodes, edges, parentId ?? "");
 }

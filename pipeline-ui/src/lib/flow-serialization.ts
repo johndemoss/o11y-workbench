@@ -5,6 +5,30 @@ import type { StageNodeData } from "./flow-graph";
 import { topologicalSort } from "./flow-graph";
 import { NODE_HEIGHT, NODE_Y, SWIMLANE_HEIGHT } from "./svg-utils";
 
+/** Built-in defaults for infrastructure names referenced without stored configs (A9). */
+export function preserveInfraConfigs(pipeline: Pipeline): {
+	receivers: string[];
+	exporters: string[];
+	receiver_configs: Record<string, Record<string, unknown>>;
+	exporter_configs: Record<string, Record<string, unknown>>;
+} {
+	const receivers = [...(pipeline.receivers ?? ["otlp"])];
+	const exporters = [...(pipeline.exporters ?? ["debug"])];
+	const receiver_configs: Record<string, Record<string, unknown>> = {
+		...(pipeline.receiver_configs ?? {}),
+	};
+	const exporter_configs: Record<string, Record<string, unknown>> = {
+		...(pipeline.exporter_configs ?? {}),
+	};
+	if (receivers.includes("otlp") && !("otlp" in receiver_configs)) {
+		receiver_configs.otlp = { protocols: { grpc: {} } };
+	}
+	if (exporters.includes("debug") && !("debug" in exporter_configs)) {
+		exporter_configs.debug = {};
+	}
+	return { receivers, exporters, receiver_configs, exporter_configs };
+}
+
 /**
  * Converts a Pipeline model into Svelte Flow nodes and edges.
  *
@@ -84,7 +108,8 @@ export async function flowToPipeline(
 		}
 	}
 
-	return { stages, processors } as Pipeline;
+	const infra = preserveInfraConfigs(currentPipeline);
+	return { ...currentPipeline, ...infra, stages, processors };
 }
 
 /**
@@ -131,7 +156,7 @@ export function pipelinesToFlow(
 				: firstStageX;
 		const contentWidth = exporterX + infraWidth + rightPad;
 		const swimlaneWidth = Math.max(640, contentWidth);
-		const swimlaneHeight = SWIMLANE_HEIGHT;
+		const swimlaneHeight = Math.max(SWIMLANE_HEIGHT, NODE_Y + Math.max(defaultReceivers.length, defaultExporters.length, 1) * (nodeHeight + 8) + 28);
 
 		const swimlaneId = `swimlane-${signal}`;
 		nodes.push({
@@ -140,7 +165,7 @@ export function pipelinesToFlow(
 			position: { x: 0, y: 0 },
 			width: swimlaneWidth,
 			height: swimlaneHeight,
-			style: { width: `${swimlaneWidth}px` },
+			style: { width: `${swimlaneWidth}px`, height: `${swimlaneHeight}px` },
 			draggable: false,
 			selectable: false,
 			data: { signal, label: signal.charAt(0).toUpperCase() + signal.slice(1), disabled: false },
@@ -161,7 +186,7 @@ export function pipelinesToFlow(
 				},
 				width: stageWidth,
 				height: nodeHeight,
-				draggable: false,
+				draggable: true,
 				zIndex: 10,
 				data: { stage, processor, stageIndex: i, signal, disabled: false } as StageNodeData,
 			} as any);
@@ -250,13 +275,13 @@ export function pipelinesToFlow(
 	}
 
 	// Position swimlanes vertically (no dagre needed — they have no edges between them)
-	const swimlaneHeight = SWIMLANE_HEIGHT;
+	// Each lane may have a different number of infrastructure cards.
 	const swimlaneGap = 24;
 	let yOffset = 0;
 	for (const node of nodes) {
 		if (node.type === "swimlane") {
 			node.position = { x: 20, y: yOffset };
-			yOffset += swimlaneHeight + swimlaneGap;
+			yOffset += (node.height ?? SWIMLANE_HEIGHT) + swimlaneGap;
 		}
 	}
 
@@ -275,13 +300,25 @@ export async function flowToPipelines(
 	flowEdges: Edge[],
 	currentPipelines: PipelinesBySignal,
 ): Promise<PipelinesBySignal> {
-	const result: PipelinesBySignal = {
-		traces: { stages: [], processors: { ...currentPipelines.traces?.processors }, receivers: [...(currentPipelines.traces?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.traces?.exporters ?? ['debug'])] },
-		logs: { stages: [], processors: { ...currentPipelines.logs?.processors }, receivers: [...(currentPipelines.logs?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.logs?.exporters ?? ['debug'])] },
-		metrics: { stages: [], processors: { ...currentPipelines.metrics?.processors }, receivers: [...(currentPipelines.metrics?.receivers ?? ['otlp'])], exporters: [...(currentPipelines.metrics?.exporters ?? ['debug'])] },
-	};
+	const result = {} as PipelinesBySignal;
+	for (const signal of ["traces", "logs", "metrics"] as const) {
+		const pipeline = currentPipelines[signal];
+		const infra = preserveInfraConfigs(pipeline);
+		result[signal] = {
+			...pipeline,
+			stages: [],
+			processors: { ...pipeline.processors },
+			...infra,
+		};
+	}
 
 	const stageNodes = flowNodes.filter((n) => n.type === "stage");
+	for (const signal of ["traces", "logs", "metrics"] as const) {
+		const remainingRefs = new Set(stageNodes.filter((node) => node.parentId === `swimlane-${signal}`).map((node) => node.data.stage.processor_ref));
+		for (const stage of currentPipelines[signal].stages) {
+			if (!remainingRefs.has(stage.processor_ref)) delete result[signal].processors[stage.processor_ref];
+		}
+	}
 
 	const byParent = new Map<string, Node<StageNodeData>[]>();
 	for (const node of stageNodes) {
@@ -303,7 +340,7 @@ export async function flowToPipelines(
 
 		const signalStages: Stage[] = [];
 		const signalProcessors: Record<string, ProcessorConfig> = {
-			...currentPipelines[signal]?.processors,
+			...result[signal].processors,
 		};
 
 		for (const id of orderedIds) {
@@ -316,7 +353,7 @@ export async function flowToPipelines(
 			}
 		}
 
-		result[signal] = { stages: signalStages, processors: signalProcessors, receivers: [...(currentPipelines[signal]?.receivers ?? ['otlp'])], exporters: [...(currentPipelines[signal]?.exporters ?? ['debug'])] } as any;
+		result[signal] = { ...result[signal], stages: signalStages, processors: signalProcessors };
 	}
 
 	return result;

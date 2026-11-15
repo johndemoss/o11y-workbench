@@ -1,6 +1,7 @@
 package ottl
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -13,7 +14,7 @@ import (
 // Each stage is executed in order, applying the configured processor with
 // the specified error_mode. Returns a PipelineResult with per-stage results
 // and final trace data.
-func ExecutePipeline(traceData json.RawMessage, pipeline Pipeline) (*PipelineResult, error) {
+func ExecutePipeline(ctx context.Context, traceData json.RawMessage, pipeline Pipeline) (*PipelineResult, error) {
 	traces, err := UnmarshalTracesFromJSON(traceData)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal trace data: %w", err)
@@ -35,6 +36,9 @@ func ExecutePipeline(traceData json.RawMessage, pipeline Pipeline) (*PipelineRes
 	currentTraces := traces
 
 	for i, stage := range pipeline.Stages {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		startTime := time.Now()
 		errorMode := stage.ErrorMode
 		if errorMode == "" {
@@ -54,13 +58,16 @@ func ExecutePipeline(traceData json.RawMessage, pipeline Pipeline) (*PipelineRes
 
 		switch stage.Type {
 		case StageTypeTransform:
-			outputTraces, outputSpanCount, statementsParsed, stageErr = executeTransformStage(currentTraces, procCfg, errorMode)
+			outputTraces, outputSpanCount, statementsParsed, stageErr = executeTransformStage(ctx, currentTraces, procCfg, errorMode)
 		case StageTypeFilter:
-			outputTraces, outputSpanCount, statementsParsed, stageErr = executeFilterStage(currentTraces, procCfg, errorMode)
+			outputTraces, outputSpanCount, statementsParsed, stageErr = executeFilterStage(ctx, currentTraces, procCfg, errorMode)
 		default:
 			return nil, fmt.Errorf("stage %s: unknown stage type: %s", stage.ID, stage.Type)
 		}
 
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var intermediate json.RawMessage
 		if stageErr == nil {
 			intermediate, _ = MarshalTracesToJSON(outputTraces)
@@ -118,7 +125,7 @@ func ExecutePipeline(traceData json.RawMessage, pipeline Pipeline) (*PipelineRes
 	}, nil
 }
 
-func executeTransformStage(traces ptrace.Traces, cfg ProcessorConfig, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
+func executeTransformStage(ctx context.Context, traces ptrace.Traces, cfg ProcessorConfig, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
 	if len(cfg) == 0 {
 		return traces, countSpans(traces), 0, nil
 	}
@@ -128,16 +135,17 @@ func executeTransformStage(traces ptrace.Traces, cfg ProcessorConfig, errorMode 
 		return traces, 0, 0, fmt.Errorf("marshal processor config: %w", err)
 	}
 
-	stmts, err := ParseTransformStatements(cfgYAML)
+	groups, err := extractSignalTransformGroups(cfgYAML, "traces")
 	if err != nil {
 		return traces, 0, 0, err
 	}
 
+	stmts := ExtractStatements(groups)
 	if len(stmts) == 0 {
 		return traces, countSpans(traces), 0, nil
 	}
 
-	out, spanCount, execErr := TransformSpans(traces, stmts, errorMode)
+	out, spanCount, execErr := TransformSpansWithGroups(ctx, traces, groups, errorMode)
 	if execErr != nil {
 		return traces, 0, len(stmts), execErr
 	}
@@ -145,7 +153,7 @@ func executeTransformStage(traces ptrace.Traces, cfg ProcessorConfig, errorMode 
 	return out, spanCount, len(stmts), nil
 }
 
-func executeFilterStage(traces ptrace.Traces, cfg ProcessorConfig, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
+func executeFilterStage(ctx context.Context, traces ptrace.Traces, cfg ProcessorConfig, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
 	if len(cfg) == 0 {
 		return traces, countSpans(traces), 0, nil
 	}
@@ -155,7 +163,7 @@ func executeFilterStage(traces ptrace.Traces, cfg ProcessorConfig, errorMode Err
 		return traces, 0, 0, fmt.Errorf("marshal processor config: %w", err)
 	}
 
-	conds, err := ParseFilterConditions(cfgYAML)
+	conds, err := extractSignalFilterConditions(cfgYAML, "traces")
 	if err != nil {
 		return traces, 0, 0, err
 	}
@@ -164,7 +172,7 @@ func executeFilterStage(traces ptrace.Traces, cfg ProcessorConfig, errorMode Err
 		return traces, countSpans(traces), 0, nil
 	}
 
-	out, _, kept, execErr := FilterSpans(traces, conds, FilterModeInclude, errorMode)
+	out, _, kept, execErr := FilterSpans(ctx, traces, conds, FilterModeExclude, errorMode)
 	if execErr != nil {
 		return traces, 0, len(conds), execErr
 	}

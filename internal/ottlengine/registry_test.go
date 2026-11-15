@@ -1,6 +1,7 @@
 package ottlengine
 
 import (
+	"context"
 	"testing"
 
 	"github.com/johndemoss/o11y-workbench/internal/ottl"
@@ -110,7 +111,7 @@ func TestContribToStable(t *testing.T) {
 
 func TestLocalValidatePipelineOTTLEmpty(t *testing.T) {
 	e := &LocalEngine{}
-	res := e.ValidatePipelineOTTL(ottl.Pipeline{Processors: map[string]ottl.ProcessorConfig{}})
+	res := e.ValidatePipelineOTTL(context.Background(), ottl.Pipeline{Processors: map[string]ottl.ProcessorConfig{}})
 	if !res.Valid || res.Parsed != 0 {
 		t.Fatalf("empty processors: %+v", res)
 	}
@@ -123,7 +124,7 @@ func TestLocalValidatePipelineOTTLStatements(t *testing.T) {
 			"p1": {"statements": []interface{}{`set(name, "x")`}},
 		},
 	}
-	res := e.ValidatePipelineOTTL(good)
+	res := e.ValidatePipelineOTTL(context.Background(), good)
 	if !res.Valid {
 		t.Fatalf("valid statement failed: %+v", res)
 	}
@@ -136,11 +137,26 @@ func TestLocalValidatePipelineOTTLStatements(t *testing.T) {
 			"p1": {"statements": []interface{}{`this is not valid ottl`}},
 		},
 	}
-	res = e.ValidatePipelineOTTL(bad)
+	res = e.ValidatePipelineOTTL(context.Background(), bad)
 	if res.Valid {
 		t.Fatal("expected invalid statement to fail")
 	}
 	if len(res.Errors) == 0 {
 		t.Fatal("expected errors")
+	}
+}
+
+func TestRegistryWithdrawsExitedWorker(t *testing.T) {
+	done := make(chan struct{})
+	client := NewWorkerClient("0.163.0", "1.69.0", "http://127.0.0.1:1")
+	client.done = done
+	r := NewRegistry(DefaultContribVersion, &LocalEngine{})
+	r.Register("0.163.0", client)
+	close(done)
+	if _, err := r.Get("0.163.0"); err == nil {
+		t.Fatal("dead worker still resolves")
+	}
+	if len(r.List()) != 1 {
+		t.Fatalf("dead worker still advertised: %v", r.List())
 	}
 }

@@ -1,14 +1,16 @@
 <script lang="ts">
-  let { finalSpanCount, stageCount }: {
+  import type { SignalType } from './types'
+  let { finalSpanCount, stageCount, signal = 'traces' }: {
     finalSpanCount: number
     stageCount: number
+    signal?: SignalType
   } = $props()
 </script>
 
 <div class="summary-card">
   <div class="summary-stat">
     <span class="stat-value">{finalSpanCount}</span>
-    <span class="stat-label">Final Span Count</span>
+    <span class="stat-label">Retained {signal === 'traces' ? 'Span' : signal === 'logs' ? 'Log Record' : 'Metric Data Point'} Count</span>
   </div>
   <div class="summary-stat">
     <span class="stat-value">{stageCount}</span>

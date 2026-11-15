@@ -91,21 +91,21 @@ function handleScenarioChange(el) {
   });
 }
 
-async function loadScenarios() {
+async function loadScenarios(preserve = false) {
   try {
     const data = await api('/api/scenarios');
     scenarios = data.scenarios;
     const sel = document.getElementById('scenario');
+    const selected = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
     scenarios.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s;
       opt.textContent = s === 'workload' ? 'workload (flat evidence)' : s;
       sel.appendChild(opt);
     });
-    if (scenarios.includes('microservice')) {
-      sel.value = 'microservice';
-      handleScenarioChange(sel);
-    }
+    sel.value = preserve ? selected : (scenarios.includes('microservice') ? 'microservice' : '');
+    handleScenarioChange(sel);
   } catch(e) { console.error('load scenarios:', e); }
 }
 
@@ -594,8 +594,15 @@ function onFilterSignalChange() {
 
 let runs = {};
 let pollTimer = null;
+let pollStartedAt = 0;
+let idleReconcileTimer = null;
 
-const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'paused', 'streaming']);
+const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'paused', 'streaming', 'stopping']);
+let listRequest = 0;
+let listLoading = false;
+let detailRequest = 0;
+let selectedRunID = null;
+let detailLoading = false;
 
 function hasActiveRuns(runsMap) {
   return Object.values(runsMap).some(r => ACTIVE_RUN_STATUSES.has(r.status));
@@ -611,9 +618,9 @@ function stopPolling() {
 function mergeListRun(prev, incoming) {
   // List omits OTLP payloads; keep any previously fetched detail blobs.
   if (prev) {
-    if (incoming.trace_data == null && prev.trace_data != null) incoming.trace_data = prev.trace_data;
-    if (incoming.log_data == null && prev.log_data != null) incoming.log_data = prev.log_data;
-    if (incoming.metric_data == null && prev.metric_data != null) incoming.metric_data = prev.metric_data;
+    if (incoming.has_trace_data && incoming.trace_data == null && prev.trace_data != null) incoming.trace_data = prev.trace_data;
+    if (incoming.has_log_data && incoming.log_data == null && prev.log_data != null) incoming.log_data = prev.log_data;
+    if (incoming.has_metric_data && incoming.metric_data == null && prev.metric_data != null) incoming.metric_data = prev.metric_data;
   }
   return incoming;
 }
@@ -624,11 +631,19 @@ function runNeedsPayloadFetch(r) {
     (!!r.has_metric_data && !r.metric_data);
 }
 
-async function fetchRunDetail(id) {
-  const full = await api('/api/runs/' + id);
+async function fetchRunDetail(id, generation) {
+  const full = await api('/api/runs/' + encodeURIComponent(id));
+  if (selectedRunID !== id || generation !== detailRequest) return null;
   const prev = runs[id];
   runs[id] = prev ? { ...prev, ...full } : full;
   return runs[id];
+}
+
+function numericInput(id, fallback, parse = Number) {
+  const value = document.getElementById(id).value.trim();
+  if (!value) return fallback;
+  const parsed = parse(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 async function startRun() {
@@ -640,7 +655,7 @@ async function startRun() {
   const signals = getSignals();
 
   var body = {
-    seed: parseInt(document.getElementById('seed').value) || 42,
+    seed: numericInput('seed', 42, Number),
     output: document.getElementById('output').value,
     format: document.getElementById('format').value,
     insecure: document.getElementById('insecure').checked,
@@ -667,7 +682,7 @@ async function startRun() {
       gauge_ratio: (parseFloat(document.getElementById('metric-gauge').value) || 0) / 100,
       sum_ratio: (parseFloat(document.getElementById('metric-sum').value) || 0) / 100,
       value_min: parseFloat(document.getElementById('metric-value-min').value) || 0,
-      value_max: parseFloat(document.getElementById('metric-value-max').value) || 100,
+      value_max: numericInput('metric-value-max', 100),
       attributes: getMetricAttrs()
     };
   }
@@ -758,10 +773,7 @@ async function uploadScenarios() {
     regSpan.textContent = 'Registered: ' + (data.registered || []).join(', ');
     status.appendChild(regSpan);
     setTimeout(() => closeScenarioModal(), 800);
-    // Reload scenario dropdown
-    const sel = document.getElementById('scenario');
-    while (sel.options.length > 1) sel.remove(1);
-    await loadScenarios();
+    await loadScenarios(true);
   } catch(e) {
     status.replaceChildren();
     const errSpan = document.createElement('span');
@@ -801,6 +813,19 @@ async function stopRun(id) {
     renderRunList();
   } catch(e) {
     console.error('stop run:', e);
+  }
+}
+
+async function stopTapRun(id) {
+  try {
+    await api('/api/remotetap/stop/' + encodeURIComponent(id), { method: 'POST' });
+    await restoreRemotetapStatus();
+    refreshRuns();
+  } catch (e) {
+    if (selectedRunID === id) {
+      document.getElementById('detail-content').textContent = 'Failed to stop live capture: ' + e.message;
+      lastDetailKey = '';
+    }
   }
 }
 
@@ -873,52 +898,99 @@ function showOtterToast(run) {
   }, 3000);
 }
 
-function startPolling() {
-  if (pollTimer) return;
-  const announcedCompleted = new Set();
-  pollTimer = setInterval(async () => {
-    try {
-      const data = await api('/api/runs');
-      for (const r of data.runs) {
-        const prev = runs[r.id];
-        const prevStatus = prev?.status;
-        runs[r.id] = mergeListRun(prev, r);
-        // Show brief "Completed!" when a run transitions to completed
-        if (r.status === 'completed' && prevStatus && prevStatus !== 'completed' && !announcedCompleted.has(r.id)) {
-          announcedCompleted.add(r.id);
-          showOtterToast(r);
-          const el = document.getElementById('run-status');
-          el.textContent = 'Completed!';
-          setTimeout(() => { if (el.textContent === 'Completed!') el.textContent = ''; }, 3000);
-        }
-      }
-      renderRunList();
-      // Show detail if viewing one
-      const detail = document.getElementById('detail-section');
-      if (!detail.classList.contains('hidden')) {
-        const id = detail.querySelector('#detail-id').textContent;
-        let r = runs[id];
-        if (r && runNeedsPayloadFetch(r)) {
-          try { r = await fetchRunDetail(id); } catch (e) { console.error('Detail refresh error:', e); }
-        }
-        if (r) renderDetail(r);
-      }
-      if (!hasActiveRuns(runs)) stopPolling();
-    } catch(e) {
-      console.error('Polling error:', e);
-      const statusEl = document.getElementById('run-status');
-      if (statusEl && statusEl.textContent && statusEl.textContent.includes('Starting')) {
-        statusEl.textContent = 'Connection error - retrying...';
+const announcedCompleted = new Set();
+async function refreshRuns() {
+  if (listLoading) return;
+  listLoading = true;
+  const generation = ++listRequest;
+  const requestStartedAt = Date.now();
+  try {
+    const data = await api('/api/runs');
+    if (generation !== listRequest) return;
+    const next = {};
+    for (const r of (data.runs || [])) {
+      const prev = runs[r.id];
+      next[r.id] = mergeListRun(prev, r);
+      if (r.status === 'completed' && prev && prev.status !== 'completed' && !announcedCompleted.has(r.id)) {
+        announcedCompleted.add(r.id);
+        showOtterToast(r);
       }
     }
-  }, 1000);
+    // A job created while this list request was in flight is not in the
+    // response yet; keep it instead of dropping it (and its polling).
+    for (const [id, prev] of Object.entries(runs)) {
+      if (next[id]) continue;
+      const startedAt = Date.parse(prev.started_at || '');
+      if (!Number.isNaN(startedAt) && startedAt >= requestStartedAt - 1000) next[id] = prev;
+    }
+    runs = next;
+    renderRunList();
+    if (selectedRunID && !detailLoading) {
+      const id = selectedRunID;
+      const r = runs[id];
+      if (!r) {
+        ++detailRequest;
+        document.getElementById('detail-content').textContent = 'This job is no longer available.';
+      } else if (runNeedsPayloadFetch(r)) {
+        const request = ++detailRequest;
+        try {
+          const full = await fetchRunDetail(id, request);
+          if (full) renderDetail(full);
+        } catch (e) {
+          if (selectedRunID === id && request === detailRequest) {
+            document.getElementById('detail-content').textContent = 'Failed to refresh run detail: ' + e.message;
+            lastDetailKey = '';
+          }
+        }
+      } else {
+        renderDetail(r);
+      }
+    }
+  } catch(e) {
+    console.error('Polling error:', e);
+  } finally {
+    listLoading = false;
+    if (hasActiveRuns(runs)) {
+      if (!pollTimer) startPolling();
+    } else if (Date.now() - pollStartedAt < 1500) {
+      // Keep the first polling window open so progress is observable for fast
+      // runs; idle backoff starts after that short grace period.
+    } else {
+      stopPolling();
+      scheduleIdleReconcile();
+    }
+  }
+}
+
+function startPolling() {
+  if (idleReconcileTimer) {
+    clearTimeout(idleReconcileTimer);
+    idleReconcileTimer = null;
+  }
+  if (pollTimer) return;
+  pollStartedAt = Date.now();
+  refreshRuns();
+  pollTimer = setInterval(refreshRuns, 1000);
+}
+
+// Idle runs still discover externally created jobs and pruning without polling
+// the list every second; reconciliation resumes fast polling when work appears.
+function scheduleIdleReconcile() {
+  if (idleReconcileTimer) return;
+  idleReconcileTimer = setTimeout(() => {
+    idleReconcileTimer = null;
+    void refreshRuns();
+  }, 15000);
 }
 
 let lastDetailKey = '';
 
 function getRunSignals(r) {
-  if (r.output === 'import') {
+  if (r.source === 'import' || r.output === 'import') {
     return { traces: true, logs: false, metrics: false };
+  }
+  if (r.source === 'remotetap') {
+    return { traces: true, logs: true, metrics: true };
   }
   // Prefer signals object if available, fall back to signal_type for backwards compat
   if (r.config?.signals) {
@@ -958,6 +1030,9 @@ function buildRunCard(r) {
     (r.status === 'running' ? ' running' : '') +
     (r.status === 'completed' ? ' completed' : '');
   card.dataset.runId = r.id;
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', 'Open job ' + r.id);
 
   appendTrustedHtml(card, getSignalBadge(getRunSignals(r)));
 
@@ -966,10 +1041,12 @@ function buildRunCard(r) {
   card.appendChild(statusDot);
 
   const scenario = r.scenario || r.config?.Scenario || '';
-  const isImported = r.output === 'import';
-  const metaParts = [formatTime(r.started_at)];
+  const isImported = r.source === 'import' || r.output === 'import';
+  const metaParts = [formatTime(r.started_at), r.status];
   if (isImported) {
     metaParts.push('imported');
+  } else if (r.source === 'remotetap') {
+    metaParts.push('live collector');
   } else {
     if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
     var tc = r.config?.TraceCount;
@@ -1038,11 +1115,12 @@ function renderRunList() {
   const checkedSignals = [];
   document.querySelectorAll('#run-filter-signals input[type="checkbox"]:checked').forEach(c => checkedSignals.push(c.value));
   if (checkedSignals.length > 0 && checkedSignals.length < 3) {
-    entries = entries.filter(r =>
-      (checkedSignals.includes('traces') && !!(r.has_trace_data || r.trace_data)) ||
-      (checkedSignals.includes('logs') && !!(r.has_log_data || r.log_data || r.log_count || r.log_count_completed)) ||
-      (checkedSignals.includes('metrics') && !!(r.has_metric_data || r.metric_data || r.metric_count || r.metric_count_completed))
-    );
+    entries = entries.filter(r => {
+      const signals = getRunSignals(r);
+      return (checkedSignals.includes('traces') && (signals.traces || r.has_trace_data || r.trace_data)) ||
+        (checkedSignals.includes('logs') && (signals.logs || r.has_log_data || r.log_data)) ||
+        (checkedSignals.includes('metrics') && (signals.metrics || r.has_metric_data || r.metric_data));
+    });
   }
   if (search) {
     entries = entries.filter(r => r.id.toLowerCase().includes(search) || (r.scenario || '').toLowerCase().includes(search));
@@ -1051,6 +1129,10 @@ function renderRunList() {
   if (_emptyStateHTML === null) {
     _emptyStateHTML = list.innerHTML;
   }
+  const allRuns = Object.values(runs);
+  document.getElementById('pause-all-btn').style.display = allRuns.some(r => r.status === 'running') ? '' : 'none';
+  document.getElementById('resume-all-btn').style.display = allRuns.some(r => r.status === 'paused') ? '' : 'none';
+  document.getElementById('stop-all-btn').style.display = allRuns.some(r => ['running', 'paused', 'pending'].includes(r.status)) ? '' : 'none';
 
   if (entries.length === 0) {
     if (Object.keys(runs).length === 0) {
@@ -1060,8 +1142,19 @@ function renderRunList() {
     list.innerHTML = '<div class="empty"><p>No jobs match the current filter.</p></div>';
     return;
   }
+  const focused = document.activeElement;
+  const focusedCard = focused && focused.closest('.run-card');
+  const focusedID = focusedCard && focusedCard.dataset.runId;
+  const focusedAction = focused && focused.dataset.runAction;
   list.replaceChildren();
   entries.forEach((r) => list.appendChild(buildRunCard(r)));
+  if (focusedID) {
+    const card = Array.from(list.children).find(node => node.dataset.runId === focusedID);
+    if (card) {
+      const target = focusedAction ? Array.from(card.querySelectorAll('[data-run-action]')).find(node => node.dataset.runAction === focusedAction) : card;
+      (target || card).focus({ preventScroll: true });
+    }
+  }
   if (!_runListDelegated) {
     _runListDelegated = true;
     list.addEventListener('click', (e) => {
@@ -1079,43 +1172,66 @@ function renderRunList() {
       }
       if (!e.target.closest('button')) showDetail(id);
     });
+    list.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('run-card')) {
+        e.preventDefault();
+        showDetail(e.target.dataset.runId);
+      }
+    });
   }
-  const pauseAllBtn = document.getElementById('pause-all-btn');
-  const resumeAllBtn = document.getElementById('resume-all-btn');
-  const stopAllBtn = document.getElementById('stop-all-btn');
-  const hasRunning = entries.some(r => r.status === 'running');
-  const hasPaused = entries.some(r => r.status === 'paused');
-  const hasActive = hasRunning || hasPaused || entries.some(r => r.status === 'pending');
-  if (pauseAllBtn) pauseAllBtn.style.display = hasRunning ? '' : 'none';
-  if (resumeAllBtn) resumeAllBtn.style.display = hasPaused ? '' : 'none';
-  if (stopAllBtn) stopAllBtn.style.display = hasActive ? '' : 'none';
 }
 
 async function showDetail(id) {
   const section = document.getElementById('detail-section');
+  selectedRunID = id;
+  const request = ++detailRequest;
+  detailLoading = true;
   section.classList.remove('hidden');
   document.getElementById('detail-id').textContent = id;
+  document.getElementById('detail-content').textContent = 'Loading...';
   lastDetailKey = '';
   section.scrollIntoView({ behavior: 'smooth' });
   try {
-    const r = await fetchRunDetail(id);
-    renderDetail(r);
+    const r = await fetchRunDetail(id, request);
+    if (selectedRunID === id && request === detailRequest) detailLoading = false;
+    if (r) renderDetail(r);
   } catch (e) {
-    console.error('Failed to load run detail:', e);
-    const el = document.getElementById('detail-content');
-    if (el) el.innerHTML = '<div class="error">Failed to load run detail</div>';
+    if (selectedRunID === id && request === detailRequest) detailLoading = false;
+    if (selectedRunID === id && request === detailRequest) {
+      document.getElementById('detail-content').textContent = 'Failed to load run detail: ' + e.message;
+    }
   }
 }
 
 let detailTab = 'traces';
 
+function formatCaptureDropped(dropped) {
+  if (dropped == null || typeof dropped !== 'object' || Array.isArray(dropped)) return '';
+  var parts = [];
+  if (dropped.traces) parts.push(dropped.traces + ' spans');
+  if (dropped.logs) parts.push(dropped.logs + ' log records');
+  if (dropped.metrics) parts.push(dropped.metrics + ' data points');
+  return parts.join(', ');
+}
+
+function captureTruncationMessage(r) {
+  var dropped = formatCaptureDropped(r.capture_dropped) || '0 items';
+  var limit = r.capture_limit_bytes || 0;
+  return 'Capture truncated: ' + dropped + ' not retained (per-signal limit ' + limit + ' bytes). Summaries below show retained capture only.';
+}
+
+function appendCaptureWarning(el, r) {
+  if (!r.capture_truncated) return;
+  const warning = document.createElement('div');
+  warning.className = 'error';
+  warning.textContent = captureTruncationMessage(r);
+  el.appendChild(warning);
+}
+
 function renderDetail(r) {
   // Build a key from the run's mutable fields. If unchanged since last
   // render, skip DOM replacement to preserve scroll position in <pre>.
-  const payloadKey = (r.has_trace_data ? 't' : '') + (r.trace_data ? String(r.trace_data.length || 1) : '0') +
-    (r.has_log_data ? 'l' : '') + (r.log_data ? String(r.log_data.length || 1) : '0') +
-    (r.has_metric_data ? 'm' : '') + (r.metric_data ? String(r.metric_data.length || 1) : '0');
-  const key = r.id + '|' + r.status + '|' + (r.span_count || 0) + '|' + (r.log_count || 0) + '|' + (r.duration_ns || 0) + '|' + (r.error || '') + '|' + payloadKey + '|' + detailTab;
+  const key = JSON.stringify(r) + '|' + detailTab;
   if (key === lastDetailKey) return;
   lastDetailKey = key;
 
@@ -1123,22 +1239,42 @@ function renderDetail(r) {
   const signals = getRunSignals(r);
   const hasLogs = r.has_log_data || r.log_data || (r.log_count && r.log_count > 0);
 
+  if (['pending', 'streaming', 'stopping'].includes(r.status)) {
+    const label = {pending: 'Pending', streaming: 'Streaming', stopping: 'Stopping'}[r.status];
+    el.textContent = label + ' — ' + (r.span_count || 0) + ' spans, ' +
+      (r.log_count_completed || r.log_count || 0) + ' logs, ' +
+      (r.metric_count_completed || r.metric_count || 0) + ' metrics';
+    if (r.capture_truncated) {
+      el.textContent += ' — ' + captureTruncationMessage(r);
+    }
+    if (r.status === 'pending' || (r.status === 'streaming' && r.source === 'remotetap')) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-secondary';
+      button.dataset.detailAction = r.status === 'streaming' ? 'stop-tap' : 'stop';
+      button.dataset.runId = r.id;
+      button.textContent = 'Stop';
+      el.appendChild(button);
+    }
+    return;
+  }
   // Running state
   if (r.status === 'running') {
     const done = r.trace_count_completed || 0;
     const total = r.trace_count;
     const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
-    var progressHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
-    if (hasLogs || r.config?.log_config?.enabled) {
+    var progressHtml = signals.traces ? '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>' : '';
+    if (hasLogs || signals.logs) {
       var logDone = r.log_count_completed || 0;
       var logTotal = r.log_count || 0;
       progressHtml += '<div class="stat"><div class="value">' + logDone + ' / ' + (logTotal || '?') + '</div><div class="label">Logs</div></div>';
     }
-    if (r.metric_count && r.metric_count > 0) {
+    if (signals.metrics) {
       var metricDone = r.metric_count_completed || 0;
-      progressHtml += '<div class="stat"><div class="value">' + metricDone + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
+      progressHtml += '<div class="stat"><div class="value">' + metricDone + ' / ' + (r.metric_count || '?') + '</div><div class="label">Metrics</div></div>';
     }
     el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-running" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Running</div><div class="label">Status</div></div>' + progressHtml + '</div><div style="margin-top:12px"><button type="button" class="btn btn-secondary" data-detail-action="pause" data-run-id="' + escapeAttr(r.id) + '">Pause</button><button type="button" class="btn btn-secondary" data-detail-action="stop" data-run-id="' + escapeAttr(r.id) + '" style="margin-left:8px">Stop</button></div>';
+    appendCaptureWarning(el, r);
     return;
   }
 
@@ -1147,57 +1283,48 @@ function renderDetail(r) {
     const done = r.trace_count_completed || 0;
     const total = r.trace_count;
     const tracesLabel = total === 0 ? `${done} / &infin;` : `${done} / ${total}`;
-    var pausedHtml = '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>';
-    if (hasLogs) {
+    var pausedHtml = signals.traces ? '<div class="stat"><div class="value">' + tracesLabel + '</div><div class="label">Traces</div></div>' : '';
+    if (hasLogs || signals.logs) {
       pausedHtml += '<div class="stat"><div class="value">' + (r.log_count_completed || 0) + ' / ' + (r.log_count || '?') + '</div><div class="label">Logs</div></div>';
     }
-    if (r.metric_count) {
-      pausedHtml += '<div class="stat"><div class="value">' + (r.metric_count_completed || 0) + ' / ' + r.metric_count + '</div><div class="label">Metrics</div></div>';
+    if (signals.metrics) {
+      pausedHtml += '<div class="stat"><div class="value">' + (r.metric_count_completed || 0) + ' / ' + (r.metric_count || '?') + '</div><div class="label">Metrics</div></div>';
     }
     el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value"><span class="status-paused" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Paused</div><div class="label">Status</div></div>' + pausedHtml + '</div><div style="margin-top:12px"><button type="button" class="btn btn-secondary" data-detail-action="resume" data-run-id="' + escapeAttr(r.id) + '">Resume</button><button type="button" class="btn btn-secondary" data-detail-action="stop" data-run-id="' + escapeAttr(r.id) + '" style="margin-left:8px">Stop</button></div>';
+    appendCaptureWarning(el, r);
     return;
   }
 
   // Failed state
   if (r.status === 'failed') {
     el.innerHTML = '<div class="stat-row"><div class="stat"><div class="value" style="color:#ef4444">Failed</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div></div><div class="error">' + escapeHtml(r.error || 'Unknown error') + '</div>';
+    appendCaptureWarning(el, r);
     return;
   }
 
-  // Stopped state
-  if (r.status === 'stopped') {
-    var stoppedStats = '<div class="stat"><div class="value"><span class="status-stopped" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></span>Stopped</div><div class="label">Status</div></div><div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div><div class="stat"><div class="value">' + (r.span_count || 0) + '</div><div class="label">Spans</div></div>';
-    if (r.log_count_completed) {
-      stoppedStats += '<div class="stat"><div class="value">' + r.log_count_completed + '</div><div class="label">Logs</div></div>';
-    }
-    if (r.metric_count_completed) {
-      stoppedStats += '<div class="stat"><div class="value">' + r.metric_count_completed + '</div><div class="label">Metrics</div></div>';
-    }
-    el.innerHTML = '<div class="stat-row">' + stoppedStats + '</div>';
-    return;
-  }
 
   // ===== Completed status =====
   // Counts come pre-computed from the Go backend; do not re-derive client-side.
   var spanCountTotal = r.span_count || 0;
-  var traceCount = r.resource_span_count || r.trace_count || 0;
   var logRecordCount = r.log_record_count || 0;
   var logSeverities = r.log_severity_counts || {};
   var metricRecordCount = r.metric_series_count || 0;
 
-  const isImported = r.output === 'import';
+  const isImported = r.source === 'import' || r.output === 'import';
   var summaryHtml = '<div class="stat-row">';
-  summaryHtml += '<div class="stat"><div class="value" style="color:#22c55e">Completed</div><div class="label">Status</div></div>';
-  summaryHtml += '<div class="stat"><div class="value">' + (spanCountTotal || r.span_count || 0) + '</div><div class="label">Spans</div></div>';
-  summaryHtml += '<div class="stat"><div class="value">' + (traceCount || r.trace_count || 0) + '</div><div class="label">Traces</div></div>';
+  summaryHtml += '<div class="stat"><div class="value" style="color:#22c55e">' + (r.status === 'stopped' ? 'Stopped' : 'Completed') + '</div><div class="label">Status</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (spanCountTotal || r.span_count || 0) + '</div><div class="label">Spans (retained)</div></div>';
+  if (r.source === 'remotetap' || r.source === 'import' || r.output === 'import') {
+    summaryHtml += '<div class="stat"><div class="value">' + (r.trace_count || 0) + '</div><div class="label">Traces (retained)</div></div>';
+  }
   if (logRecordCount > 0) {
-    summaryHtml += '<div class="stat"><div class="value">' + logRecordCount + '</div><div class="label">Logs</div></div>';
+    summaryHtml += '<div class="stat"><div class="value">' + logRecordCount + '</div><div class="label">Log records (retained)</div></div>';
   }
   if (metricRecordCount > 0) {
-    summaryHtml += '<div class="stat"><div class="value">' + metricRecordCount + '</div><div class="label">Metrics</div></div>';
+    summaryHtml += '<div class="stat"><div class="value">' + metricRecordCount + '</div><div class="label">Data points (retained)</div></div>';
   }
   summaryHtml += '<div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div>';
-  summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed || '-')) + '</div><div class="label">Seed</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed ?? '-')) + '</div><div class="label">Seed</div></div>';
   summaryHtml += '</div>';
   if (r.generator_stats) {
     var gs = r.generator_stats;
@@ -1223,6 +1350,11 @@ function renderDetail(r) {
   var hasTraceData = !!(r.has_trace_data || r.trace_data);
   var hasLogData = logRecordCount > 0 || !!(r.has_log_data || r.log_data);
   var hasMetricData = metricRecordCount > 0 || !!(r.has_metric_data || r.metric_data);
+  const availableTabs = [hasTraceData && 'traces', hasLogData && 'logs', hasMetricData && 'metrics'].filter(Boolean);
+  if (!availableTabs.includes(detailTab)) detailTab = availableTabs[0] || 'traces';
+  if (r.capture_truncated) {
+    summaryHtml += '<div class="error">' + escapeHtml(captureTruncationMessage(r)) + '</div>';
+  }
   var tabHtml = '<div class="detail-tabs">';
   if (hasTraceData) {
     tabHtml += '<button type="button" class="detail-tab' + (detailTab === 'traces' ? ' active' : '') + '" data-tab="traces">Spans<span class="tab-badge">' + (spanCountTotal || r.span_count || 0) + '</span></button>';
@@ -1236,6 +1368,15 @@ function renderDetail(r) {
   tabHtml += '</div>';
 
   el.innerHTML = summaryHtml + tabHtml;
+  if (availableTabs.length) {
+    const download = document.createElement('a');
+    const format = r.format === 'protobuf' ? 'protobuf' : 'json';
+    download.href = '/api/runs/' + encodeURIComponent(r.id) + '/download?signal=' + encodeURIComponent(detailTab) + '&format=' + format;
+    download.textContent = 'Download ' + detailTab + ' (' + format.toUpperCase() + ')';
+    download.className = 'btn btn-secondary';
+    download.setAttribute('download', '');
+    el.appendChild(download);
+  }
 
   if (detailTab === 'logs' && hasLogData) {
     el.innerHTML += renderLogTable(r.log_data);
@@ -1454,6 +1595,7 @@ function wireDetailContentDelegation() {
       if (action === 'pause') pauseRun(id);
       else if (action === 'resume') resumeRun(id);
       else if (action === 'stop') stopRun(id);
+      else if (action === 'stop-tap') stopTapRun(id);
       return;
     }
     const logRow = e.target.closest('tr.log-row[data-log-idx]');
@@ -1592,19 +1734,20 @@ function toggleRemotetapFilters() {
 let rtPollTimer = null;
 let rtUsagePollTimer = null;
 let rtRunID = null;
+let rtBusy = false;
+let rtGeneration = 0;
 
 async function connectRemotetap() {
+  rtBusy = true;
+  ++rtGeneration;
   const endpoint = document.getElementById('remotetap-endpoint').value;
   const connectBtn = document.getElementById('remotetap-connect-btn');
   const statusEl = document.getElementById('remotetap-status');
 
   const servicesInput = document.getElementById('rt-filters-services');
   const spanKindsSelect = document.getElementById('rt-filters-spankinds');
-  const minLogSeveritySelect = document.getElementById('rt-filters-minseverity');
-  const samplingTypeSelect = document.getElementById('rt-filters-sampling');
-  const samplingRateInput = document.getElementById('rt-filters-samplingrate');
-  const maxSpansInput = document.getElementById('rt-filters-maxspans');
-  const maxBytesInput = document.getElementById('rt-filters-maxbytes');
+  const minLogSeveritySelect = document.getElementById('rt-filters-minlogseverity');
+  const samplingTypeSelect = document.getElementById('rt-filters-samplingtype');
 
   const filters = {
     services: servicesInput ? servicesInput.value.split(',').map(s => s.trim()).filter(s => s) : [],
@@ -1612,9 +1755,9 @@ async function connectRemotetap() {
     resourceAttrs: {},
     minLogSeverity: minLogSeveritySelect ? minLogSeveritySelect.value : '',
     samplingType: samplingTypeSelect ? samplingTypeSelect.value : 'none',
-    samplingRate: samplingRateInput ? parseFloat(samplingRateInput.value) || 0 : 0,
-    maxSpans: maxSpansInput ? parseInt(maxSpansInput.value) || 10000 : 10000,
-    maxBytes: maxBytesInput ? parseInt(maxBytesInput.value) || 10485760 : 10485760,
+    samplingRate: numericInput('rt-filters-samplingrate', 0),
+    maxSpans: numericInput('rt-filters-maxspans', 10000),
+    maxBytes: numericInput('rt-filters-maxbytes', 10485760),
   };
 
   connectBtn.disabled = true;
@@ -1632,6 +1775,7 @@ async function connectRemotetap() {
       rtRunID = data.run_id;
       pollRemotetapStatus();
       pollRemotetapUsage();
+      refreshRuns();
     } else {
       const err = await res.json().catch(() => ({}));
       statusEl.textContent = 'Connection failed: ' + (err.error || res.statusText);
@@ -1642,41 +1786,61 @@ async function connectRemotetap() {
     statusEl.className = 'status-error';
   }
   connectBtn.disabled = false;
+  rtBusy = false;
 }
 
 async function disconnectRemotetap() {
+  rtBusy = true;
+  ++rtGeneration;
   const disconnectBtn = document.getElementById('remotetap-disconnect-btn');
   disconnectBtn.disabled = true;
   try {
-    await fetch('/api/remotetap/disconnect', { method: 'POST' });
+    await api('/api/remotetap/disconnect', { method: 'POST' });
+    showRemotetapDisconnected();
+    refreshRuns();
   } catch (err) {
-    /* ignore disconnect errors */
+    const statusEl = document.getElementById('remotetap-status');
+    statusEl.textContent = 'Disconnect failed: ' + err.message;
+    statusEl.className = 'status-error';
   }
-  showRemotetapDisconnected();
   disconnectBtn.disabled = false;
+  rtBusy = false;
 }
 
-async function pollRemotetapStatus() {
-  if (rtPollTimer) clearInterval(rtPollTimer);
-  rtPollTimer = setInterval(async () => {
-    try {
-      const res = await fetch('/api/remotetap/status');
-      if (!res.ok) {
-        showRemotetapDisconnected();
-        return;
-      }
-      const status = await res.json();
-      if (!status.connected) {
-        showRemotetapDisconnected();
-        return;
-      }
-      document.getElementById('rt-span-count').textContent = status.span_count || 0;
-      document.getElementById('rt-log-count').textContent = status.log_count || 0;
-      document.getElementById('rt-metric-count').textContent = status.metric_count || 0;
-    } catch (err) {
-      /* ignore polling errors */
+async function restoreRemotetapStatus() {
+  if (rtBusy) return;
+  const generation = rtGeneration;
+  try {
+    const status = await api('/api/remotetap/status');
+    if (generation !== rtGeneration) return;
+    if (!status.connected) {
+      if (rtRunID) refreshRuns();
+      showRemotetapDisconnected();
+      pollRemotetapStatus();
+      return;
     }
-  }, 2000);
+    const changed = rtRunID !== status.run_id;
+    rtRunID = status.run_id;
+    showRemotetapConnected();
+    document.getElementById('rt-span-count').textContent = status.span_count || 0;
+    document.getElementById('rt-log-count').textContent = status.log_count || 0;
+    document.getElementById('rt-metric-count').textContent = status.metric_count || 0;
+    if (changed) {
+      refreshRuns();
+      pollRemotetapUsage();
+    }
+    pollRemotetapStatus();
+  } catch (err) {
+    if (generation !== rtGeneration) return;
+    const statusEl = document.getElementById('remotetap-status');
+    statusEl.textContent = 'Status unavailable: ' + err.message;
+    statusEl.className = 'status-error';
+    pollRemotetapStatus();
+  }
+}
+
+function pollRemotetapStatus() {
+  if (!rtPollTimer) rtPollTimer = setInterval(restoreRemotetapStatus, 2000);
 }
 
 async function pollRemotetapUsage() {
@@ -1750,10 +1914,6 @@ function showRemotetapConnected() {
 }
 
 function showRemotetapDisconnected() {
-  if (rtPollTimer) {
-    clearInterval(rtPollTimer);
-    rtPollTimer = null;
-  }
   if (rtUsagePollTimer) {
     clearInterval(rtUsagePollTimer);
     rtUsagePollTimer = null;
@@ -1797,18 +1957,9 @@ updateToggleAllBtn();
 
 
 
-// Load existing runs from the server so the run list
-// is populated immediately on page load.
-(async function loadExistingRuns() {
-  try {
-    const data = await api('/api/runs');
-    if (data.runs) {
-      data.runs.forEach(r => { runs[r.id] = mergeListRun(runs[r.id], r); });
-      renderRunList();
-    }
-  } catch(e) { /* page may load before any runs exist */ }
-  if (hasActiveRuns(runs)) startPolling();
-})();
+startPolling();
+scheduleIdleReconcile();
+restoreRemotetapStatus();
 
 updateAllPillState('signal-type');
 updateAllPillState('run-filter-signals');

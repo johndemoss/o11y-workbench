@@ -1,6 +1,7 @@
 package ottl
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestTransformRunData_LambdaFilterSlice(t *testing.T) {
 	statements := []string{
 		`set(attributes["filtered_tags"], Filter(attributes["tags"], (_, v) => v == "keep"))`,
 	}
-	result, _, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(context.Background(), traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestExecutePipeline_LambdaFilterTransform(t *testing.T) {
 		},
 	}
 
-	result, err := ExecutePipeline(traceData, pipeline)
+	result, err := ExecutePipeline(context.Background(), traceData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}

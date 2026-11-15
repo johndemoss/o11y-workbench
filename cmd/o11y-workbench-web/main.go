@@ -33,10 +33,6 @@ func main() {
 			allowedHosts = append(allowedHosts, strings.TrimSpace(part))
 		}
 	}
-	srv, err := server.New(*addr, pipelineEnabled, allowedHosts)
-	if err != nil {
-		log.Fatalf("creating server: %v", err)
-	}
 
 	if *scenarioFile != "" {
 		log.Printf("Loading user scenarios from %s", *scenarioFile)
@@ -45,26 +41,35 @@ func main() {
 		}
 	}
 
+	type jobDef struct {
+		Seed              int64  `json:"seed"`
+		TraceCount        int    `json:"trace_count"`
+		Rate              int    `json:"rate"`
+		Topology          string `json:"topology"`
+		SpanCount         int    `json:"span_count"`
+		MaxDepth          int    `json:"max_depth"`
+		ServiceName       string `json:"service_name"`
+		Scenario          string `json:"scenario"`
+		ScenarioSpanCount int    `json:"scenario_span_count"`
+	}
+	var jobs []jobDef
 	if *jobsPath != "" {
 		data, err := os.ReadFile(*jobsPath)
 		if err != nil {
 			log.Fatalf("reading jobs file: %v", err)
 		}
-		type jobDef struct {
-			Seed              int64  `json:"seed"`
-			TraceCount        int    `json:"trace_count"`
-			Rate              int    `json:"rate"`
-			Topology          string `json:"topology"`
-			SpanCount         int    `json:"span_count"`
-			MaxDepth          int    `json:"max_depth"`
-			ServiceName       string `json:"service_name"`
-			Scenario          string `json:"scenario"`
-			ScenarioSpanCount int    `json:"scenario_span_count"`
-		}
-		var jobs []jobDef
 		if err := json.Unmarshal(data, &jobs); err != nil {
 			log.Fatalf("parsing jobs file: %v", err)
 		}
+	}
+
+	srv, err := server.New(*addr, pipelineEnabled, allowedHosts)
+	if err != nil {
+		log.Fatalf("creating server: %v", err)
+	}
+	defer srv.Close()
+
+	if *jobsPath != "" {
 		for _, jd := range jobs {
 			topoType := gen.TopologyFlat
 			if jd.Topology != "" {
@@ -93,6 +98,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := srv.ListenAndServeContext(ctx); err != nil {
+		if closeErr := srv.Close(); closeErr != nil {
+			log.Printf("closing server: %v", closeErr)
+		}
 		log.Fatalf("server: %v", err)
 	}
 }

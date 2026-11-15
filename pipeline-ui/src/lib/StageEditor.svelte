@@ -2,6 +2,7 @@
 import type { Stage, ErrorMode, StageType, ProcessorConfig, SignalType } from './types'
 import { extractOttlLines, buildProcessorFromOttlLines } from './snippets'
 import { withCollectorVersion } from './collector-version'
+import { onDestroy } from 'svelte'
 
 let {
   stage,
@@ -27,6 +28,16 @@ let diagnostic = $state('Not checked. OTTL validation uses the Collector backend
 let diagnosticKind = $state<'idle' | 'ok' | 'error' | 'warn'>('idle')
 let validating = $state(false)
 let lastWritten: { signal: SignalType; id: string; ref: string; type: StageType; config: string } | null = null
+let validationGeneration = 0
+let validationKey = ''
+onDestroy(() => { validationGeneration++ })
+
+function invalidateValidation() {
+  validationGeneration++
+  validating = false
+  diagnostic = 'Draft changed locally. Re-run Collector validation.'
+  diagnosticKind = 'warn'
+}
 
 function emitProcessor(config: ProcessorConfig, type: StageType = stage.type) {
   lastWritten = { signal, id: stage.id, ref: stage.processor_ref, type, config: JSON.stringify(config) }
@@ -36,12 +47,17 @@ function emitProcessor(config: ProcessorConfig, type: StageType = stage.type) {
 $effect(() => {
   const identity = { signal, id: stage.id, ref: stage.processor_ref, type: stage.type }
   const config = JSON.stringify(processor)
+  const key = JSON.stringify([identity, config, pipelineYaml])
+  if (key !== validationKey) {
+    validationKey = key
+    invalidateValidation()
+  }
   const ownUpdate = lastWritten && lastWritten.signal === identity.signal &&
     lastWritten.id === identity.id && lastWritten.ref === identity.ref &&
     lastWritten.type === identity.type && lastWritten.config === config
   if (!ownUpdate) {
     lastWritten = null
-    statementText = extractOttlLines(stage.type, processor as Record<string, unknown>)
+    statementText = extractOttlLines(stage.type, processor as Record<string, unknown>, signal)
   }
 })
 
@@ -69,35 +85,22 @@ let docsHref = $derived(
 
 function handleTypeToggle() {
   const newType: StageType = stage.type === 'transform' ? 'filter' : 'transform'
-  const next = buildProcessorFromOttlLines(
-    newType,
-    signal,
-    statementText,
-    processor as Record<string, unknown>,
-  )
+  const next = buildProcessorFromOttlLines(newType, signal, statementText, { error_mode: stage.error_mode ?? 'ignore' })
+  invalidateValidation()
   onupdate({ ...stage, type: newType })
   emitProcessor(next, newType)
-  diagnostic = 'Draft changed locally. Re-run Collector validation.'
-  diagnosticKind = 'warn'
 }
 
 function handleErrorModeChange(e: Event) {
   const val = (e.target as HTMLSelectElement).value as ErrorMode | ''
   const mode = (val || 'ignore') as ErrorMode
+  invalidateValidation()
   onupdate({ ...stage, error_mode: mode })
-  const next = {
-    ...buildProcessorFromOttlLines(
-      stage.type === 'filter' ? 'filter' : 'transform',
-      signal,
-      statementText,
-      processor as Record<string, unknown>,
-    ),
-    error_mode: mode,
-  }
-  emitProcessor(next)
+  emitProcessor({ ...processor, error_mode: mode })
 }
 
 function handleStatementInput(e: Event) {
+  invalidateValidation()
   const val = (e.target as HTMLTextAreaElement).value
   statementText = val
   const next = buildProcessorFromOttlLines(
@@ -129,6 +132,7 @@ async function handleCheck() {
     diagnosticKind = 'error'
     return
   }
+  const generation = ++validationGeneration
   validating = true
   diagnostic = 'Validating with Collector…'
   diagnosticKind = 'idle'
@@ -139,6 +143,7 @@ async function handleCheck() {
       body: pipelineYaml,
     })
     const data = await res.json()
+    if (generation !== validationGeneration) return
     if (data.valid) {
       diagnostic = 'Collector validation passed for the current pipeline YAML.'
       diagnosticKind = 'ok'
@@ -147,10 +152,11 @@ async function handleCheck() {
       diagnosticKind = 'error'
     }
   } catch (e) {
+    if (generation !== validationGeneration) return
     diagnostic = 'Collector validation failed: ' + (e instanceof Error ? e.message : String(e))
     diagnosticKind = 'error'
   } finally {
-    validating = false
+    if (generation === validationGeneration) validating = false
   }
 }
 </script>

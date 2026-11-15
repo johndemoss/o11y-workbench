@@ -13,7 +13,7 @@
   const edgeTypes = { straight: HorizontalEdge }
   import type { Node, Edge, Connection } from '@xyflow/svelte'
   import type { StageNodeData } from './flow-sync'
-  import { wouldCreateCycle, reorderStage } from './flow-sync'
+  import { wouldCreateCycle, reorderStage, rebuildLane } from './flow-sync'
   import type {
     Stage,
     SignalType,
@@ -154,13 +154,13 @@
   }
 
   // ─── Node drag stop → reorder within swimlane ───────────────────────────
-  function handleNodeDragStop({ targetNode, nodes: flowNodes }: {
+  function handleNodeDragStop({ targetNode }: {
     targetNode: Node | null
     nodes: Node[]
     event: MouseEvent | TouchEvent
   }) {
     if (!targetNode || targetNode.type !== 'stage') return
-    const result = reorderStage(flowNodes as any, edges, targetNode.id, targetNode.position.x)
+    const result = reorderStage(nodes, edges, targetNode.id, targetNode.position.x)
     untrack(() => {
       nodes = result.nodes as Node<StageNodeData>[]
       edges = result.edges
@@ -170,8 +170,12 @@
   // ─── Delete handlers ─────────────────────────────────────────────────────
   function handleNodeDelete(nodeId: string) {
     onResultClear?.()
-    nodes = nodes.filter((n) => n.id !== nodeId)
-    edges = edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
+    const node = nodes.find((n) => n.id === nodeId)
+    if (!node?.parentId) return
+    const remaining = nodes.filter((n) => n.id !== nodeId)
+    const result = rebuildLane(remaining, edges.filter((e) => e.source !== nodeId && e.target !== nodeId), node.parentId)
+    nodes = result.nodes
+    edges = result.edges
   }
 
   function handleConfirmDelete() {

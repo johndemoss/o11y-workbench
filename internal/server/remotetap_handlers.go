@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -14,10 +15,15 @@ import (
 	"github.com/johndemoss/o11y-workbench/internal/remotetap"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
+	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
+	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -75,80 +81,95 @@ func (s *sampler) ShouldSample() bool {
 	}
 }
 
-// ringBuffer implements bounded storage with FIFO eviction
+// ringBuffer retains complete single-record resource envelopes under shared limits.
 type ringBuffer struct {
 	mu           sync.Mutex
-	items        []*tracev1.ResourceSpans
+	items        []proto.Message
 	maxSpans     int
 	maxBytes     int
+	spanCount    int
 	currentBytes int
 	evictedCount int
 }
 
 func newRingBuffer(maxSpans, maxBytes int) *ringBuffer {
-	return &ringBuffer{
-		maxSpans:     maxSpans,
-		maxBytes:     maxBytes,
-		currentBytes: 0,
-		evictedCount: 0,
-	}
+	return &ringBuffer{maxSpans: maxSpans, maxBytes: maxBytes}
 }
 
-// Add adds an item to the buffer, evicting oldest items if at capacity.
-// Returns true if added, false if item too large to store.
-func (rb *ringBuffer) Add(item *tracev1.ResourceSpans) bool {
+func (rb *ringBuffer) add(item proto.Message) bool {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
-
-	itemSize := estimateSize(item)
-	if itemSize > rb.maxBytes {
-		return false // item too large to store
+	size := proto.Size(item) + 64
+	if size > rb.maxBytes {
+		rb.evictedCount++
+		return false
 	}
-
-	// Evict oldest items until there's room
-	for len(rb.items) >= rb.maxSpans || rb.currentBytes+itemSize > rb.maxBytes {
+	_, isSpan := item.(*tracev1.ResourceSpans)
+	for (isSpan && rb.spanCount >= rb.maxSpans) || rb.currentBytes+size > rb.maxBytes {
 		if len(rb.items) == 0 {
 			break
 		}
-		evicted := rb.items[0]
+		rb.currentBytes -= proto.Size(rb.items[0]) + 64
+		if _, ok := rb.items[0].(*tracev1.ResourceSpans); ok {
+			rb.spanCount--
+		}
+		rb.items[0] = nil
 		rb.items = rb.items[1:]
-		rb.currentBytes -= estimateSize(evicted)
 		rb.evictedCount++
 	}
-
 	rb.items = append(rb.items, item)
-	rb.currentBytes += itemSize
+	if isSpan {
+		rb.spanCount++
+	}
+	rb.currentBytes += size
 	return true
 }
 
-// GetAll returns all items in the buffer.
+func (rb *ringBuffer) Add(item *tracev1.ResourceSpans) bool {
+	return rb.add(item)
+}
+
 func (rb *ringBuffer) GetAll() []*tracev1.ResourceSpans {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
-	result := make([]*tracev1.ResourceSpans, len(rb.items))
-	copy(result, rb.items)
+	var result []*tracev1.ResourceSpans
+	for _, item := range rb.items {
+		if traces, ok := item.(*tracev1.ResourceSpans); ok {
+			result = append(result, traces)
+		}
+	}
 	return result
 }
 
-// EvictedCount returns the total number of evicted items.
+func (rb *ringBuffer) payloads() ([]*tracev1.ResourceSpans, []*logsv1.ResourceLogs, []*metricsv1.ResourceMetrics) {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	var traces []*tracev1.ResourceSpans
+	var logs []*logsv1.ResourceLogs
+	var metrics []*metricsv1.ResourceMetrics
+	for _, item := range rb.items {
+		switch item := item.(type) {
+		case *tracev1.ResourceSpans:
+			traces = append(traces, item)
+		case *logsv1.ResourceLogs:
+			logs = append(logs, item)
+		case *metricsv1.ResourceMetrics:
+			metrics = append(metrics, item)
+		}
+	}
+	return traces, logs, metrics
+}
+
 func (rb *ringBuffer) EvictedCount() int {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	return rb.evictedCount
 }
 
-// CurrentBytes returns the current total byte size.
 func (rb *ringBuffer) CurrentBytes() int {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	return rb.currentBytes
-}
-
-// estimateSize returns an approximate byte size of a ResourceSpans.
-func estimateSize(rs *tracev1.ResourceSpans) int {
-	// Rough estimation using JSON size
-	data, _ := json.Marshal(rs)
-	return len(data)
 }
 
 type RemotetapFilters struct {
@@ -208,6 +229,18 @@ func (m *RemotetapManager) Connect(ctx context.Context, endpoint string, filters
 	if m.client != nil {
 		return nil, fmt.Errorf("already connected to %s", m.endpoint)
 	}
+	if filters.MaxSpans == 0 {
+		filters.MaxSpans = DefaultMaxSpans
+	}
+	if filters.MaxBytes == 0 {
+		filters.MaxBytes = DefaultMaxBytes
+	}
+	if filters.SamplingType == "" {
+		filters.SamplingType = "none"
+	}
+	if err := validateTAPFilters(filters); err != nil {
+		return nil, err
+	}
 
 	// The request controls admission/dial only; the manager owns the live stream.
 	dialCtx, cancel := context.WithCancel(ctx)
@@ -221,16 +254,18 @@ func (m *RemotetapManager) Connect(ctx context.Context, endpoint string, filters
 
 	id := fmt.Sprintf("run-%d", runIDCounter.Add(1))
 	run := &Run{
-		ID:        id,
-		Status:    RunStatusStreaming,
-		StartedAt: time.Now(),
-		Source:    "remotetap",
+		ID:                id,
+		Status:            RunStatusStreaming,
+		StartedAt:         time.Now(),
+		Source:            "remotetap",
+		CaptureLimitBytes: int64(filters.MaxBytes),
 	}
 	m.store.Add(run)
 
 	m.endpoint = endpoint
 	m.client = client
 	m.run = run
+	m.filters = filters
 	m.buffer = newRingBuffer(m.filters.MaxSpans, m.filters.MaxBytes)
 	m.sampler = newSampler(filters.SamplingType, filters.SamplingRate)
 
@@ -246,22 +281,18 @@ func (m *RemotetapManager) streamLoop(client *remotetap.Client, done chan struct
 	defer close(done)
 	defer m.onDisconnect(client)
 	defer client.Disconnect()
+	errs := client.Err()
 	for {
 		select {
 		case data, ok := <-client.Data():
 			if !ok {
 				return
 			}
-			spanCount := 0
-			for _, rs := range data.Traces {
-				for _, ss := range rs.ScopeSpans {
-					spanCount += len(ss.Spans)
-				}
-			}
-			m.processData(data, spanCount)
-		case err, ok := <-client.Err():
+			m.processData(data)
+		case err, ok := <-errs:
 			if !ok {
-				return
+				errs = nil
+				continue
 			}
 			run := m.getRun()
 			if run != nil {
@@ -273,36 +304,79 @@ func (m *RemotetapManager) streamLoop(client *remotetap.Client, done chan struct
 	}
 }
 
-func (m *RemotetapManager) processData(data *remotetap.RemotetapData, spanCount int) {
+func (m *RemotetapManager) processData(data *remotetap.RemotetapData) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	run := m.run
 	if run == nil {
 		return
 	}
-
 	run.mu.Lock()
 	defer run.mu.Unlock()
-
-	if len(data.Traces) > 0 {
-		run.SpanCount += spanCount
-		for _, rs := range data.Traces {
-			m.buffer.Add(rs)
+	for _, rs := range data.Traces {
+		if rs == nil || !m.keepResource(rs.Resource) {
+			continue
 		}
-		run.TraceCount += len(data.Traces)
-	}
-
-	if len(data.Logs) > 0 {
-		for range data.Logs {
-			run.LogCount++
-		}
-	}
-
-	if len(data.Metrics) > 0 {
-		for range data.Metrics {
-			run.MetricCount++
+		for _, scope := range rs.ScopeSpans {
+			if scope == nil {
+				continue
+			}
+			for _, span := range scope.Spans {
+				if span == nil || !m.keepSpanKind(span.Kind) || !m.sampler.ShouldSample() {
+					continue
+				}
+				m.buffer.add(&tracev1.ResourceSpans{Resource: rs.Resource, SchemaUrl: rs.SchemaUrl,
+					ScopeSpans: []*tracev1.ScopeSpans{{Scope: scope.Scope, SchemaUrl: scope.SchemaUrl, Spans: []*tracev1.Span{span}}}})
+				run.SpanCount++
+			}
 		}
 	}
+	for _, rl := range data.Logs {
+		if rl == nil || !m.keepResource(rl.Resource) {
+			continue
+		}
+		for _, scope := range rl.ScopeLogs {
+			if scope == nil {
+				continue
+			}
+			for _, record := range scope.LogRecords {
+				if record == nil || !m.shouldKeepLog(record) || !m.sampler.ShouldSample() {
+					continue
+				}
+				m.buffer.add(&logsv1.ResourceLogs{Resource: rl.Resource, SchemaUrl: rl.SchemaUrl,
+					ScopeLogs: []*logsv1.ScopeLogs{{Scope: scope.Scope, SchemaUrl: scope.SchemaUrl, LogRecords: []*logsv1.LogRecord{record}}}})
+				run.LogCount++
+			}
+		}
+	}
+	for _, rm := range data.Metrics {
+		if rm == nil || !m.keepResource(rm.Resource) {
+			continue
+		}
+		for _, scope := range rm.ScopeMetrics {
+			if scope == nil {
+				continue
+			}
+			for _, metric := range scope.Metrics {
+				if metric == nil || !m.sampler.ShouldSample() {
+					continue
+				}
+				m.buffer.add(&metricsv1.ResourceMetrics{Resource: rm.Resource, SchemaUrl: rm.SchemaUrl,
+					ScopeMetrics: []*metricsv1.ScopeMetrics{{Scope: scope.Scope, SchemaUrl: scope.SchemaUrl, Metrics: []*metricsv1.Metric{metric}}}})
+				run.MetricCount++
+			}
+		}
+	}
+	traces, _, _ := m.buffer.payloads()
+	traceIDs := make(map[string]struct{}, len(traces))
+	for _, rs := range traces {
+		for _, scope := range rs.ScopeSpans {
+			for _, span := range scope.Spans {
+				traceIDs[string(span.TraceId)] = struct{}{}
+			}
+		}
+	}
+	run.TraceCount = len(traceIDs)
 }
 
 func (m *RemotetapManager) Disconnect() error {
@@ -340,18 +414,30 @@ func (m *RemotetapManager) onDisconnect(client *remotetap.Client) {
 	}
 	if m.run != nil {
 		m.run.mu.Lock()
-		// Serialize ring buffer to TraceData so Pipeline Prototyper can access it
 		if m.buffer != nil {
-			items := m.buffer.GetAll()
-			if len(items) > 0 {
-				req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: items}
-				opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
-				if data, err := opts.Marshal(req); err == nil {
-					if fixed, err := export.FixTraceSpanIDsForMarshal(data); err == nil {
-						raw := json.RawMessage(fixed)
-						m.run.TraceData = &raw
-					}
+			traces, logs, metrics := m.buffer.payloads()
+			m.run.CaptureDropped = int64(m.buffer.EvictedCount())
+			m.run.CaptureTruncated = m.run.CaptureDropped > 0
+			marshal := func(message proto.Message) *json.RawMessage {
+				data, err := protojson.Marshal(message)
+				if err == nil {
+					data, err = export.FixTraceSpanIDsForMarshal(data)
 				}
+				if err != nil {
+					m.run.Error = "serialize TAP capture: " + err.Error()
+					return nil
+				}
+				raw := json.RawMessage(data)
+				return &raw
+			}
+			if len(traces) > 0 {
+				m.run.TraceData = marshal(&collectortracev1.ExportTraceServiceRequest{ResourceSpans: traces})
+			}
+			if len(logs) > 0 {
+				m.run.LogData = marshal(&collectorlogsv1.ExportLogsServiceRequest{ResourceLogs: logs})
+			}
+			if len(metrics) > 0 {
+				m.run.MetricData = marshal(&collectormetricsv1.ExportMetricsServiceRequest{ResourceMetrics: metrics})
 			}
 		}
 		now := time.Now()
@@ -403,6 +489,19 @@ func (m *RemotetapManager) Status() (connected bool, runID string, spanCount, lo
 func (m *RemotetapManager) GetUsageStats() map[string]interface{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.usageStatsLocked()
+}
+
+func (m *RemotetapManager) usageStatsForRun(runID string) (map[string]interface{}, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.run == nil || m.run.ID != runID || m.client == nil {
+		return nil, false
+	}
+	return m.usageStatsLocked(), true
+}
+
+func (m *RemotetapManager) usageStatsLocked() map[string]interface{} {
 
 	spanCount := int64(0)
 	traceCount := int64(0)
@@ -439,12 +538,45 @@ func (m *RemotetapManager) getRun() *Run {
 // shouldKeepTrace returns true if the trace passes attribute filters.
 // An empty filter means "accept all".
 func (m *RemotetapManager) shouldKeepTrace(rs *tracev1.ResourceSpans) bool {
-	// Check service.name filter
+	if rs == nil || !m.keepResource(rs.Resource) {
+		return false
+	}
+	if len(m.filters.SpanKinds) == 0 {
+		return true
+	}
+	for _, scope := range rs.ScopeSpans {
+		if scope != nil {
+			for _, span := range scope.Spans {
+				if span != nil && m.keepSpanKind(span.Kind) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (m *RemotetapManager) keepSpanKind(kind tracev1.Span_SpanKind) bool {
+	if len(m.filters.SpanKinds) == 0 {
+		return true
+	}
+	name := strings.TrimPrefix(kind.String(), "SPAN_KIND_")
+	for _, allowed := range m.filters.SpanKinds {
+		if name == strings.TrimPrefix(strings.ToUpper(allowed), "SPAN_KIND_") {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *RemotetapManager) keepResource(resource *resourcev1.Resource) bool {
+	get := func(key string) string {
+		return getResourceAttr(&tracev1.ResourceSpans{Resource: resource}, key)
+	}
 	if len(m.filters.Services) > 0 {
-		svcName := getResourceAttr(rs, "service.name")
 		found := false
-		for _, svc := range m.filters.Services {
-			if svcName == svc {
+		for _, service := range m.filters.Services {
+			if get("service.name") == service {
 				found = true
 				break
 			}
@@ -453,41 +585,11 @@ func (m *RemotetapManager) shouldKeepTrace(rs *tracev1.ResourceSpans) bool {
 			return false
 		}
 	}
-
-	// Check resource attributes filter
-	if len(m.filters.ResourceAttrs) > 0 {
-		for k, v := range m.filters.ResourceAttrs {
-			if getResourceAttr(rs, k) != v {
-				return false
-			}
-		}
-	}
-
-	// Check span kind filter
-	if len(m.filters.SpanKinds) > 0 {
-		found := false
-		for _, ss := range rs.ScopeSpans {
-			for _, span := range ss.Spans {
-				kindStr := span.Kind.String()
-				for _, allowed := range m.filters.SpanKinds {
-					if kindStr == allowed {
-						found = true
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-			if found {
-				break
-			}
-		}
-		if !found {
+	for key, value := range m.filters.ResourceAttrs {
+		if get(key) != value {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -539,6 +641,33 @@ func severityFromString(s string) logsv1.SeverityNumber {
 	}
 }
 
+func validateTAPFilters(filters RemotetapFilters) error {
+	if filters.MaxSpans <= 0 || filters.MaxBytes <= 0 {
+		return fmt.Errorf("maxSpans and maxBytes must be positive")
+	}
+	rate := filters.SamplingRate
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		return fmt.Errorf("invalid samplingRate")
+	}
+	switch filters.SamplingType {
+	case "", "none":
+	case "head", "tail":
+		if rate < 1 || math.Trunc(rate) != rate || rate > float64(math.MaxInt32) {
+			return fmt.Errorf("%s samplingRate must be a positive integer", filters.SamplingType)
+		}
+	case "random":
+		if rate > 1 {
+			return fmt.Errorf("random samplingRate must be between 0 and 1")
+		}
+	default:
+		return fmt.Errorf("samplingType must be one of: head, tail, random, none")
+	}
+	if filters.MinLogSeverity != "" && severityFromString(filters.MinLogSeverity) == 0 {
+		return fmt.Errorf("invalid minLogSeverity")
+	}
+	return nil
+}
+
 func (s *Server) handleRemotetapConnect(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Endpoint string           `json:"endpoint"`
@@ -553,21 +682,8 @@ func (s *Server) handleRemotetapConnect(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	validSamplingTypes := map[string]bool{"head": true, "tail": true, "random": true, "none": true}
-	if body.Filters.SamplingType != "" && !validSamplingTypes[body.Filters.SamplingType] {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "samplingType must be one of: head, tail, random, none"})
-		return
-	}
-	if body.Filters.SamplingRate < 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "samplingRate must be >= 0"})
-		return
-	}
-	if body.Filters.MaxSpans <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "maxSpans must be > 0"})
-		return
-	}
-	if body.Filters.MaxBytes <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "maxBytes must be > 0"})
+	if err := validateTAPFilters(body.Filters); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -622,6 +738,10 @@ func (s *Server) handleRemotetapUsage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runID is required"})
 		return
 	}
-	stats := s.remotetap.GetUsageStats()
+	stats, ok := s.remotetap.usageStatsForRun(runID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "active TAP run not found"})
+		return
+	}
 	writeJSON(w, http.StatusOK, stats)
 }
