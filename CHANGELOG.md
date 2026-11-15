@@ -43,3 +43,4 @@ here describe user-visible behavior rather than internal work.
 - Metrics filter validation recognizes datapoint conditions across all supported
   Collector versions, including configurations with `error_mode`.
 - Trace filter stages report zero output spans when every span is removed.
+- Party mode positions o11y's hat on the crown instead of over the forehead.

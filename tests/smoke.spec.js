@@ -105,6 +105,32 @@ test.describe('Smoke Tests', () => {
       expect(bars).toBe(3);
     });
 
+    test('party hat sits above the eyes without clipping the viewport', async ({ page }) => {
+      await page.goto('/');
+      await page.locator('.signal-eq').click();
+      const logo = page.locator('.brand-bar .logo');
+      await expect.poll(() => logo.evaluate(el => getComputedStyle(el, '::after').opacity)).toBe('1');
+
+      for (const width of [420, 1365]) {
+        await page.setViewportSize({ width, height: 768 });
+        const geometry = await logo.evaluate(el => {
+          const bounds = el.getBoundingClientRect();
+          const hat = getComputedStyle(el, '::after');
+          const top = parseFloat(hat.top);
+          return {
+            tip: bounds.top + top,
+            brim: (top + parseFloat(hat.height)) / bounds.height,
+            center: (parseFloat(hat.left) + parseFloat(hat.width) / 2) / bounds.width,
+          };
+        });
+        expect(geometry.tip).toBeGreaterThanOrEqual(0);
+        expect(geometry.brim).toBeGreaterThan(0);
+        expect(geometry.brim).toBeLessThan(0.2);
+        expect(geometry.center).toBeGreaterThan(0.11);
+        expect(geometry.center).toBeLessThan(0.17);
+      }
+    });
+
     test('config section has signal border', async ({ page }) => {
       await page.goto('/');
       const section = page.locator('#config-section');
