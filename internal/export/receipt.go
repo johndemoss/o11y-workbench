@@ -101,6 +101,22 @@ func ReceiptFromRejected(attempted int, rejected int64, errMsg string) ExportRec
 	}
 }
 
+func mergeReceipts(total *ExportReceipt, next ExportReceipt) {
+	total.AttemptedItems += next.AttemptedItems
+	total.AcceptedItems += next.AcceptedItems
+	total.RejectedItems += next.RejectedItems
+	total.UncertainItems += next.UncertainItems
+	if next.ErrorMessage != "" {
+		if total.ErrorMessage != "" {
+			total.ErrorMessage += "; "
+		}
+		total.ErrorMessage += next.ErrorMessage
+	}
+	if total.RejectedItems > 0 || total.UncertainItems > 0 {
+		total.Outcome = OutcomePartialRejection
+	}
+}
+
 // CountSpans counts span items in an OTLP traces export batch.
 func CountSpans(resources []*tracev1.ResourceSpans) int {
 	n := 0

@@ -22,6 +22,12 @@ func NewLogEndpointRouter(exporters map[region.Name]LogExporter) *LogEndpointRou
 }
 
 func (r *LogEndpointRouter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) error {
+	_, err := r.ExportWithReceipt(ctx, logs)
+	return err
+}
+
+func (r *LogEndpointRouter) ExportWithReceipt(ctx context.Context, logs []*logsv1.ResourceLogs) (ExportReceipt, error) {
+	total := ReceiptFullSuccess(0)
 	groups := make(map[region.Name][]*logsv1.ResourceLogs)
 
 	for _, rl := range logs {
@@ -32,13 +38,24 @@ func (r *LogEndpointRouter) Export(ctx context.Context, logs []*logsv1.ResourceL
 	for reg, batch := range groups {
 		exp, ok := r.exporters[reg]
 		if !ok {
-			continue
+			err := fmt.Errorf("no exporter for region %s", reg)
+			return ReceiptRPCFailure(CountLogRecords(logs), err), err
 		}
-		if err := exp.Export(ctx, batch); err != nil {
-			return fmt.Errorf("region %s: %w", reg, err)
+		var receipt ExportReceipt
+		var err error
+		if re, ok := exp.(logReceiptExporter); ok {
+			receipt, err = re.ExportWithReceipt(ctx, batch)
+		} else {
+			err = exp.Export(ctx, batch)
+			receipt = ReceiptFullSuccess(CountLogRecords(batch))
 		}
+		if err != nil {
+			err = fmt.Errorf("region %s: %w", reg, err)
+			return ReceiptRPCFailure(CountLogRecords(logs), err), err
+		}
+		mergeReceipts(&total, receipt)
 	}
-	return nil
+	return total, nil
 }
 
 func (r *LogEndpointRouter) Shutdown(ctx context.Context) error {

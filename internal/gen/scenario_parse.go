@@ -118,7 +118,10 @@ func validateNodeDef(n ScenarioNodeDef) error {
 }
 
 func nodeDefToSpanNode(n ScenarioNodeDef) (*ScenarioSpanNode, error) {
-	kind, _ := spanKindFromString(n.Kind) // already validated
+	kind, err := spanKindFromString(n.Kind)
+	if err != nil {
+		return nil, fmt.Errorf("node %q: %w", n.Name, err)
+	}
 
 	minDur := 1 * time.Millisecond
 	maxDur := 10 * time.Millisecond
@@ -182,17 +185,25 @@ var (
 // RegisterUserScenario stores a user-defined scenario by name.
 // Returns an error if the name is empty or a built-in scenario with that name exists.
 func RegisterUserScenario(name string, roots []*ScenarioSpanNode) error {
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("scenario name is required")
-	}
-	// Check for conflict with built-in scenarios
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "microservice", "monolith", "3-tier-web-app", "event-driven", "workload":
-		return fmt.Errorf("cannot override built-in scenario %q", name)
-	}
+	return RegisterUserScenarios(map[string][]*ScenarioSpanNode{name: roots})
+}
+
+// RegisterUserScenarios atomically validates and stores all supplied scenarios.
+func RegisterUserScenarios(scenarios map[string][]*ScenarioSpanNode) error {
 	userScenariosMu.Lock()
 	defer userScenariosMu.Unlock()
-	userScenarios[name] = roots
+	for name := range scenarios {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("scenario name is required")
+		}
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "microservice", "monolith", "3-tier-web-app", "event-driven", "workload":
+			return fmt.Errorf("cannot override built-in scenario %q", name)
+		}
+	}
+	for name, roots := range scenarios {
+		userScenarios[name] = cloneScenarioRoots(roots)
+	}
 	return nil
 }
 
@@ -201,7 +212,19 @@ func GetUserScenario(name string) ([]*ScenarioSpanNode, bool) {
 	userScenariosMu.RLock()
 	defer userScenariosMu.RUnlock()
 	roots, ok := userScenarios[name]
-	return roots, ok
+	return cloneScenarioRoots(roots), ok
+}
+
+func cloneScenarioRoots(roots []*ScenarioSpanNode) []*ScenarioSpanNode {
+	result := make([]*ScenarioSpanNode, len(roots))
+	for i, root := range roots {
+		if root != nil {
+			copyNode := *root
+			copyNode.Children = cloneScenarioRoots(root.Children)
+			result[i] = &copyNode
+		}
+	}
+	return result
 }
 
 // ListUserScenarios returns the names of all registered user scenarios.

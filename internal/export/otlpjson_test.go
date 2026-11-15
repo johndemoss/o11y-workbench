@@ -48,7 +48,7 @@ func TestFixTraceSpanIDsForMarshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := FixTraceSpanIDsForMarshal([]byte(tt.input))
+			result, err := FixTraceSpanIDsForMarshal([]byte(`{"spans":[` + tt.input + `]}`))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -56,7 +56,7 @@ func TestFixTraceSpanIDsForMarshal(t *testing.T) {
 			if err := json.Unmarshal(result, &got); err != nil {
 				t.Fatalf("unmarshal result: %v", err)
 			}
-			if err := json.Unmarshal([]byte(tt.expected), &want); err != nil {
+			if err := json.Unmarshal([]byte(`{"spans":[`+tt.expected+`]}`), &want); err != nil {
 				t.Fatalf("unmarshal expected: %v", err)
 			}
 			if !reflect.DeepEqual(got, want) {
@@ -125,12 +125,13 @@ func TestFixTraceSpanIDsForUnmarshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := FixTraceSpanIDsForUnmarshal([]byte(tt.input))
+			result, err := FixTraceSpanIDsForUnmarshal([]byte(`{"spans":[` + tt.input + `]}`))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if string(result) != tt.expected {
-				t.Errorf("got:\n  %s\nwant:\n  %s", string(result), tt.expected)
+			expected := `{"spans":[` + tt.expected + `]}`
+			if string(result) != expected {
+				t.Errorf("got:\n  %s\nwant:\n  %s", string(result), expected)
 			}
 		})
 	}
@@ -174,5 +175,120 @@ func TestTraceIDVectors(t *testing.T) {
 	hexEnc := hex.EncodeToString(raw)
 	if hexEnc != "000102030405060708090a0b0c0d0e0f" {
 		t.Fatalf("bad hex encoding: got %q", hexEnc)
+	}
+}
+
+func TestIdentityConversionPreservesNumbersAndAttributes(t *testing.T) {
+	input := `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"traceId":"000102030405060708090a0b0c0d0e0f","spanId":"0a0b0c0d0e0f1011","timeUnixNano":1700000000000000001,"attributes":[{"key":"traceId","value":{"stringValue":"000102030405060708090a0b0c0d0e0f"}}]}]}]}]}`
+	fixed, err := FixTraceSpanIDsForUnmarshal([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(fixed, []byte(`1700000000000000001`)) || !bytes.Contains(fixed, []byte(`"traceId":"AAECAwQFBgcICQoLDA0ODw=="`)) || !bytes.Contains(fixed, []byte(`"stringValue":"000102030405060708090a0b0c0d0e0f"`)) {
+		t.Fatalf("unexpected conversion: %s", fixed)
+	}
+}
+
+// L-4: double application of marshal/unmarshal is a no-op.
+func TestFixTraceSpanIDsDoubleApplicationIdempotent(t *testing.T) {
+	base64TraceID := "AAECAwQFBgcICQoLDA0ODw=="
+	base64SpanID := "CgsMDQ4PEBE="
+	input := []byte(`{"resourceSpans":[{"scopeSpans":[{"spans":[{
+		"traceId":"` + base64TraceID + `",
+		"spanId":"` + base64SpanID + `",
+		"links":[{"traceId":"` + base64TraceID + `","spanId":"` + base64SpanID + `"}]
+	}]}]}]}`)
+
+	once, err := FixTraceSpanIDsForMarshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twice, err := FixTraceSpanIDsForMarshal(once)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(once, twice) {
+		t.Fatalf("marshal not idempotent:\n  once:  %s\n  twice: %s", once, twice)
+	}
+
+	unonce, err := FixTraceSpanIDsForUnmarshal(once)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untwice, err := FixTraceSpanIDsForUnmarshal(unonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unonce, untwice) {
+		t.Fatalf("unmarshal not idempotent:\n  once:  %s\n  twice: %s", unonce, untwice)
+	}
+}
+
+func TestFixTraceSpanIDsLengthGated(t *testing.T) {
+	base64TraceID := "AAECAwQFBgcICQoLDA0ODw=="
+	hexTraceID := "000102030405060708090a0b0c0d0e0f"
+	hexSpanID := "0a0b0c0d0e0f1011"
+
+	out, err := FixTraceSpanIDsForMarshal([]byte(`{"spans":[{"trace_id":"` + hexTraceID + `","span_id":"` + hexSpanID + `"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	span := got["spans"].([]any)[0].(map[string]any)
+	if span["trace_id"] != hexTraceID || span["span_id"] != hexSpanID {
+		t.Fatalf("already-hex IDs must be untouched on marshal: %s", out)
+	}
+
+	shortB64, err := FixTraceSpanIDsForMarshal([]byte(`{"spans":[{"trace_id":"AAAA"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(shortB64, []byte(`"trace_id":"AAAA"`)) {
+		t.Fatalf("wrong-length base64 must be untouched: %s", shortB64)
+	}
+
+	converted, err := FixTraceSpanIDsForMarshal([]byte(`{"spans":[{"traceId":"` + base64TraceID + `"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(converted, []byte(`"traceId":"`+hexTraceID+`"`)) {
+		t.Fatalf("valid-length base64 must convert: %s", converted)
+	}
+
+	shortHex, err := FixTraceSpanIDsForUnmarshal([]byte(`{"spans":[{"trace_id":"0001"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(shortHex, []byte(`"trace_id":"0001"`)) {
+		t.Fatalf("wrong-length hex must be untouched on unmarshal: %s", shortHex)
+	}
+}
+
+func TestFixTraceSpanIDsExemplarsAndLinks(t *testing.T) {
+	base64TraceID := "AAECAwQFBgcICQoLDA0ODw=="
+	base64SpanID := "CgsMDQ4PEBE="
+	hexTraceID := "000102030405060708090a0b0c0d0e0f"
+	hexSpanID := "0a0b0c0d0e0f1011"
+	input := `{"resourceMetrics":[{"scopeMetrics":[{"metrics":[{"histogram":{"dataPoints":[{"exemplars":[
+		{"traceId":"` + base64TraceID + `","spanId":"` + base64SpanID + `"}
+	]}]}}]}]}]}`
+	out, err := FixTraceSpanIDsForMarshal([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte(`"traceId":"`+hexTraceID+`"`)) || !bytes.Contains(out, []byte(`"spanId":"`+hexSpanID+`"`)) {
+		t.Fatalf("exemplar IDs not converted: %s", out)
+	}
+
+	linkInput := `{"spans":[{"links":[{"trace_id":"` + base64TraceID + `","span_id":"` + base64SpanID + `"}]}]}`
+	linkOut, err := FixTraceSpanIDsForMarshal([]byte(linkInput))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(linkOut, []byte(`"trace_id":"`+hexTraceID+`"`)) || !bytes.Contains(linkOut, []byte(`"span_id":"`+hexSpanID+`"`)) {
+		t.Fatalf("link IDs not converted: %s", linkOut)
 	}
 }

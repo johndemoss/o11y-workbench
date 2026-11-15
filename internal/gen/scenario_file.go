@@ -132,6 +132,9 @@ func validateAndConvert(name string, entry *ScenarioFileRoots) ([]*ScenarioSpanN
 func convertRoots(nodes []ScenarioNodeDef) ([]*ScenarioSpanNode, error) {
 	result := make([]*ScenarioSpanNode, 0, len(nodes))
 	for i, r := range nodes {
+		if err := validateNodeDef(r); err != nil {
+			return nil, fmt.Errorf("root[%d]: %w", i, err)
+		}
 		node, err := nodeDefToSpanNode(r)
 		if err != nil {
 			return nil, fmt.Errorf("root[%d]: %w", i, err)

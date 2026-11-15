@@ -188,13 +188,13 @@ func (c *Client) parseLine(line []byte) (*RemotetapData, error) {
 		return nil, err
 	}
 
+	fixed, err := export.FixTraceSpanIDsForUnmarshal(line)
+	if err != nil {
+		return nil, fmt.Errorf("fix OTLP IDs: %w", err)
+	}
 	data := &RemotetapData{}
 	switch sig {
 	case signalTraces:
-		fixed, err := export.FixTraceSpanIDsForUnmarshal(line)
-		if err != nil {
-			return nil, fmt.Errorf("fix trace IDs: %w", err)
-		}
 		var req collectortracev1.ExportTraceServiceRequest
 		if err := protojson.Unmarshal(fixed, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal traces: %w", err)
@@ -202,13 +202,13 @@ func (c *Client) parseLine(line []byte) (*RemotetapData, error) {
 		data.Traces = req.ResourceSpans
 	case signalLogs:
 		var req collectorslogsv1.ExportLogsServiceRequest
-		if err := protojson.Unmarshal(line, &req); err != nil {
+		if err := protojson.Unmarshal(fixed, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal logs: %w", err)
 		}
 		data.Logs = req.ResourceLogs
 	case signalMetrics:
 		var req collectormetricsv1.ExportMetricsServiceRequest
-		if err := protojson.Unmarshal(line, &req); err != nil {
+		if err := protojson.Unmarshal(fixed, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal metrics: %w", err)
 		}
 		data.Metrics = req.ResourceMetrics

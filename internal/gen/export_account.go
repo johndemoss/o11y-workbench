@@ -18,25 +18,25 @@ type traceReceiptExporter interface {
 // exportAccount attempts one export and records transport-acceptance stats.
 // Receipt-aware exporters may split accepted vs rejected items; Export-only
 // exporters keep prior response-success accounting. Neither path claims
-// destination delivery.
-func (g *Generator) exportAccount(ctx context.Context, exp export.TraceExporter, batch []*tracev1.ResourceSpans, items int) error {
+// destination delivery. exported is false when a failure was tolerated by
+// ContinueOnExportErr.
+func (g *Generator) exportAccount(ctx context.Context, exp export.TraceExporter, batch []*tracev1.ResourceSpans, items int) (exported bool, err error) {
 	g.stats.recordAttempt(items)
 	if re, ok := exp.(traceReceiptExporter); ok {
 		receipt, err := re.ExportWithReceipt(ctx, batch)
 		g.stats.recordReceipt(receipt)
 		if err != nil {
-			return g.exportErr(ctx, err)
+			return false, g.exportErr(ctx, err)
 		}
-		return nil
+		return true, nil
 	}
-	err := exp.Export(ctx, batch)
-	if err != nil {
+	if err := exp.Export(ctx, batch); err != nil {
 		g.stats.recordFail(items)
-		return g.exportErr(ctx, err)
+		return false, g.exportErr(ctx, err)
 	}
 	// Response success for exporters without receipts — not destination delivery.
 	g.stats.recordAck(items)
-	return nil
+	return true, nil
 }
 
 func (g *Generator) exportErr(ctx context.Context, err error) error {

@@ -3,6 +3,9 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -125,4 +128,47 @@ func TestHandleStartRun_ScenarioWorkload(t *testing.T) {
 	}
 	// Config.Scenario has no json tag; assert via Workload.Shape pin instead.
 	_ = cfg
+}
+
+func TestDownloadRunProtobuf(t *testing.T) {
+	spans := []*tracev1.ResourceSpans{{ScopeSpans: []*tracev1.ScopeSpans{{Spans: []*tracev1.Span{{TraceId: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, SpanId: []byte{1, 2, 3, 4, 5, 6, 7, 8}}}}}}}
+	data, err := marshalTraceJSON(spans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(data)
+	store := NewRunStore()
+	defer store.Close()
+	store.Add(&Run{ID: "download", TraceData: &raw})
+	s := &Server{store: store}
+	req := httptest.NewRequest(http.MethodGet, "/api/runs/download/download?format=protobuf", nil)
+	req.SetPathValue("id", "download")
+	w := httptest.NewRecorder()
+	s.handleDownloadRun(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var got collectortracev1.ExportTraceServiceRequest
+	if err := proto.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(&got, &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}) {
+		t.Fatalf("payload=%v", &got)
+	}
+}
+
+func TestStartRunRejectsInvalidConfigAndWorkloadSignals(t *testing.T) {
+	s := &Server{store: NewRunStore()}
+	defer s.store.Close()
+	for _, body := range []string{
+		`{"topology":"flat","trace_count":-1}`,
+		`{"signals":{"logs":true},"workload":{"shape":"flat"}}`,
+		`{"topology":"flat","format":"csv"}`,
+	} {
+		w := httptest.NewRecorder()
+		s.handleStartRun(w, httptest.NewRequest(http.MethodPost, "/api/runs", bytes.NewBufferString(body)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status=%d response=%s", body, w.Code, w.Body.String())
+		}
+	}
 }
