@@ -47,19 +47,19 @@
       .sort((a, b) => a.position.x - b.position.x)
     for (let i = 0; i < stages.length; i++) {
       stages[i].position = { x: FIRST_STAGE_X + i * (STAGE_WIDTH + MIN_GAP), y: NODE_Y }
+      stages[i].data = { ...stages[i].data, stageIndex: i }
     }
     const expX = exporterXForStageCount(stages.length)
     for (const n of flowNodes) {
       if (n.parentId !== parentId || n.type !== 'infra') continue
       const kind = (n.data as { type?: string })?.type
-      if (kind === 'exporter') n.position = { ...n.position, x: expX, y: NODE_Y }
-      if (kind === 'receiver') n.position = { ...n.position, y: NODE_Y }
+      if (kind === 'exporter') n.position = { ...n.position, x: expX }
     }
     const swimlaneNode = flowNodes.find((n) => n.id === parentId)
     if (swimlaneNode) {
       const w = swimlaneWidthForStageCount(stages.length)
       swimlaneNode.width = w
-      swimlaneNode.style = `width: ${w}px`
+      swimlaneNode.style = `width: ${w}px; height: ${swimlaneNode.height}px`
     }
   }
 
@@ -206,8 +206,16 @@
           lastFlowHash = flowHash
           onPipelinesChange?.(updated)
         })
-        .catch(() => {
-          // Cycle errors during editing are swallowed; handled during connect
+        .catch((error: unknown) => {
+          if (request !== flowRequest ||
+              pipelinesHash !== JSON.stringify(pipelines) ||
+              flowHash !== getFlowHash(nodes, edges)) return
+          const restored = pipelinesToFlow(pipelines)
+          skipNextFlowToPipelines = true
+          nodes = restored.nodes
+          edges = restored.edges
+          pipelineVersion++
+          dropError = `Could not update pipeline graph: ${error instanceof Error ? error.message : String(error)}`
         })
     })
   })
@@ -279,7 +287,8 @@
       parentId,
       position,
       zIndex: 10,
-      draggable: false,
+      extent: 'parent',
+      draggable: true,
       data: {
         stage: { id, type, processor_ref: procName, error_mode: (processor.error_mode as any) || 'ignore' },
         processor,

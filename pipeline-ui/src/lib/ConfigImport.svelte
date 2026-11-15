@@ -1,10 +1,21 @@
 <script lang="ts">
-  import type { Pipeline, PipelinesBySignal } from './types'
+  import type { PipelinesBySignal } from './types'
   import { withCollectorVersion } from './collector-version'
+  import { onDestroy } from 'svelte'
 
-  let { onimport }: {
-    onimport?: (pipeline: PipelinesBySignal) => void
+  let { onimport, oncancel }: {
+    onimport?: (pipeline: PipelinesBySignal, yaml: string) => void
+    oncancel?: () => void
   } = $props()
+  let generation = 0
+  let controller: AbortController | undefined
+  onDestroy(() => { generation++; controller?.abort() })
+
+  function cancel() {
+    generation++
+    controller?.abort()
+    oncancel?.()
+  }
 
   let yamlText = $state(`receivers:
   otlp:
@@ -55,8 +66,13 @@ service:
   }
 
   function readFile(file: File) {
+    generation++
+    controller?.abort()
+    loading = false
     const reader = new FileReader()
+    const current = generation
     reader.onload = () => {
+      if (current !== generation) return
       yamlText = reader.result as string
     }
     reader.readAsText(file)
@@ -64,24 +80,30 @@ service:
 
   async function importConfig(): Promise<void> {
     if (!yamlText.trim()) return
+    const current = ++generation
+    controller?.abort()
+    controller = new AbortController()
     loading = true
     error = ''
     try {
       const res = await fetch(withCollectorVersion('/api/ottl/pipeline/import-config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-yaml' },
-        body: yamlText
+        body: yamlText,
+        signal: controller.signal,
       })
       const data = await res.json()
+      if (current !== generation) return
       if (!res.ok) {
         error = data.error || 'Import failed'
       } else {
-        onimport?.(data)
+        onimport?.(data, yamlText)
       }
     } catch (e: any) {
+      if (current !== generation) return
       error = e.message || 'Network error'
     } finally {
-      loading = false
+      if (current === generation) loading = false
     }
   }
 </script>
@@ -89,7 +111,7 @@ service:
 <div class="config-import">
   <div class="header">
     <h2>Import Collector Config</h2>
-    <button class="close-btn" onclick={() => onimport?.(undefined as any)} aria-label="Close">✕</button>
+    <button class="close-btn" onclick={cancel} aria-label="Close">✕</button>
   </div>
 
   <div
@@ -113,6 +135,7 @@ service:
 
   <textarea
     bind:value={yamlText}
+    oninput={() => { generation++; controller?.abort(); loading = false; error = '' }}
     rows="10"
     class="yaml-input"
     placeholder="Paste Collector YAML config here..."
@@ -123,7 +146,7 @@ service:
   {/if}
 
   <div class="actions">
-    <button class="cancel-btn" onclick={() => onimport?.(undefined as any)}>Cancel</button>
+    <button class="cancel-btn" onclick={cancel}>Cancel</button>
     <button class="import-btn" onclick={importConfig} disabled={loading}>
       {#if loading}
         Importing...

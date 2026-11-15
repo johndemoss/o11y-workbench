@@ -5,7 +5,7 @@
     formatJSON,
     highlightJSON,
   } from './diff'
-  import type { PipelineResult, StageDiff } from './types'
+  import type { PipelineResult, StageDiff, SignalType } from './types'
   import DiffPanel from './DiffPanel.svelte'
 
   let {
@@ -13,6 +13,7 @@
     error,
     originalData,
     stale = false,
+    signal = 'traces',
     selectedStageId = null,
     onSelectStage,
   }: {
@@ -20,6 +21,7 @@
     error?: string
     originalData?: unknown
     stale?: boolean
+    signal?: SignalType
     selectedStageId?: string | null
     onSelectStage?: (stageId: string | null) => void
   } = $props()
@@ -31,7 +33,13 @@
   let diffExpandedStages: Set<number> = $state(new Set())
   let selectedIndex = $state(0)
 
-  let stageDiffs: StageDiff[] = $state([])
+  let stageDiff: StageDiff | null = $state(null)
+  let diffIdentity = $state.raw<{
+    result: PipelineResult
+    input: unknown
+    signal: SignalType
+    stageIndex: number
+  } | null>(null)
   let loadingDiff = $state(false)
   let diffError = $state<string | null>(null)
 
@@ -44,43 +52,81 @@
       const idx = result.stages.findIndex((s) => s.stage_id === selectedStageId)
       if (idx >= 0) selectedIndex = idx
     }
+    if (selectedIndex >= result.stages.length) selectedIndex = result.stages.length - 1
   })
 
   $effect(() => {
-    if (!result) {
-      stageDiffs = []
+    const currentSignal = signal
+    const input = originalData
+    const index = selectedIndex
+    if (!result?.stages?.length) {
+      diffIdentity = null
+      stageDiff = null
       diffError = null
+      loadingDiff = false
+      return
+    }
+    const stage = result.stages[index]
+    if (!stage) {
+      diffIdentity = null
+      stageDiff = null
+      return
+    }
+    const before = index === 0 ? (input ?? null) : result.stages[index - 1]?.intermediate_data
+    const after = stage.intermediate_data
+    if (before == null || after == null) {
+      diffIdentity = null
+      stageDiff = null
+      diffError = null
+      loadingDiff = false
       return
     }
     const currentResult = result
+    const stageIndex = stage.stage_index
+    const current = () =>
+      !cancelled &&
+      result === currentResult &&
+      originalData === input &&
+      signal === currentSignal &&
+      selectedIndex === index
     let cancelled = false
-    async function fetchDiffs() {
+    async function fetchStageDiff() {
       loadingDiff = true
+      diffIdentity = null
+      stageDiff = null
       diffError = null
       try {
-        const res = await fetch('/api/ottl/pipeline/diff', {
+        const res = await fetch(`/api/ottl/pipeline/diff?signal=${encodeURIComponent(currentSignal)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            stages: currentResult.stages,
-            original_data: originalData ?? null,
+            stage_index: stageIndex,
+            before_data: before,
+            after_data: after,
           }),
         })
-        if (cancelled) return
+        if (!current()) return
         if (!res.ok) {
           const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+          if (!current()) return
           throw new Error(errBody.error || `Request failed with status ${res.status}`)
         }
-        stageDiffs = await res.json()
+        const diff: StageDiff = await res.json()
+        if (!current()) return
+        if (diff.stage_index !== stageIndex) {
+          throw new Error(`Diff response stage_index mismatch: got ${diff.stage_index}, want ${stageIndex}`)
+        }
+        diffIdentity = { result: currentResult, input, signal: currentSignal, stageIndex }
+        stageDiff = diff
       } catch (e) {
-        if (cancelled) return
-        diffError = e instanceof Error ? e.message : 'Failed to compute stage diffs'
-        stageDiffs = []
+        if (!current()) return
+        diffError = e instanceof Error ? e.message : 'Failed to compute stage diff'
+        stageDiff = null
       } finally {
-        if (!cancelled) loadingDiff = false
+        if (current()) loadingDiff = false
       }
     }
-    fetchDiffs()
+    fetchStageDiff()
     return () => { cancelled = true }
   })
 
@@ -89,6 +135,8 @@
   $effect(() => {
     void result
     void originalData
+    void signal
+    void selectedIndex
     unifiedDiffCache.clear()
     diffExpandedStages = new Set()
   })
@@ -117,7 +165,7 @@
 
   function stageBefore(index: number): unknown | undefined {
     if (!result) return undefined
-    if (index === 0) return originalData
+    if (index === 0) return originalData ?? undefined
     return result.stages[index - 1]?.intermediate_data
   }
 
@@ -127,7 +175,15 @@
 
   let selectedStage = $derived(result?.stages[selectedIndex] ?? null)
   let selectedDiff = $derived(
-    selectedStage ? stageDiffs[selectedStage.stage_index] : undefined,
+    selectedStage &&
+      diffIdentity?.result === result &&
+      diffIdentity.input === originalData &&
+      diffIdentity.signal === signal &&
+      diffIdentity.stageIndex === selectedStage.stage_index &&
+      stageBefore(selectedIndex) != null &&
+      stageAfter(selectedIndex) != null
+      ? stageDiff ?? undefined
+      : undefined,
   )
 
   let payloadBefore = $derived.by(() => {
@@ -143,7 +199,7 @@
   })
 
   let payloadLines = $derived.by(() => {
-    if (payloadBefore === undefined || payloadAfter === undefined) return null
+    if (payloadBefore == null || payloadAfter == null) return null
     return computeUnifiedDiff(payloadBefore, payloadAfter)
   })
 
@@ -285,7 +341,7 @@
           <p class="record-label">
             Stage {selectedStage.stage_index} · {selectedStage.stage_id} ·
             {formatDuration(selectedStage.duration_ns)} ·
-            {selectedStage.input_span_count} → {selectedStage.output_span_count} spans
+            {selectedStage.input_span_count} → {selectedStage.output_span_count} {signal === 'traces' ? 'spans' : signal === 'logs' ? 'log records' : 'metric data points'}
           </p>
           <div class="comparison-bar">
             <h3>{selectedStage.stage_id}</h3>
@@ -324,14 +380,20 @@
               </div>
             {/if}
           {:else if selectedDiff}
+            {#key result}
+            {#key selectedIndex}
+            {#key selectedDiff}
             <DiffPanel
               stageDiff={selectedDiff}
-              unifiedDiff={getUnifiedDiff(selectedStage.stage_index)}
-              stageIndex={selectedStage.stage_index}
+              unifiedDiff={getUnifiedDiff(selectedIndex)}
+              stageIndex={selectedIndex}
               {diffView}
               onToggleView={toggleView}
-              onExpandChange={(expanded) => onDiffExpandChange(selectedStage.stage_index, expanded)}
+              onExpandChange={(expanded) => onDiffExpandChange(selectedIndex, expanded)}
             />
+            {/key}
+            {/key}
+            {/key}
           {:else}
             <div class="unavailable" role="status">
               Per-record change evidence is unavailable for this stage.
@@ -370,7 +432,7 @@
           <pre class="code payload-code" aria-label="Unified full payload diff">
 {#each payloadLines as line}<span class="diff-line" class:diff-added={line.type === 'add'} class:diff-removed={line.type === 'remove'}><span class="diff-prefix">{line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}</span><span class="diff-text">{line.text}</span>
 </span>{/each}</pre>
-          <p class="provenance">Full OTLP JSON envelope · + added / − removed · unchanged context retained.</p>
+          <p class="provenance">Full OTLP JSON envelope · + added / − removed · unchanged context retained. Large comparisons may show a nonminimal removed/added middle to bound work.</p>
         {/if}
       </div>
     {:else}
@@ -392,7 +454,7 @@
           </div>
         {:else}
           <p class="record-label">
-            Pipeline output · {result.final_span_count} spans · {result.stages.length} stages
+            Pipeline output · {result.final_span_count} {signal === 'traces' ? 'spans' : signal === 'logs' ? 'log records' : 'metric data points'} · {result.stages.length} stages
           </p>
           <pre class="code payload-code">{@html highlightJSON(formatJSON(result.final_data))}</pre>
         {/if}
