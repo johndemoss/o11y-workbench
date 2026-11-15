@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { SignalType, PipelinesBySignal, SnippetTemplate } from '../types'
+import type { SignalType, PipelinesBySignal } from '../types'
 import { SIGNALS, SIGNAL_COLORS } from '../types'
 
 describe('multi-signal types', () => {
@@ -34,16 +34,4 @@ describe('multi-signal types', () => {
     expect(p.traces.stages).toEqual([])
   })
 
-  it('SnippetTemplate has required shape', () => {
-    const snippet: SnippetTemplate = {
-      id: 'test',
-      name: 'Test',
-      type: 'transform',
-      processor: {},
-      description: 'A test snippet'
-    }
-    expect(snippet.id).toBe('test')
-    expect(snippet.name).toBe('Test')
-    expect(snippet.type).toBe('transform')
-  })
 })

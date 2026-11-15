@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SNIPPETS, extractOttlLines } from './snippets'
+  import { SNIPPETS, extractOttlLines, getSnippetForSignal } from './snippets'
   import type { SignalType, SnippetTemplate, StageType } from './types'
   import { SIGNALS } from './types'
   import { dump } from 'js-yaml'
@@ -72,6 +72,10 @@
   }
 
   function onDragStartSnippet(event: DragEvent, snippet: SnippetTemplate) {
+    if (!getSnippetForSignal(snippet, targetSignal)) {
+      event.preventDefault()
+      return
+    }
     if (event.dataTransfer) {
       event.dataTransfer.setData('application/svelteflow', snippet.type)
       event.dataTransfer.setData('application/snippet', JSON.stringify(snippet))
@@ -93,10 +97,7 @@
   }
 
   function addSnippet(snippet: SnippetTemplate) {
-    // Saved library entries use span/trace context → Traces only
-    const signal: SignalType = 'traces'
-    targetSignal = signal
-    onAddStage?.({ type: snippet.type, signal, snippet })
+    onAddStage?.({ type: snippet.type, signal: targetSignal, snippet })
   }
 </script>
 
@@ -117,7 +118,7 @@
       aria-labelledby="add-signal-label"
       id="add-signal"
       data-od-id="template-target"
-      title="Blank stages use this lane. Favorites always add to Traces."
+      title="New stages and favorites use the selected lane."
     >
       {#each SIGNALS as sig}
         <button
@@ -182,16 +183,17 @@
               <div
                 class="palette-item"
                 data-stage-kind={snippet.type}
-                draggable="true"
+                draggable={!!getSnippetForSignal(snippet, targetSignal)}
                 ondragstart={(e) => onDragStartSnippet(e, snippet)}
                 role="group"
                 aria-label="{snippet.name} library entry"
               >
                 <strong>{snippet.name}</strong>
                 <small class="card-desc">{snippet.description}</small>
+                <small class="card-desc">Available for: {snippet.signals.join(', ')}{!getSnippetForSignal(snippet, targetSignal) ? ` · Not available for ${targetSignal}` : ''}</small>
                 <div class="toolbar">
                   <button type="button" onclick={() => onSnippetView?.(snippet)}>Preview</button>
-                  <button type="button" onclick={() => addSnippet(snippet)}>Add</button>
+                  <button type="button" disabled={!getSnippetForSignal(snippet, targetSignal)} title={!getSnippetForSignal(snippet, targetSignal) ? `Not available for ${targetSignal}` : undefined} onclick={() => addSnippet(snippet)}>Add</button>
                 </div>
               </div>
             {/each}

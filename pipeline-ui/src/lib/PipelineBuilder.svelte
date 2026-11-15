@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { Pipeline, Stage, StageType, ProcessorConfig } from './types'
+  import type { Pipeline, Stage, StageType, ProcessorConfig, SignalType } from './types'
   import StageEditor from './StageEditor.svelte'
 
-  let { pipeline = { stages: [], processors: {} }, onValidate, onImport }: {
+  let { pipeline = { stages: [], processors: {} }, signal, onValidate, onImport }: {
     pipeline: Pipeline
+    signal: SignalType
     onValidate?: (p: Pipeline) => void
     onImport?: () => void
   } = $props()
@@ -112,7 +113,7 @@
             <button onclick={() => moveUp(idx)} disabled={idx === 0} class="move-btn" title="Move up" aria-label="Move stage up">↑</button>
             <button onclick={() => moveDown(idx)} disabled={idx === pipeline.stages.length - 1} class="move-btn" title="Move down" aria-label="Move stage down">↓</button>
           </div>
-          <StageEditor {stage} processor={pipeline.processors[stage.processor_ref] || {}} onupdate={(s) => updateStage(idx, s)} onupdateProcessor={(c) => updateProcessor(idx, c)} />
+          <StageEditor {stage} {signal} processor={pipeline.processors[stage.processor_ref] || {}} onupdate={(s) => updateStage(idx, s)} onupdateProcessor={(c) => updateProcessor(idx, c)} />
           {#if deleteConfirmIdx === idx}
             <div class="delete-confirm">
               <span>Delete?</span>

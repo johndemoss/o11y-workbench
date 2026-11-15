@@ -6,7 +6,7 @@ import { withCollectorVersion } from './collector-version'
 let {
   stage,
   processor,
-  signal = 'traces',
+  signal,
   pipelineYaml = '',
   onupdate,
   onupdateProcessor,
@@ -14,7 +14,7 @@ let {
 }: {
   stage: Stage
   processor: ProcessorConfig
-  signal?: SignalType
+  signal: SignalType
   /** Full pipeline YAML for Collector validation when available. */
   pipelineYaml?: string
   onupdate: (s: Stage) => void
@@ -26,9 +26,23 @@ let statementText = $state('')
 let diagnostic = $state('Not checked. OTTL validation uses the Collector backend.')
 let diagnosticKind = $state<'idle' | 'ok' | 'error' | 'warn'>('idle')
 let validating = $state(false)
+let lastWritten: { signal: SignalType; id: string; ref: string; type: StageType; config: string } | null = null
+
+function emitProcessor(config: ProcessorConfig, type: StageType = stage.type) {
+  lastWritten = { signal, id: stage.id, ref: stage.processor_ref, type, config: JSON.stringify(config) }
+  onupdateProcessor?.(config)
+}
 
 $effect(() => {
-  statementText = extractOttlLines(stage.type, processor as Record<string, unknown>)
+  const identity = { signal, id: stage.id, ref: stage.processor_ref, type: stage.type }
+  const config = JSON.stringify(processor)
+  const ownUpdate = lastWritten && lastWritten.signal === identity.signal &&
+    lastWritten.id === identity.id && lastWritten.ref === identity.ref &&
+    lastWritten.type === identity.type && lastWritten.config === config
+  if (!ownUpdate) {
+    lastWritten = null
+    statementText = extractOttlLines(stage.type, processor as Record<string, unknown>)
+  }
 })
 
 let statementLabel = $derived(
@@ -62,7 +76,7 @@ function handleTypeToggle() {
     processor as Record<string, unknown>,
   )
   onupdate({ ...stage, type: newType })
-  onupdateProcessor?.(next)
+  emitProcessor(next, newType)
   diagnostic = 'Draft changed locally. Re-run Collector validation.'
   diagnosticKind = 'warn'
 }
@@ -80,7 +94,7 @@ function handleErrorModeChange(e: Event) {
     ),
     error_mode: mode,
   }
-  onupdateProcessor?.(next)
+  emitProcessor(next)
 }
 
 function handleStatementInput(e: Event) {
@@ -95,7 +109,7 @@ function handleStatementInput(e: Event) {
       error_mode: stage.error_mode ?? 'ignore',
     },
   )
-  onupdateProcessor?.(next)
+  emitProcessor(next)
   diagnostic = 'Draft changed locally. Check with Collector to validate.'
   diagnosticKind = 'warn'
 }

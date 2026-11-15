@@ -47,3 +47,7 @@ here describe user-visible behavior rather than internal work.
 - Pipeline Prototyper stage additions and drag-and-drop target the correct signal
   lane and preserve existing OTTL edits. Graph controls remain accessible with the
   YAML and results panels open.
+- Favorite transforms honor the selected lane for Add and preview, and the
+  destination lane for drag-and-drop, with native log and metric contexts.
+  Span-only filters are clearly unavailable outside traces. Pipeline-tab editors
+  also preserve their selected signal.
