@@ -89,6 +89,7 @@ func (s *Server) registerRoutes() error {
 	s.mux.HandleFunc("POST /api/runs", s.handleStartRun)
 	s.mux.HandleFunc("GET /api/runs", s.handleListRuns)
 	s.mux.HandleFunc("GET /api/runs/{id}", s.handleGetRun)
+	s.mux.HandleFunc("GET /api/runs/{id}/download", s.handleDownloadRun)
 	s.mux.HandleFunc("POST /api/runs/import", s.handleImportRun)
 	s.mux.HandleFunc("POST /api/runs/{id}/stop", s.handleStopRun)
 	s.mux.HandleFunc("POST /api/runs/{id}/pause", s.handlePauseRun)

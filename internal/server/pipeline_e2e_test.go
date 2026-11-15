@@ -73,10 +73,11 @@ processors:
 	}
 
 	diffBody, _ := json.Marshal(map[string]interface{}{
-		"stages":        execResult.Stages,
-		"original_data": fixture.TraceData,
+		"stage_index": 0,
+		"before_data": fixture.TraceData,
+		"after_data":  execResult.Stages[0].IntermediateData,
 	})
-	diffReq := httptest.NewRequest(http.MethodPost, "/api/ottl/pipeline/diff", bytes.NewReader(diffBody))
+	diffReq := httptest.NewRequest(http.MethodPost, "/api/ottl/pipeline/diff?signal=traces", bytes.NewReader(diffBody))
 	diffReq.Header.Set("Content-Type", "application/json")
 	diffRR := httptest.NewRecorder()
 
@@ -86,18 +87,13 @@ processors:
 		t.Fatalf("compute diff: status %d, body: %s", diffRR.Code, diffRR.Body.String())
 	}
 
-	var diffs []map[string]interface{}
-	if err := json.Unmarshal(diffRR.Body.Bytes(), &diffs); err != nil {
-		t.Fatalf("diff response is not valid JSON array: %v", err)
+	var firstDiff map[string]interface{}
+	if err := json.Unmarshal(diffRR.Body.Bytes(), &firstDiff); err != nil {
+		t.Fatalf("diff response is not a stage diff object: %v", err)
 	}
 
-	if len(diffs) == 0 {
-		t.Fatal("expected at least one stage diff, got none")
-	}
-
-	firstDiff := diffs[0]
 	if stageIndex, ok := firstDiff["stage_index"].(float64); !ok || int(stageIndex) != 0 {
-		t.Errorf("expected first diff to have stage_index 0, got %v", firstDiff["stage_index"])
+		t.Errorf("expected diff for stage_index 0, got %v", firstDiff["stage_index"])
 	}
 
 	modified, ok := firstDiff["modified"].([]interface{})
@@ -168,6 +164,18 @@ func TestPipelineE2E_ExportImportRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(importRR.Body.Bytes(), &imported); err != nil {
 		t.Fatalf("unmarshal imported: %v", err)
 	}
+
+	// Collector YAML carries no stage IDs, so imported stages are identified by
+	// their processor reference. Compare the represented pipeline, not the IDs.
+	normalizeStageIDs := func(p ottl.PipelinesBySignal) {
+		for _, pipeline := range p {
+			for i := range pipeline.Stages {
+				pipeline.Stages[i].ID = pipeline.Stages[i].ProcessorRef
+			}
+		}
+	}
+	normalizeStageIDs(original)
+	normalizeStageIDs(imported)
 
 	origJSON, _ := json.Marshal(original)
 	importedJSON, _ := json.Marshal(imported)

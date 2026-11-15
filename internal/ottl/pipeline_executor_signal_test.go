@@ -1,6 +1,7 @@
 package ottl
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -119,7 +120,7 @@ func TestExecuteLogPipeline_Transform(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteLogPipeline(logData, pipeline)
+	result, err := ExecuteLogPipeline(context.Background(), logData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecuteLogPipeline: %v", err)
 	}
@@ -171,7 +172,7 @@ func TestExecuteLogPipeline_Filter(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteLogPipeline(logData, pipeline)
+	result, err := ExecuteLogPipeline(context.Background(), logData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecuteLogPipeline: %v", err)
 	}
@@ -180,6 +181,17 @@ func TestExecuteLogPipeline_Filter(t *testing.T) {
 	}
 	if result.Stages[0].InputSpanCount != 2 || result.Stages[0].OutputSpanCount != 1 {
 		t.Fatalf("stage counts in=%d out=%d, want 2/1", result.Stages[0].InputSpanCount, result.Stages[0].OutputSpanCount)
+	}
+
+	var logOut collectorlogsv1.ExportLogsServiceRequest
+	if err := protojson.Unmarshal(result.FinalData, &logOut); err != nil {
+		t.Fatalf("unmarshal final logs: %v", err)
+	}
+	lr := logOut.ResourceLogs[0].ScopeLogs[0].LogRecords[0]
+	for _, attr := range lr.Attributes {
+		if attr.Key == "level" && attr.Value.GetStringValue() != "info" {
+			t.Fatalf("kept wrong log record: level=%q, want info (exclude drops matching warn)", attr.Value.GetStringValue())
+		}
 	}
 }
 
@@ -202,7 +214,7 @@ func TestExecuteMetricPipeline_Filter(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteMetricPipeline(metricData, pipeline)
+	result, err := ExecuteMetricPipeline(context.Background(), metricData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecuteMetricPipeline: %v", err)
 	}
@@ -222,8 +234,8 @@ func TestExecuteMetricPipeline_Filter(t *testing.T) {
 		t.Fatalf("data points = %d, want 1", len(points))
 	}
 	for _, attr := range points[0].Attributes {
-		if attr.Key == "env" && attr.Value.GetStringValue() != "prod" {
-			t.Fatalf("kept the wrong data point: env=%q", attr.Value.GetStringValue())
+		if attr.Key == "env" && attr.Value.GetStringValue() != "dev" {
+			t.Fatalf("kept the wrong data point: env=%q, want dev (exclude drops matching prod)", attr.Value.GetStringValue())
 		}
 	}
 }
@@ -248,12 +260,120 @@ func TestExecuteMetricPipeline_FilterErrorModeIgnore(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteMetricPipeline(metricData, pipeline)
+	result, err := ExecuteMetricPipeline(context.Background(), metricData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecuteMetricPipeline: %v", err)
 	}
 	if result.FinalSpanCount != 1 {
 		t.Fatalf("FinalSpanCount = %d, want 1 (error_mode must not change which data points are kept)", result.FinalSpanCount)
+	}
+}
+
+func TestExecuteLogPipeline_FilterSignalIsolation(t *testing.T) {
+	logData, err := marshalLogs(makeSampleLogs())
+	if err != nil {
+		t.Fatalf("marshal logs: %v", err)
+	}
+	pipeline := Pipeline{
+		Stages: []Stage{{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"}},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"traces": map[string]interface{}{
+					"span": []interface{}{`name == "would-drop-all-spans"`},
+				},
+				"logs": map[string]interface{}{
+					"log_record": []interface{}{`attributes["level"] == "warn"`},
+				},
+				"metrics": map[string]interface{}{
+					"datapoint": []interface{}{`attributes["env"] == "prod"`},
+				},
+			},
+		},
+	}
+	result, err := ExecuteLogPipeline(context.Background(), logData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecuteLogPipeline: %v", err)
+	}
+	if result.FinalSpanCount != 1 {
+		t.Fatalf("FinalSpanCount = %d, want 1 (only log_record rules apply)", result.FinalSpanCount)
+	}
+}
+
+func TestExecuteMetricPipeline_FilterSignalIsolation(t *testing.T) {
+	metricData, err := marshalMetrics(makeSampleMetrics())
+	if err != nil {
+		t.Fatalf("marshal metrics: %v", err)
+	}
+	pipeline := Pipeline{
+		Stages: []Stage{{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"}},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"traces": map[string]interface{}{
+					"span": []interface{}{`name == "trace-only"`},
+				},
+				"logs": map[string]interface{}{
+					"log_record": []interface{}{`body == "nope"`},
+				},
+				"metrics": map[string]interface{}{
+					"datapoint": []interface{}{`attributes["env"] == "prod"`},
+				},
+			},
+		},
+	}
+	result, err := ExecuteMetricPipeline(context.Background(), metricData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecuteMetricPipeline: %v", err)
+	}
+	if result.FinalSpanCount != 1 {
+		t.Fatalf("FinalSpanCount = %d, want 1 (only datapoint rules apply)", result.FinalSpanCount)
+	}
+}
+
+func TestExecuteLogPipeline_FilterExcludeNoMatchKeepsAll(t *testing.T) {
+	logData, err := marshalLogs(makeSampleLogs())
+	if err != nil {
+		t.Fatalf("marshal logs: %v", err)
+	}
+	pipeline := Pipeline{
+		Stages: []Stage{{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"}},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"logs": map[string]interface{}{
+					"log_record": []interface{}{`body == "no-such-body"`},
+				},
+			},
+		},
+	}
+	result, err := ExecuteLogPipeline(context.Background(), logData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecuteLogPipeline: %v", err)
+	}
+	if result.FinalSpanCount != 2 {
+		t.Fatalf("FinalSpanCount = %d, want 2 (exclude keeps non-matching logs)", result.FinalSpanCount)
+	}
+}
+
+func TestExecuteMetricPipeline_FilterExcludeNoMatchKeepsAll(t *testing.T) {
+	metricData, err := marshalMetrics(makeSampleMetrics())
+	if err != nil {
+		t.Fatalf("marshal metrics: %v", err)
+	}
+	pipeline := Pipeline{
+		Stages: []Stage{{ID: "s1", Type: StageTypeFilter, ProcessorRef: "p1"}},
+		Processors: map[string]ProcessorConfig{
+			"p1": {
+				"metrics": map[string]interface{}{
+					"datapoint": []interface{}{`attributes["env"] == "staging"`},
+				},
+			},
+		},
+	}
+	result, err := ExecuteMetricPipeline(context.Background(), metricData, pipeline)
+	if err != nil {
+		t.Fatalf("ExecuteMetricPipeline: %v", err)
+	}
+	if result.FinalSpanCount != 2 {
+		t.Fatalf("FinalSpanCount = %d, want 2 (exclude keeps non-matching data points)", result.FinalSpanCount)
 	}
 }
 
@@ -279,7 +399,7 @@ func TestExecuteMetricPipeline_Transform(t *testing.T) {
 		},
 	}
 
-	result, err := ExecuteMetricPipeline(metricData, pipeline)
+	result, err := ExecuteMetricPipeline(context.Background(), metricData, pipeline)
 	if err != nil {
 		t.Fatalf("ExecuteMetricPipeline: %v", err)
 	}
@@ -316,7 +436,7 @@ func TestExecutePipelineForSignal_Dispatch(t *testing.T) {
 			"p1": {"statements": []interface{}{`set(attributes["env"], "prod")`}},
 		},
 	}
-	result, err := ExecutePipelineForSignal(traceData, pipeline, "traces")
+	result, err := ExecutePipelineForSignal(context.Background(), traceData, pipeline, "traces")
 	if err != nil {
 		t.Fatalf("ExecutePipelineForSignal traces: %v", err)
 	}
@@ -324,7 +444,7 @@ func TestExecutePipelineForSignal_Dispatch(t *testing.T) {
 		t.Fatalf("FinalSpanCount = %d, want 1", result.FinalSpanCount)
 	}
 
-	if _, err := ExecutePipelineForSignal(traceData, pipeline, "unknown"); err == nil {
+	if _, err := ExecutePipelineForSignal(context.Background(), traceData, pipeline, "unknown"); err == nil {
 		t.Fatal("expected error for unsupported signal")
 	}
 }

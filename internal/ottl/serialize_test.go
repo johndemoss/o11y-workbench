@@ -9,6 +9,7 @@ import (
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestSerializeRoundTrip(t *testing.T) {
@@ -109,6 +110,41 @@ func TestSerialize_NilData(t *testing.T) {
 	_, err := UnmarshalTracesFromJSON(nil)
 	if err == nil {
 		t.Fatal("expected error for nil data")
+	}
+}
+
+func TestNormalizeTraceJSONIDs(t *testing.T) {
+	req := makeSampleTrace()
+	originalJSON, err := marshalTrace(req)
+	if err != nil {
+		t.Fatalf("marshalTrace: %v", err)
+	}
+
+	traces, err := UnmarshalTracesFromJSON(originalJSON)
+	if err != nil {
+		t.Fatalf("UnmarshalTracesFromJSON: %v", err)
+	}
+
+	var marshaler ptrace.ProtoMarshaler
+	protoBytes, err := marshaler.MarshalTraces(traces)
+	if err != nil {
+		t.Fatalf("MarshalTraces: %v", err)
+	}
+	var dstReq collectortracev1.ExportTraceServiceRequest
+	if err := proto.Unmarshal(protoBytes, &dstReq); err != nil {
+		t.Fatalf("proto.Unmarshal: %v", err)
+	}
+	raw, err := protojson.Marshal(&dstReq)
+	if err != nil {
+		t.Fatalf("protojson.Marshal: %v", err)
+	}
+
+	normalized, err := NormalizeTraceJSONIDs(raw)
+	if err != nil {
+		t.Fatalf("NormalizeTraceJSONIDs: %v", err)
+	}
+	if !bytes.Contains(normalized, []byte(`"traceId"`)) {
+		t.Fatalf("expected OTLP JSON traceId field in %s", normalized)
 	}
 }
 

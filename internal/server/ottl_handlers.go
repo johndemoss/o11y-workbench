@@ -3,10 +3,47 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/ottl"
 )
+
+// structuredProcessorConfig reports whether config describes a structured
+// processor body (grouped statements). Those execute through the pipeline path
+// so contexts and group conditions match Collector semantics.
+func structuredProcessorConfig(config string) (map[string]interface{}, bool) {
+	if strings.TrimSpace(config) == "" {
+		return nil, false
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(config), &raw); err != nil {
+		return nil, false // flat line/statement configs keep the existing paths
+	}
+	for _, key := range []string{"trace_statements", "log_statements", "metric_statements"} {
+		if _, ok := raw[key]; ok {
+			return raw, true
+		}
+	}
+	return nil, false
+}
+
+func singleTransformPipeline(proc map[string]interface{}) *ottl.Pipeline {
+	return &ottl.Pipeline{
+		Stages:     []ottl.Stage{{ID: "transform", Type: ottl.StageTypeTransform, ProcessorRef: "transform"}},
+		Processors: map[string]ottl.ProcessorConfig{"transform": proc},
+	}
+}
+
+func pipelineStatementsParsed(res *ottl.PipelineResult) int {
+	parsed := 0
+	for _, st := range res.Stages {
+		parsed += st.StatementsParsed
+	}
+	return parsed
+}
 
 func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -25,6 +62,16 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if proc, structured := structuredProcessorConfig(req.Config); structured {
+		result := eng.ValidatePipelineOTTL(r.Context(), *singleTransformPipeline(proc))
+		status := http.StatusOK
+		if !result.Valid {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, result)
+		return
+	}
+
 	var statements []string
 	if req.Config != "" {
 		var err error
@@ -37,7 +84,7 @@ func (s *Server) handleOTTLValidate(w http.ResponseWriter, r *http.Request) {
 		statements = req.Statements
 	}
 
-	result := eng.ValidateStatements(statements)
+	result := eng.ValidateStatements(r.Context(), statements)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest
@@ -85,53 +132,55 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		s := gen.NewSignalsFromType(signalType)
 		signals = &s
 	}
-
-	if signals.Traces && signals.Logs && !signals.Metrics {
-		traceStmts, logStmts, err := ottl.ParseCombinedTransformConfig(req.Config)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
-			return
-		}
-		result := ottl.TransformResult{Valid: true}
-		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, spanCount, err := eng.TransformTraces(*run.TraceData, traceStmts)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
-					Valid:  false,
-					Errors: []string{"trace: " + err.Error()},
-				})
-				return
-			}
-			result.TransformedData = &transformed
-			result.StatementsParsed = len(traceStmts)
-			result.SpanCount = spanCount
-			result.TransformedCount = spanCount
-		}
-		if len(logStmts) > 0 && run.LogData != nil {
-			transformed, err := eng.TransformLogs(*run.LogData, logStmts)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
-					Valid:  false,
-					Errors: []string{"log: " + err.Error()},
-				})
-				return
-			}
-			result.LogTransformedData = &transformed
-			result.LogStatementsParsed = len(logStmts)
-		}
-		writeJSON(w, http.StatusOK, result)
+	if !signals.Traces && !signals.Logs && !signals.Metrics {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one signal is required"})
 		return
 	}
 
-	if signals.Traces && signals.Logs && signals.Metrics {
+	if (signals.Traces && signals.Logs) || (signals.Traces && signals.Metrics) || (signals.Logs && signals.Metrics) {
+		if proc, structured := structuredProcessorConfig(req.Config); structured {
+			p := singleTransformPipeline(proc)
+			result := ottl.TransformResult{Valid: true}
+			if signals.Traces && run.TraceData != nil {
+				res, execErr := eng.ExecutePipelineForSignal(r.Context(), *run.TraceData, *p, "traces")
+				if execErr != nil {
+					writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{"trace: " + execErr.Error()}})
+					return
+				}
+				result.TransformedData = &res.FinalData
+				result.SpanCount = res.FinalSpanCount
+				result.TransformedCount = res.FinalSpanCount
+				result.StatementsParsed = pipelineStatementsParsed(res)
+			}
+			if signals.Logs && run.LogData != nil {
+				res, execErr := eng.ExecutePipelineForSignal(r.Context(), *run.LogData, *p, "logs")
+				if execErr != nil {
+					writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{"log: " + execErr.Error()}})
+					return
+				}
+				result.LogTransformedData = &res.FinalData
+				result.LogStatementsParsed = pipelineStatementsParsed(res)
+			}
+			if signals.Metrics && run.MetricData != nil {
+				res, execErr := eng.ExecutePipelineForSignal(r.Context(), *run.MetricData, *p, "metrics")
+				if execErr != nil {
+					writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{"metric: " + execErr.Error()}})
+					return
+				}
+				result.MetricTransformedData = &res.FinalData
+				result.MetricStatementsParsed = pipelineStatementsParsed(res)
+			}
+			writeJSON(w, http.StatusOK, result)
+			return
+		}
 		traceStmts, logStmts, metricStmts, err := ottl.ParseCombinedTransformConfigAll(req.Config)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{err.Error()}})
 			return
 		}
 		result := ottl.TransformResult{Valid: true}
-		if len(traceStmts) > 0 && run.TraceData != nil {
-			transformed, spanCount, err := eng.TransformTraces(*run.TraceData, traceStmts)
+		if signals.Traces && len(traceStmts) > 0 && run.TraceData != nil {
+			transformed, spanCount, err := eng.TransformTraces(r.Context(), *run.TraceData, traceStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -144,8 +193,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			result.SpanCount = spanCount
 			result.TransformedCount = spanCount
 		}
-		if len(logStmts) > 0 && run.LogData != nil {
-			transformed, err := eng.TransformLogs(*run.LogData, logStmts)
+		if signals.Logs && len(logStmts) > 0 && run.LogData != nil {
+			transformed, err := eng.TransformLogs(r.Context(), *run.LogData, logStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -156,8 +205,8 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			result.LogTransformedData = &transformed
 			result.LogStatementsParsed = len(logStmts)
 		}
-		if len(metricStmts) > 0 && run.MetricData != nil {
-			transformed, err := eng.TransformMetrics(*run.MetricData, metricStmts)
+		if signals.Metrics && len(metricStmts) > 0 && run.MetricData != nil {
+			transformed, err := eng.TransformMetrics(r.Context(), *run.MetricData, metricStmts)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 					Valid:  false,
@@ -177,6 +226,19 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no log data; only completed runs with log data can be transformed"})
 			return
 		}
+		if proc, structured := structuredProcessorConfig(req.Config); structured {
+			res, execErr := eng.ExecutePipelineForSignal(r.Context(), *run.LogData, *singleTransformPipeline(proc), "logs")
+			if execErr != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{execErr.Error()}})
+				return
+			}
+			writeJSON(w, http.StatusOK, ottl.TransformResult{
+				Valid:               true,
+				LogTransformedData:  &res.FinalData,
+				LogStatementsParsed: pipelineStatementsParsed(res),
+			})
+			return
+		}
 		var statements []string
 		if req.Config != "" {
 			var err error
@@ -188,7 +250,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		} else {
 			statements = req.Statements
 		}
-		transformed, err := eng.TransformLogs(*run.LogData, statements)
+		transformed, err := eng.TransformLogs(r.Context(), *run.LogData, statements)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 				Valid:  false,
@@ -209,6 +271,19 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no metric data; only completed runs with metric data can be transformed"})
 			return
 		}
+		if proc, structured := structuredProcessorConfig(req.Config); structured {
+			res, execErr := eng.ExecutePipelineForSignal(r.Context(), *run.MetricData, *singleTransformPipeline(proc), "metrics")
+			if execErr != nil {
+				writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{execErr.Error()}})
+				return
+			}
+			writeJSON(w, http.StatusOK, ottl.TransformResult{
+				Valid:                  true,
+				MetricTransformedData:  &res.FinalData,
+				MetricStatementsParsed: pipelineStatementsParsed(res),
+			})
+			return
+		}
 		var statements []string
 		if req.Config != "" {
 			var err error
@@ -220,7 +295,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		} else {
 			statements = req.Statements
 		}
-		transformed, err := eng.TransformMetrics(*run.MetricData, statements)
+		transformed, err := eng.TransformMetrics(r.Context(), *run.MetricData, statements)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 				Valid:  false,
@@ -241,6 +316,21 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "run has no trace data; only completed runs with trace data can be transformed"})
 		return
 	}
+	if proc, structured := structuredProcessorConfig(req.Config); structured {
+		res, execErr := eng.ExecutePipelineForSignal(r.Context(), *run.TraceData, *singleTransformPipeline(proc), "traces")
+		if execErr != nil {
+			writeJSON(w, http.StatusBadRequest, ottl.TransformResult{Valid: false, Errors: []string{execErr.Error()}})
+			return
+		}
+		writeJSON(w, http.StatusOK, ottl.TransformResult{
+			Valid:            true,
+			TransformedData:  &res.FinalData,
+			StatementsParsed: pipelineStatementsParsed(res),
+			SpanCount:        res.FinalSpanCount,
+			TransformedCount: res.FinalSpanCount,
+		})
+		return
+	}
 	var statements []string
 	if req.Config != "" {
 		var err error
@@ -252,7 +342,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 	} else {
 		statements = req.Statements
 	}
-	transformed, spanCount, err := eng.TransformTraces(*run.TraceData, statements)
+	transformed, spanCount, err := eng.TransformTraces(r.Context(), *run.TraceData, statements)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.TransformResult{
 			Valid:  false,
@@ -313,49 +403,20 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		s := gen.NewSignalsFromType(signalType)
 		signals = &s
 	}
-
-	if signals.Traces && signals.Logs && !signals.Metrics {
-		traceConds, logConds, err := ottl.ParseCombinedFilterConfig(req.Config)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
-			return
-		}
-		result := ottl.FilterResult{Valid: true}
-		if len(traceConds) > 0 && run.TraceData != nil {
-			filtered, total, kept, err := eng.FilterTraces(*run.TraceData, traceConds, req.Mode)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}})
-				return
-			}
-			result.FilteredData = &filtered
-			result.ConditionsParsed = len(traceConds)
-			result.TotalSpanCount = total
-			result.FilteredSpanCount = kept
-		}
-		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := eng.FilterLogs(*run.LogData, logConds, req.Mode)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}})
-				return
-			}
-			result.LogFilteredData = &filtered
-			result.LogConditionsParsed = len(logConds)
-			result.TotalLogCount = total
-			result.FilteredLogCount = kept
-		}
-		writeJSON(w, http.StatusOK, result)
+	if !signals.Traces && !signals.Logs && !signals.Metrics {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one signal is required"})
 		return
 	}
 
-	if signals.Traces && signals.Logs && signals.Metrics {
+	if (signals.Traces && signals.Logs) || (signals.Traces && signals.Metrics) || (signals.Logs && signals.Metrics) {
 		traceConds, logConds, metricConds, err := ottl.ParseCombinedFilterConfigAll(req.Config)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{err.Error()}})
 			return
 		}
 		result := ottl.FilterResult{Valid: true}
-		if len(traceConds) > 0 && run.TraceData != nil {
-			filtered, total, kept, err := eng.FilterTraces(*run.TraceData, traceConds, req.Mode)
+		if signals.Traces && len(traceConds) > 0 && run.TraceData != nil {
+			filtered, total, kept, err := eng.FilterTraces(r.Context(), *run.TraceData, traceConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"trace: " + err.Error()}})
 				return
@@ -365,8 +426,8 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			result.TotalSpanCount = total
 			result.FilteredSpanCount = kept
 		}
-		if len(logConds) > 0 && run.LogData != nil {
-			filtered, total, kept, err := eng.FilterLogs(*run.LogData, logConds, req.Mode)
+		if signals.Logs && len(logConds) > 0 && run.LogData != nil {
+			filtered, total, kept, err := eng.FilterLogs(r.Context(), *run.LogData, logConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"log: " + err.Error()}})
 				return
@@ -376,8 +437,8 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 			result.TotalLogCount = total
 			result.FilteredLogCount = kept
 		}
-		if len(metricConds) > 0 && run.MetricData != nil {
-			metricFiltered, metricTotal, metricKept, err := eng.FilterMetrics(*run.MetricData, metricConds, req.Mode)
+		if signals.Metrics && len(metricConds) > 0 && run.MetricData != nil {
+			metricFiltered, metricTotal, metricKept, err := eng.FilterMetrics(r.Context(), *run.MetricData, metricConds, req.Mode)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, ottl.FilterResult{Valid: false, Errors: []string{"metric: " + err.Error()}})
 				return
@@ -407,7 +468,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		} else {
 			conditions = req.Conditions
 		}
-		filtered, total, kept, err := eng.FilterLogs(*run.LogData, conditions, req.Mode)
+		filtered, total, kept, err := eng.FilterLogs(r.Context(), *run.LogData, conditions, req.Mode)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 				Valid:  false,
@@ -441,7 +502,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		} else {
 			conditions = req.Conditions
 		}
-		filtered, total, kept, err := eng.FilterMetrics(*run.MetricData, conditions, req.Mode)
+		filtered, total, kept, err := eng.FilterMetrics(r.Context(), *run.MetricData, conditions, req.Mode)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 				Valid:  false,
@@ -475,7 +536,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 	} else {
 		conditions = req.Conditions
 	}
-	filtered, total, kept, err := eng.FilterTraces(*run.TraceData, conditions, req.Mode)
+	filtered, total, kept, err := eng.FilterTraces(r.Context(), *run.TraceData, conditions, req.Mode)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, ottl.FilterResult{
 			Valid:  false,
@@ -534,7 +595,7 @@ func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request
 		signals = &s
 	}
 
-	result := eng.ValidateFilterConditions(conditions, *signals)
+	result := eng.ValidateFilterConditions(r.Context(), conditions, *signals)
 	status := http.StatusOK
 	if !result.Valid {
 		status = http.StatusBadRequest

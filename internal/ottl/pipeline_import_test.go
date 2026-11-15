@@ -47,13 +47,13 @@ service:
 				"traces": {
 					Stages: []Stage{
 						{
-							ID:           "add_env",
+							ID:           "transform/add_env",
 							Type:         StageTypeTransform,
 							ErrorMode:    ErrorModeIgnore,
 							ProcessorRef: "transform/add_env",
 						},
 						{
-							ID:           "drop_internal",
+							ID:           "filter/drop_internal",
 							Type:         StageTypeFilter,
 							ErrorMode:    ErrorModePropagate,
 							ProcessorRef: "filter/drop_internal",
@@ -107,7 +107,7 @@ service:
 				"traces": {
 					Stages: []Stage{
 						{
-							ID:           "add_env",
+							ID:           "transform/add_env",
 							Type:         StageTypeTransform,
 							ErrorMode:    ErrorModePropagate,
 							ProcessorRef: "transform/add_env",
@@ -127,7 +127,7 @@ service:
 				"metrics": {
 					Stages: []Stage{
 						{
-							ID:           "drop_internal",
+							ID:           "filter/drop_internal",
 							Type:         StageTypeFilter,
 							ErrorMode:    ErrorModePropagate,
 							ProcessorRef: "filter/drop_internal",
@@ -165,7 +165,7 @@ service:
 				"traces": {
 					Stages: []Stage{
 						{
-							ID:           "foo",
+							ID:           "transform/foo",
 							Type:         StageTypeTransform,
 							ErrorMode:    ErrorModePropagate,
 							ProcessorRef: "transform/foo",
@@ -362,5 +362,34 @@ service:
 	}
 	if want := []string{"debug"}; !reflect.DeepEqual(tp.Exporters, want) {
 		t.Errorf("exporters: got %v, want %v", tp.Exporters, want)
+	}
+}
+
+func TestImportRejectsUnrepresentablePipelines(t *testing.T) {
+	for _, config := range []string{
+		"processors: {batch: {timeout: 1s}}\nservice: {pipelines: {traces: {processors: [batch]}}}",
+		"processors: {transform/a: {trace_statements: [], mystery: true}}\nservice: {pipelines: {traces: {processors: [transform/a]}}}",
+		"service: {pipelines: {traces: {}, traces/other: {}}}",
+	} {
+		if got, err := ImportCollectorConfig(config); err == nil || got != nil {
+			t.Fatalf("expected atomic rejection, got %v, %v", got, err)
+		}
+	}
+}
+
+func TestImportDistinctStageIDs(t *testing.T) {
+	config := `processors:
+  transform/foo: {trace_statements: []}
+  filter/foo: {traces: {span: []}}
+service:
+  pipelines:
+    traces: {processors: [transform/foo, filter/foo, transform/foo]}
+`
+	p, err := ImportCollectorConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p["traces"].Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -12,15 +12,20 @@
   import ConfigImport from './lib/ConfigImport.svelte'
   import QuickTab from './lib/QuickTab.svelte'
   import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
-  import { debounce } from './lib/debounce'
   import { withCollectorVersion } from './lib/collector-version'
   import { dump } from 'js-yaml'
-  import { onDestroy } from 'svelte'
 
+  function initialPipeline(): Pipeline {
+    return {
+      stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'],
+      receiver_configs: { otlp: { protocols: { grpc: {} } } },
+      exporter_configs: { debug: {} },
+    }
+  }
   let pipelinesBySignal: PipelinesBySignal = $state({
-    traces: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-    logs: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-    metrics: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] }
+    traces: initialPipeline(),
+    logs: initialPipeline(),
+    metrics: initialPipeline()
   })
   let selectedSignal: SignalType = $state('traces')
   let pipeline = $derived(pipelinesBySignal[selectedSignal] || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
@@ -29,8 +34,26 @@
   let originalData: unknown = $state(null)
   let selectedRunPayload: unknown = $state(null)
   let showImport: boolean = $state(false)
+  let importGeneration = 0
+  let importHandler = $state<(p: PipelinesBySignal, yaml: string) => void>(() => {})
+  function openImport() {
+    const generation = ++importGeneration
+    importHandler = (p, yaml) => { if (generation === importGeneration) handleImport(p, yaml) }
+    showImport = true
+  }
+  function closeImport() {
+    importGeneration++
+    showImport = false
+  }
   let pipelineYaml: string = $state('')
+  let authoredYaml = $state<string | null>(null)
+  let draftReady = $state(true)
+  let quickYaml = $state('')
+  let executedSource = $state<'quick' | 'pipeline' | 'graph'>('graph')
+  let resultSignal = $state<SignalType>('traces')
   let activeTab: 'quick' | 'pipeline' | 'graph' = $state('graph')
+  let graphYaml = $derived(exportPipelinesToYamlLocal(pipelinesBySignal))
+  let executableYaml = $derived(activeTab === 'graph' && authoredYaml !== null ? authoredYaml : pipelineYaml)
   /** Modal editor for Quick/Pipeline tabs only — Graph uses persistent StageInspector. */
   let editingStage: { stage: Stage; processor: ProcessorConfig; signal: SignalType } | null = $state(null)
   let selectedNodeId: string | null = $state(null)
@@ -53,7 +76,7 @@
     const sel = inspectorSelection
     return sel?.kind === 'receiver' ? sel.name : null
   })
-  let resultsStale = $derived(!!result && executedYaml !== null && pipelineYaml !== executedYaml)
+  let resultsStale = $derived(!!result && executedYaml !== null && (executedSource === 'quick' ? quickYaml : executedSource === 'graph' ? authoredYaml ?? graphYaml : yamlStringify(pipelinesBySignal[resultSignal])) !== executedYaml)
   let selectedResultStageId = $derived.by(() => {
     const sel = inspectorSelection
     return sel?.kind === 'stage' ? sel.stage.id : null
@@ -127,8 +150,14 @@
     }
   }
 
-  function handlePipelinesChange(p: PipelinesBySignal) {
-    pipelinesBySignal = p
+  function normalizePipelines(p: PipelinesBySignal): PipelinesBySignal {
+    const empty = (): Pipeline => ({ stages: [], processors: {}, receivers: [], exporters: [] })
+    return { traces: p.traces ?? empty(), logs: p.logs ?? empty(), metrics: p.metrics ?? empty() }
+  }
+
+  function handlePipelinesChange(p: PipelinesBySignal, fromEditor = false) {
+    if (!fromEditor) authoredYaml = null
+    pipelinesBySignal = normalizePipelines(p)
     // Keep inspector bound to current stage identity after graph sync
     if (inspectorSelection?.kind === 'stage') {
       const selected = inspectorSelection
@@ -189,9 +218,29 @@
     return [...names][0] ?? 'otlp'
   }
 
-  async function handleExport() { downloadYaml('pipeline-config.yaml', await exportPipelinesToYaml(pipelinesBySignal)) }
+  async function handleExport() {
+    if (!draftReady) {
+      alert('Synchronize or resync the YAML draft before downloading.')
+      return
+    }
+    if (authoredYaml !== null) {
+      downloadYaml('pipeline-config.yaml', authoredYaml)
+      return
+    }
+    const snapshot = graphYaml
+    try {
+      const yaml = await exportPipelinesToYaml(pipelinesBySignal)
+      if (draftReady && authoredYaml === null && snapshot === graphYaml) downloadYaml('pipeline-config.yaml', yaml)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+    }
+  }
   function handleValidate(p: Pipeline) {
-    const body = activeTab === 'graph' ? pipelineYaml : yamlStringify(p)
+    if (activeTab === 'graph' && !draftReady) {
+      alert('Synchronize or resync the YAML draft before validation.')
+      return
+    }
+    const body = activeTab === 'graph' ? executableYaml : yamlStringify(p)
     const url = activeTab === 'graph'
       ? withCollectorVersion('/api/ottl/pipeline/validate')
       : withCollectorVersion(`/api/ottl/pipeline/validate?signal=${encodeURIComponent(selectedSignal)}`)
@@ -203,7 +252,7 @@
     selectedRunPayload = payload
     if (sig) selectedSignal = sig
   }
-  function handleExecuteResult(r: PipelineResult | null, err?: string, _runId?: string, originalPayload?: unknown) {
+  function handleExecuteResult(r: PipelineResult | null, err?: string, _runId?: string, originalPayload?: unknown, submittedYaml?: string, submittedSignal?: SignalType, source: 'quick' | 'pipeline' | 'graph' = activeTab) {
     result = r
     resultError = err
     if (!r) {
@@ -211,17 +260,17 @@
       return
     }
     originalData = originalPayload !== undefined ? originalPayload : selectedRunPayload
-    executedYaml = pipelineYaml
+    executedYaml = submittedYaml ?? null
+    executedSource = source
+    resultSignal = submittedSignal ?? selectedSignal
   }
-  function handleImport(p: PipelinesBySignal) {
-    pipelinesBySignal = {
-      traces: p.traces || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-      logs: p.logs || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-      metrics: p.metrics || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
-    }
+  function handleImport(p: PipelinesBySignal, yaml: string) {
+    handlePipelinesChange(p, true)
+    authoredYaml = yaml
+    draftReady = true
     const withStages = (['traces', 'logs', 'metrics'] as SignalType[]).find(s => (pipelinesBySignal[s]?.stages?.length ?? 0) > 0)
     if (withStages) selectedSignal = withStages
-    showImport = false
+    closeImport()
     if (activeTab !== 'graph') activeTab = 'graph'
   }
   function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig; signal: SignalType }) {
@@ -239,6 +288,8 @@
     if (inspectorSelection?.kind !== 'stage') return
     const sig = inspectorSelection.signal
     const prev = inspectorSelection.stage
+    authoredYaml = null
+    if (s.type !== prev.type) s = renameStageProcessor(sig, prev, s)
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: {
@@ -256,6 +307,7 @@
   function handleInspectorProcessorUpdate(c: ProcessorConfig) {
     if (inspectorSelection?.kind !== 'stage') return
     const sig = inspectorSelection.signal
+    authoredYaml = null
     const ref = inspectorSelection.stage.processor_ref
     pipelinesBySignal = {
       ...pipelinesBySignal,
@@ -272,6 +324,7 @@
     if (sel?.kind !== 'stage') return
     const sig = sel.signal
     const stages = [...pipelinesBySignal[sig].stages]
+    authoredYaml = null
     const idx = stages.findIndex((s) => s.id === sel.stage.id)
     if (idx < 0) return
     const swapWith = direction === 'left' ? idx - 1 : idx + 1
@@ -287,6 +340,7 @@
     const sel = inspectorSelection
     if (sel?.kind !== 'stage') return
     const sig = sel.signal
+    authoredYaml = null
     const id = sel.stage.id
     const ref = sel.stage.processor_ref
     const stages = pipelinesBySignal[sig].stages.filter((s) => s.id !== id)
@@ -303,6 +357,8 @@
   }
   function handleStageUpdate(s: Stage) {
     const sig = editingStage!.signal
+    authoredYaml = null
+    if (s.type !== editingStage!.stage.type) s = renameStageProcessor(sig, editingStage!.stage, s)
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: { ...pipelinesBySignal[sig], stages: pipelinesBySignal[sig].stages.map(st => st.id === editingStage!.stage.id ? s : st) }
@@ -311,6 +367,7 @@
   }
   function handleStageProcessorUpdate(c: ProcessorConfig) {
     const sig = editingStage!.signal
+    authoredYaml = null
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: { ...pipelinesBySignal[sig], processors: { ...pipelinesBySignal[sig].processors, [editingStage!.stage.processor_ref]: c } }
@@ -331,81 +388,40 @@
     return out
   }
 
-  let yamlVersion = 0
-
-  const debouncedFetchExportYaml = debounce(
-    (ver: number, tab: string, pipelines: PipelinesBySignal, sig: SignalType, singlePipeline: Pipeline) => {
-      void fetchExportYaml(ver, tab, pipelines, sig, singlePipeline)
-    },
-    400,
-  )
-  onDestroy(() => debouncedFetchExportYaml.cancel())
+  function renameStageProcessor(sig: SignalType, previous: Stage, next: Stage): Stage {
+    const used = new Set(SIGNALS.flatMap(signal => Object.keys(pipelinesBySignal[signal].processors)))
+    const suffix = previous.processor_ref.includes('/') ? previous.processor_ref.slice(previous.processor_ref.indexOf('/') + 1) : previous.id
+    const base = `${next.type}/${suffix}`
+    let ref = base
+    for (let n = 2; used.has(ref); n++) ref = `${base}_${n}`
+    const lane = pipelinesBySignal[sig]
+    const processors = { ...lane.processors, [ref]: lane.processors[previous.processor_ref] ?? {} }
+    if (!lane.stages.some(stage => stage.id !== previous.id && stage.processor_ref === previous.processor_ref)) delete processors[previous.processor_ref]
+    pipelinesBySignal = { ...pipelinesBySignal, [sig]: { ...lane, processors } }
+    return { ...next, processor_ref: ref }
+  }
 
   $effect(() => {
-    const tab = activeTab
-    const pipelines = pipelinesBySignal
-    const sig = selectedSignal
-    const singlePipeline = pipeline
-
-    const ver = ++yamlVersion
-
-    if (tab === 'graph') {
-      pipelineYaml = exportPipelinesToYamlLocal(pipelines)
-    } else {
-      pipelineYaml = yamlStringify(singlePipeline)
-    }
-
-    debouncedFetchExportYaml(ver, tab, pipelines, sig, singlePipeline)
+    pipelineYaml = activeTab === 'graph' ? graphYaml : yamlStringify(pipeline)
   })
-
-  async function fetchExportYaml(
-    ver: number,
-    tab: string,
-    pipelines: PipelinesBySignal,
-    sig: SignalType,
-    singlePipeline: Pipeline
-  ) {
-    const empty = { stages: [], processors: {} as Record<string, ProcessorConfig>, receivers: ['otlp'], exporters: ['debug'] }
-    const payload = tab === 'graph'
-      ? pipelines
-      : {
-          traces: sig === 'traces' ? singlePipeline : empty,
-          logs: sig === 'logs' ? singlePipeline : empty,
-          metrics: sig === 'metrics' ? singlePipeline : empty,
-        }
-
-    try {
-      const res = await fetch('/api/ottl/pipeline/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      if (res.ok) {
-        const text = await res.text()
-        if (ver === yamlVersion) {
-          pipelineYaml = text
-        }
-      }
-    } catch {
-      // Keep the client-side fallback value already set by the effect
-    }
-  }
 </script>
 
-<Layout {activeTab} onTabChange={(t) => activeTab = t}>
+<Layout {activeTab} onTabChange={(t) => { if (draftReady) activeTab = t; else alert('Synchronize or resync the YAML draft before switching tabs.') }}>
   {#if activeTab === 'quick'}
-    <QuickTab onresult={handleExecuteResult} />
+    <QuickTab ondraft={(yaml) => quickYaml = yaml} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'quick')} />
   {:else if activeTab === 'graph'}
     <div class="graph-shell">
       <div class="layout" class:yaml-closed={!yamlOpen} id="layout">
         <EditorPanel
           pipelines={pipelinesBySignal}
-          yaml={pipelineYaml}
+          yaml={executableYaml}
+          graphYaml={pipelineYaml}
           {selectedNodeId}
           bind:open={yamlOpen}
-          onPipelinesChange={handlePipelinesChange}
+          onPipelinesChange={(p) => handlePipelinesChange(p, true)}
+          onDraftChange={(text, ready) => { authoredYaml = text; draftReady = ready }}
         />
-        <div class="workspace">
+        <div class="workspace" inert={!draftReady}>
           <div class="canvas-wrapper">
             <SwimlaneFlowBuilder
               pipelines={pipelinesBySignal}
@@ -413,7 +429,7 @@
               {highlightedReceiver}
               {yamlOpen}
               onShowYaml={() => yamlOpen = true}
-              onImport={() => showImport = true}
+              onImport={openImport}
               onExport={handleExport}
               onNodeEdit={handleNodeEdit}
               onPipelinesChange={handlePipelinesChange}
@@ -422,28 +438,31 @@
             />
           </div>
         </div>
+        <div inert={!draftReady}>
         <StageInspector
           selection={inspectorSelection}
           pipelines={pipelinesBySignal}
-          pipelineYaml={pipelineYaml}
+          pipelineYaml={executableYaml}
           onupdate={handleInspectorStageUpdate}
           onupdateProcessor={handleInspectorProcessorUpdate}
           onMove={handleInspectorMove}
           onRemove={handleInspectorRemove}
         />
+        </div>
       </div>
 
       {#snippet executeResultsBody()}
         <div class="bottom-content" id="bottom-content">
           <section class="execute" data-od-id="execution-panel" aria-label="Execute">
             <h3 title="Captured run → current YAML">Execute</h3>
-            <RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={handleExecuteResult} onrunselect={handleRunSelect} />
+            <RunSelector pipelineYaml={executableYaml} disabled={!draftReady} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'graph')} onrunselect={handleRunSelect} />
           </section>
           <section class="results" data-od-id="stage-results">
             <ResultsView
               {result}
               error={resultError}
               {originalData}
+              signal={resultSignal}
               stale={resultsStale}
               selectedStageId={selectedResultStageId}
               onSelectStage={handleResultStageSelect}
@@ -521,11 +540,11 @@
         <option value="metrics">metrics</option>
       </select>
     </div>
-    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={() => showImport = true} />
-    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
+    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={openImport} />
+    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'pipeline')} onrunselect={handleRunSelect} /></section>
   {/if}
   {#if activeTab !== 'graph'}
-    <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} stale={resultsStale} /></section>
+    <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} stale={resultsStale} signal={resultSignal} /></section>
   {/if}
   {#if showImport}
     <div
@@ -533,10 +552,10 @@
       role="dialog"
       aria-modal="true"
       tabindex="-1"
-      onclick={(e) => { if (e.target === e.currentTarget) showImport = false }}
-      onkeydown={(e) => e.key === 'Escape' && (showImport = false)}
+      onclick={(e) => { if (e.target === e.currentTarget) closeImport() }}
+      onkeydown={(e) => e.key === 'Escape' && closeImport()}
     >
-      <div class="modal"><ConfigImport onimport={handleImport} /><button class="btn-close" onclick={() => showImport = false}>Close</button></div>
+      <div class="modal"><ConfigImport onimport={importHandler} oncancel={closeImport} /><button class="btn-close" onclick={closeImport}>Close</button></div>
     </div>
   {/if}
   {#if editingStage !== null && activeTab !== 'graph'}

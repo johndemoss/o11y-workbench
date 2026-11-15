@@ -11,6 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:ct": "playwright test -c playwright-ct.config.ts",
+    "test:e2e": "playwright test",
     "test": "vitest run"
   },
   "devDependencies": {

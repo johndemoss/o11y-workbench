@@ -1,163 +1,4 @@
-import type { StageDiff, DiffSpan, StageResult, SpanChange, FullAttributeDiff } from './types'
-
-export function computeStageDiff(before: unknown, after: unknown, stageIndex: number): StageDiff {
-  if (!before || !after) {
-    const inputSpanCount = before ? countSpans(before) : 0
-    const outputSpanCount = after ? countSpans(after) : 0
-    return {
-      stage_index: stageIndex,
-      input_span_count: inputSpanCount,
-      output_span_count: outputSpanCount,
-      added: [],
-      removed: [],
-      modified: []
-    }
-  }
-
-  const beforeSpans = extractSpans(before)
-  const afterSpans = extractSpans(after)
-
-  const beforeMap = new Map(beforeSpans.map(s => [s.spanId, s]))
-  const afterMap = new Map(afterSpans.map(s => [s.spanId, s]))
-
-  const added: DiffSpan[] = []
-  const removed: DiffSpan[] = []
-  const modified: DiffSpan[] = []
-
-  for (const [id, afterSpan] of afterMap) {
-    const beforeSpan = beforeMap.get(id)
-    if (!beforeSpan) {
-      added.push({ spanId: id, status: 'added', name: afterSpan['name'] as string | undefined, after: afterSpan })
-    } else {
-      if (JSON.stringify(beforeSpan) !== JSON.stringify(afterSpan)) {
-        const changes = computeSpanChanges(beforeSpan, afterSpan)
-        modified.push({ spanId: id, status: 'modified', name: (afterSpan['name'] || beforeSpan['name']) as string | undefined, before: beforeSpan, after: afterSpan, changes })
-      }
-    }
-  }
-
-  for (const [id, beforeSpan] of beforeMap) {
-    if (!afterMap.has(id)) {
-      removed.push({ spanId: id, status: 'removed', name: beforeSpan['name'] as string | undefined, before: beforeSpan })
-    }
-  }
-
-  return {
-    stage_index: stageIndex,
-    input_span_count: beforeSpans.length,
-    output_span_count: afterSpans.length,
-    added,
-    removed,
-    modified
-  }
-}
-
-export function computeAllStageDiffs(stages: StageResult[], originalData?: unknown): StageDiff[] {
-  if (!stages || stages.length === 0) return []
-
-  const diffs: StageDiff[] = []
-  for (let i = 0; i < stages.length; i++) {
-    const stage = stages[i]
-    const before = i === 0 ? (originalData ?? null) : stages[i - 1].intermediate_data
-    const after = stage.intermediate_data
-    const diff = computeStageDiff(before, after, stage.stage_index)
-    diffs.push(diff)
-  }
-  return diffs
-}
-
-function extractSpans(data: unknown): Array<{ spanId: string; [key: string]: unknown }> {
-  // Handle scope-spans (nested in resourceSpans → scopeSpans → spans)
-  const spans: Array<{ spanId: string; [key: string]: unknown }> = []
-
-  if (!data || typeof data !== 'object') return spans
-
-  const root = data as Record<string, unknown>
-
-  // Try resourceSpans / resource_spans structure (OTLP protojson uses snake_case)
-  const resourceSpans = (root['resourceSpans'] || root['resource_spans']) as unknown
-  if (Array.isArray(resourceSpans)) {
-    for (const rs of resourceSpans) {
-      const scopeSpans = ((rs as Record<string, unknown>)['scopeSpans'] || (rs as Record<string, unknown>)['scope_spans']) as unknown
-      if (Array.isArray(scopeSpans)) {
-        for (const ss of scopeSpans) {
-          const items = (ss as Record<string, unknown>)['spans']
-          if (Array.isArray(items)) {
-            for (const span of items) {
-              const s = span as Record<string, unknown>
-              const spanId = (s['spanId'] || s['span_id']) as string | undefined
-              if (spanId) {
-                spans.push({ spanId, ...s } as { spanId: string; [key: string]: unknown })
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Try flat spans array
-  if (spans.length === 0) {
-    const flatSpans = root['spans'] as unknown
-    if (Array.isArray(flatSpans)) {
-      for (const span of flatSpans) {
-        const s = span as Record<string, unknown>
-        const spanId = (s['spanId'] || s['span_id']) as string | undefined
-        if (spanId) {
-          spans.push({ spanId, ...s } as { spanId: string; [key: string]: unknown })
-        }
-      }
-    }
-  }
-
-  return spans
-}
-
-function countSpans(data: unknown): number {
-  return extractSpans(data).length
-}
-
-export function computeSpanChanges(before: unknown, after: unknown): SpanChange[] {
-  const changes: SpanChange[] = []
-  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return changes
-
-  const b = before as Record<string, unknown>
-  const a = after as Record<string, unknown>
-
-  // Compare attributes (they're arrays of {key, value} objects)
-  const bAttrs = normalizeAttrs(b['attributes'])
-  const aAttrs = normalizeAttrs(a['attributes'])
-
-  for (const [key, aVal] of Object.entries(aAttrs)) {
-    if (!(key in bAttrs)) {
-      changes.push({ field: `attributes.${key}`, type: 'added', after: aVal })
-    } else if (JSON.stringify(bAttrs[key]) !== JSON.stringify(aVal)) {
-      changes.push({ field: `attributes.${key}`, type: 'changed', before: bAttrs[key], after: aVal })
-    }
-  }
-  for (const [key, bVal] of Object.entries(bAttrs)) {
-    if (!(key in aAttrs)) {
-      changes.push({ field: `attributes.${key}`, type: 'removed', before: bVal })
-    }
-  }
-
-  const scalarFields = ['name', 'kind', 'trace_id', 'traceId', 'parent_span_id', 'parentSpanId', 'start_time_unix_nano', 'end_time_unix_nano']
-  for (const field of scalarFields) {
-    if (JSON.stringify(b[field]) !== JSON.stringify(a[field])) {
-      changes.push({ field, type: 'changed', before: b[field], after: a[field] })
-    }
-  }
-
-  for (const arrField of ['events', 'links']) {
-    const bArr = JSON.stringify(b[arrField])
-    const aArr = JSON.stringify(a[arrField])
-    if (bArr !== aArr) {
-      changes.push({ field: arrField, type: 'changed', before: b[arrField], after: a[arrField] })
-    }
-  }
-
-  return changes
-}
+import type { FullAttributeDiff } from './types'
 
 export function computeFullAttributeDiff(before: unknown, after: unknown): FullAttributeDiff[] {
   const beforeAttrs = normalizeAttrs(
@@ -206,6 +47,22 @@ export function computeUnifiedDiff(before: unknown, after: unknown): UnifiedDiff
   const m = beforeLines.length
   const n = afterLines.length
 
+  // Bound quadratic work. For large inputs retain exact common edges and
+  // represent the whole middle as removals/additions rather than guessing.
+  if ((m + 1) * (n + 1) > 1_000_000) {
+    let prefix = 0
+    while (prefix < m && prefix < n && beforeLines[prefix] === afterLines[prefix]) prefix++
+    let suffix = 0
+    while (suffix < m - prefix && suffix < n - prefix &&
+      beforeLines[m - 1 - suffix] === afterLines[n - 1 - suffix]) suffix++
+    return [
+      ...beforeLines.slice(0, prefix).map(text => ({ type: 'context' as const, text })),
+      ...beforeLines.slice(prefix, m - suffix).map(text => ({ type: 'remove' as const, text })),
+      ...afterLines.slice(prefix, n - suffix).map(text => ({ type: 'add' as const, text })),
+      ...beforeLines.slice(m - suffix).map(text => ({ type: 'context' as const, text })),
+    ]
+  }
+
   // LCS table
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
   for (let i = 1; i <= m; i++) {
@@ -239,7 +96,7 @@ export function computeUnifiedDiff(before: unknown, after: unknown): UnifiedDiff
 export function buildStageUnifiedDiffsLazy(
   compute: (before: unknown, after: unknown) => UnifiedDiffLine[] = computeUnifiedDiff,
 ) {
-  const cache = new Map<number, UnifiedDiffLine[]>()
+  const cache = new Map<number, { before: unknown; after: unknown; lines: UnifiedDiffLine[] }>()
   return {
     clear() {
       cache.clear()
@@ -252,9 +109,9 @@ export function buildStageUnifiedDiffsLazy(
     ): UnifiedDiffLine[] {
       if (!opts.expanded || !opts.unified) return []
       const hit = cache.get(stageIndex)
-      if (hit !== undefined) return hit
+      if (hit !== undefined && hit.before === before && hit.after === after) return hit.lines
       const lines = compute(before, after)
-      cache.set(stageIndex, lines)
+      cache.set(stageIndex, { before, after, lines })
       return lines
     },
   }

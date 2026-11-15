@@ -1,33 +1,30 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { PipelineResult, SignalType } from './types'
+  import type { PipelineResult, SignalType, Run } from './types'
+  import { formatCaptureDropped } from './types'
   import { withCollectorVersion } from './collector-version'
 
-  interface Run {
-    id: string
-    status: string
-    span_count: number
-    has_trace_data?: boolean
-    has_log_data?: boolean
-    has_metric_data?: boolean
-  }
 
   let {
     pipelineYaml = '',
     signal = $bindable('traces' as SignalType),
     onresult,
     onrunselect,
+    disabled = false,
   }: {
     pipelineYaml: string
     signal?: SignalType
-    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalData?: unknown) => void
+    onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalData?: unknown, submittedYaml?: string, submittedSignal?: SignalType) => void
     onrunselect?: (runId: string, data: unknown, signal: SignalType) => void
+    disabled?: boolean
   } = $props()
 
   let runs: Run[] = $state([])
   let selectedRunId: string = $state('')
   let selectedRunPayload: unknown = $state(null)
+  let payloadIdentity: { id: string; signal: SignalType } | null = null
   let payloadFetch: Promise<void> | null = null
+  let selectionGeneration = 0
   let loading: boolean = $state(false)
   let error: string = $state('')
 
@@ -62,25 +59,31 @@
   $effect(() => {
     const id = selectedRunId
     const sig = signal
+    selectionGeneration++
+    selectedRunPayload = null
+    payloadIdentity = null
+    onrunselect?.(id, null, sig)
     if (!id) {
-      selectedRunPayload = null
       payloadFetch = null
-      onrunselect?.('', null, sig)
       return
     }
     let cancelled = false
+    const current = () => !cancelled && id === selectedRunId && sig === signal
     const p = (async () => {
       try {
         const res = await fetch(`/api/runs/${encodeURIComponent(id)}`)
-        if (!res.ok || cancelled) return
+        if (!current()) return
+        if (!res.ok) throw new Error(`Failed to load run details (HTTP ${res.status})`)
         const data = await res.json()
-        if (cancelled) return
+        if (!current()) return
         selectedRunPayload = data[payloadKey(sig)] ?? null
+        payloadIdentity = { id, signal: sig }
         onrunselect?.(id, selectedRunPayload, sig)
-      } catch {
-        if (!cancelled) {
+      } catch (e) {
+        if (current()) {
           selectedRunPayload = null
           onrunselect?.(id, null, sig)
+          error = e instanceof Error ? e.message : 'Failed to load run details'
         }
       }
     })()
@@ -100,6 +103,8 @@
         selectedRunId = prevId
       } else if (newRuns.length > 0) {
         selectedRunId = newRuns[0].id
+      } else {
+        selectedRunId = ''
       }
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : 'Failed to refresh runs'
@@ -109,26 +114,35 @@
   async function execute(): Promise<void> {
     loading = true
     error = ''
+    const id = selectedRunId
+    const sig = signal
+    const yaml = pipelineYaml
+    const generation = selectionGeneration
+    const current = () => generation === selectionGeneration && id === selectedRunId && sig === signal
     try {
       if (payloadFetch) await payloadFetch
+      if (!current()) return
+      const baseline = payloadIdentity?.id === id && payloadIdentity.signal === sig ? selectedRunPayload : null
       const res = await fetch(
         withCollectorVersion(
-          `/api/ottl/pipeline/execute?run_id=${encodeURIComponent(selectedRunId)}&signal=${encodeURIComponent(signal)}`,
+          `/api/ottl/pipeline/execute?run_id=${encodeURIComponent(id)}&signal=${encodeURIComponent(sig)}`,
         ),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-yaml' },
-          body: pipelineYaml,
+          body: yaml,
         },
       )
+      if (!current()) return
       const data = await res.json()
+      if (!current()) return
       if (!res.ok) {
-        onresult?.(null, data.error || 'Execution failed')
+        onresult?.(null, data.error || 'Execution failed', id, baseline, yaml, sig)
       } else {
-        onresult?.(data as PipelineResult, undefined, selectedRunId, selectedRunPayload)
+        onresult?.(data as PipelineResult, undefined, id, baseline, yaml, sig)
       }
     } catch (e: unknown) {
-      onresult?.(null, e instanceof Error ? e.message : 'Network error')
+      if (current()) onresult?.(null, e instanceof Error ? e.message : 'Network error', id, null, yaml, sig)
     } finally {
       loading = false
     }
@@ -146,7 +160,7 @@
     class="pill-toggle"
     role="radiogroup"
     aria-label="Signal"
-    title={selectedRun ? `${selectedRun.status} · ${selectedRun.span_count} spans` : 'Signal'}
+    title={selectedRun ? selectedRun.status : 'Signal'}
   >
     {#each signals as sig}
       <button
@@ -167,14 +181,21 @@
       {/if}
       {#each runs as run (run.id)}
         <option value={run.id}>
-          {run.id} — {run.status} ({run.span_count})
+          {run.id} — {run.status} ({run.span_count} spans)
         </option>
       {/each}
     </select>
     <button type="button" class="ghost-icon" onclick={refreshRuns} disabled={loading} title="Refresh runs" aria-label="Refresh runs">↻</button>
   </div>
+  {#if selectedRun?.capture_truncated}
+    <div class="error" role="status">
+      Capture truncated: {formatCaptureDropped(selectedRun.capture_dropped) || '0 items'} not retained
+      {#if selectedRun.capture_limit_bytes} (per-signal limit {selectedRun.capture_limit_bytes} bytes){/if}.
+      Comparisons use retained capture only.
+    </div>
+  {/if}
 
-  <button type="button" class="execute-btn" onclick={execute} disabled={loading || !selectedRunId}>
+  <button type="button" class="execute-btn" onclick={execute} disabled={loading || disabled || !selectedRunId}>
     {#if loading}
       <span class="spinner" aria-hidden="true"></span>
       Executing…

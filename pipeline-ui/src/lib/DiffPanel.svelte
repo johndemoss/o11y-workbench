@@ -57,6 +57,7 @@
   {#if expanded}
     <div class="diff-content">
       <div class="diff-view-toggle">
+        <span>{stageDiff.signal}: {stageDiff.input_count} → {stageDiff.output_count} records</span>
         <button class:active={diffView === 'inline'} onclick={onToggleView}>Inline</button>
         <button class:active={diffView === 'unified'} onclick={onToggleView}>Unified Diff</button>
       </div>
@@ -65,7 +66,7 @@
         {#each stageDiff.modified.slice(modifiedPage * pageSize, (modifiedPage + 1) * pageSize) as span}
           <div class="diff-item diff-modified">
             <span class="diff-badge">MODIFIED</span>
-            <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
+            <code class="diff-span-id">{span.id}</code>{#if span.name} <span>{span.name}</span>{/if}
             {#if span.changes && span.changes.length > 0}
               <div class="diff-changes">
                 {#each span.changes as change}
@@ -99,7 +100,8 @@
         {#each stageDiff.added.slice(addedPage * pageSize, (addedPage + 1) * pageSize) as span}
           <div class="diff-item diff-added">
             <span class="diff-badge">ADDED</span>
-            <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
+            <code class="diff-span-id">{span.id}</code>{#if span.name} <span>{span.name}</span>{/if}
+            {#if span.after !== undefined}<pre>{JSON.stringify(span.after, null, 2)}</pre>{/if}
           </div>
         {/each}
         {#if stageDiff.added.length > pageSize}
@@ -112,7 +114,8 @@
         {#each stageDiff.removed.slice(removedPage * pageSize, (removedPage + 1) * pageSize) as span}
           <div class="diff-item diff-removed">
             <span class="diff-badge">REMOVED</span>
-            <code class="diff-span-id" class:zero-id={span.spanId === '0'.repeat(span.spanId.length)}>{span.spanId}</code>
+            <code class="diff-span-id">{span.id}</code>{#if span.name} <span>{span.name}</span>{/if}
+            {#if span.before !== undefined}<pre>{JSON.stringify(span.before, null, 2)}</pre>{/if}
           </div>
         {/each}
         {#if stageDiff.removed.length > pageSize}
@@ -127,6 +130,7 @@
         {/if}
       {:else}
         <div class="unified-diff">
+          <p>Large comparisons may show a nonminimal removed/added middle to bound work.</p>
           {#if unifiedDiff && unifiedDiff.length > 0}
             {#each unifiedDiff as line}
               <div class="diff-line diff-line-{line.type}">

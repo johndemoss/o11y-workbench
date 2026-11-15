@@ -28,25 +28,25 @@
 
   <div class="form-grid">
     <div class="field">
-      <label>Seed</label>
+      <label for="seed">Seed</label>
       <input type="number" id="seed" value="42">
     </div>
     <div class="field">
-      <label>Output</label>
+      <label for="output">Output</label>
       <select id="output">
-        <option value="file">File</option>
+        <option value="file">Downloadable capture (in memory)</option>
         <option value="otlp">OTLP</option>
       </select>
     </div>
     <div class="field">
-      <label>Format</label>
+      <label for="format">Capture download format</label>
       <select id="format">
         <option value="json">JSON</option>
         <option value="protobuf">Protobuf</option>
       </select>
     </div>
     <div class="field" style="grid-column: span 2;">
-      <label>Endpoints (comma-separated)</label>
+      <label for="endpoints">Endpoints (comma-separated)</label>
       <input type="text" id="endpoints" value="localhost:4317" placeholder="e.g. localhost:4317,collector:4317">
     </div>
     <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
@@ -76,34 +76,34 @@
       <div class="trace-fields-group" id="trace-fields-group">
       <div class="form-grid" style="margin-bottom:0">
         <div class="field">
-          <label>Trace Count</label>
+          <label for="trace-count">Trace Count</label>
           <span class="field-input-wrap">
             <input type="number" id="trace-count" value="0" min="0" title="0 = unlimited/infinite">
             <span class="infinite-overlay" id="trace-count-inf">∞</span>
           </span>
         </div>
         <div class="field">
-          <label>Rate (0 = unlimited)</label>
+          <label for="rate">Rate (0 = unlimited)</label>
           <span class="field-input-wrap">
             <input type="number" id="rate" value="1" min="0">
             <span class="infinite-overlay" id="rate-inf">∞</span>
           </span>
         </div>
         <div class="field">
-          <label>Duration (s; 0 = unlimited)</label>
+          <label for="duration">Duration (s; 0 = unlimited)</label>
           <span class="field-input-wrap">
             <input type="number" id="duration" value="10" min="0" title="0 = unlimited">
             <span class="infinite-overlay" id="duration-inf">∞</span>
           </span>
         </div>
         <div class="field">
-          <label>Scenario</label>
+          <label for="scenario">Scenario</label>
           <select id="scenario">
             <option value="">None (use topology)</option>
           </select>
         </div>
         <div class="field">
-          <label>Topology</label>
+          <label for="topology">Topology</label>
           <select id="topology">
             <option value="flat">Flat</option>
             <option value="branching">Branching</option>
@@ -111,19 +111,19 @@
           </select>
         </div>
         <div class="field">
-          <label>Span Count</label>
+          <label for="span-count">Span Count</label>
           <input type="number" id="span-count" value="10" min="1">
         </div>
         <div class="field">
-          <label>Scenario Span Count</label>
+          <label for="scenario-span-count">Scenario Span Count</label>
           <input type="number" id="scenario-span-count" value="0" min="0">
         </div>
         <div class="field">
-          <label>Max Depth</label>
+          <label for="max-depth">Max Depth</label>
           <input type="number" id="max-depth" value="5" min="1">
         </div>
         <div class="field">
-          <label>Service Name</label>
+          <label for="service-name">Service Name</label>
           <input type="text" id="service-name" value="mock-service">
         </div>
       </div>
@@ -140,39 +140,39 @@
       <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Log Settings</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div class="field" id="log-per-span-field">
-          <label>Logs per Span</label>
+          <label for="logs-per-span">Logs per Span</label>
           <input type="number" id="logs-per-span" value="3" min="1">
         </div>
         <div class="field" id="log-count-field">
-          <label>Log Count</label>
+          <label for="log-count">Log Count</label>
           <input type="number" id="log-count" value="10" min="1">
         </div>
       </div>
       <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Severity Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be 100)</span></h3>
       <div class="severity-grid" id="severity-grid">
         <div class="severity-row sev-info">
-          <label>INFO</label>
+          <label for="sev-info">INFO</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-info" style="--chunk-color:#3b82f6"></div>
           </div>
           <input type="number" id="sev-info" min="0" max="100" value="60">
         </div>
         <div class="severity-row sev-warn">
-          <label>WARN</label>
+          <label for="sev-warn">WARN</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-warn" style="--chunk-color:#eab308"></div>
           </div>
           <input type="number" id="sev-warn" min="0" max="100" value="25">
         </div>
         <div class="severity-row sev-error">
-          <label>ERROR</label>
+          <label for="sev-error">ERROR</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-error" style="--chunk-color:#ef4444"></div>
           </div>
           <input type="number" id="sev-error" min="0" max="100" value="12">
         </div>
         <div class="severity-row sev-fatal">
-          <label>FATAL</label>
+          <label for="sev-fatal">FATAL</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="sev-bar-fatal" style="--chunk-color:#dc2626"></div>
           </div>
@@ -182,7 +182,7 @@
       <div class="severity-total" id="severity-total">Total: <span class="ok">100</span> / 100</div>
       <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Body Template</h3>
       <div class="field" style="margin-bottom:12px">
-        <textarea id="body-template" rows="3" style="width:100%;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical">{"message":"{{.Message}}","service":"{{.ServiceName}}","severity":"{{.Severity}}","component":"{{.Component}}"}</textarea>
+        <textarea id="body-template" aria-label="Body Template" rows="3" style="width:100%;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;font-family:&quot;SF Mono&quot;,&quot;Fira Code&quot;,monospace;resize:vertical">{"message":"{{.Message}}","service":"{{.ServiceName}}","severity":"{{.Severity}}","component":"{{.Component}}"}</textarea>
       </div>
       <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Custom Attributes</h3>
       <table class="attr-table" id="attr-table">
@@ -202,28 +202,28 @@
       <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Metric Settings</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div class="field">
-          <label>Metric Count</label>
+          <label for="metric-count">Metric Count</label>
           <input type="number" id="metric-count" value="20" min="1">
         </div>
       </div>
       <h3 style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Type Distribution <span style="font-weight:400;text-transform:none;color:#64748b;font-size:11px">(total must be ~1.0)</span></h3>
       <div class="severity-grid" id="metric-type-grid">
         <div class="severity-row" style="--sev-color:#4ade80">
-          <label>Gauge</label>
+          <label for="metric-gauge">Gauge</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="metric-bar-gauge" style="--chunk-color:#4ade80"></div>
           </div>
           <input type="number" id="metric-gauge" min="0" max="100" value="40" step="5">
         </div>
         <div class="severity-row" style="--sev-color:#60a5fa">
-          <label>Sum</label>
+          <label for="metric-sum">Sum</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="metric-bar-sum" style="--chunk-color:#60a5fa"></div>
           </div>
           <input type="number" id="metric-sum" min="0" max="100" value="40" step="5">
         </div>
         <div class="severity-row" style="--sev-color:#f59e0b">
-          <label>Histogram</label>
+          <label for="metric-histogram">Histogram</label>
           <div class="sev-bar-track">
             <div class="sev-bar-fill" id="metric-bar-histogram" style="--chunk-color:#f59e0b"></div>
           </div>
@@ -233,11 +233,11 @@
       <div id="metric-type-total" style="font-size:11px;margin-bottom:12px;color:#94a3b8">Total: <span class="ok">1.0</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div class="field">
-          <label>Value Min</label>
+          <label for="metric-value-min">Value Min</label>
           <input type="number" id="metric-value-min" value="0" step="0.1">
         </div>
         <div class="field">
-          <label>Value Max</label>
+          <label for="metric-value-max">Value Max</label>
           <input type="number" id="metric-value-max" value="100" step="0.1">
         </div>
       </div>
@@ -282,9 +282,9 @@
 <section id="runs-section">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
     <h2 style="margin-bottom:0;">Jobs</h2>
-    <button type="button" id="pause-all-btn" class="btn-pause" style="display:none">Pause All</button>
-    <button type="button" id="resume-all-btn" class="btn-pause" style="display:none">Resume All</button>
-    <button type="button" id="stop-all-btn" class="btn-danger" style="display:none">Stop All Running</button>
+    <button type="button" id="pause-all-btn" class="btn-pause" style="display:none" title="Applies to all running generation jobs, including filtered-out jobs">Pause All Generation Jobs</button>
+    <button type="button" id="resume-all-btn" class="btn-pause" style="display:none" title="Applies to all paused generation jobs, including filtered-out jobs">Resume All Generation Jobs</button>
+    <button type="button" id="stop-all-btn" class="btn-danger" style="display:none" title="Applies to all active generation jobs, including filtered-out jobs; live captures are stopped separately">Stop All Active Generation Jobs</button>
   </div>
   <div class="filter-bar">
     <div class="signal-pills" id="run-filter-signals">
@@ -293,7 +293,7 @@
       <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="logs" checked> Logs</label>
       <label title="Click to filter to only this signal; Ctrl/Cmd+click to select multiple"><input type="checkbox" value="metrics" checked> Metrics</label>
     </div>
-    <input type="text" class="filter-search" id="filter-search" placeholder="Search jobs...">
+    <input type="text" class="filter-search" id="filter-search" aria-label="Search jobs" placeholder="Search jobs...">
   </div>
   <div id="run-list" class="run-list">
     <div class="empty otter-empty">
@@ -357,7 +357,7 @@
   <h2>Live Collector Data</h2>
   <div class="form-grid">
     <div class="field" style="grid-column: span 2;">
-      <label>Remotetap Endpoint</label>
+      <label for="remotetap-endpoint">Remotetap Endpoint</label>
       <input type="text" id="remotetap-endpoint" placeholder="localhost:12001" value="localhost:12001">
     </div>
     <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
@@ -376,12 +376,12 @@
       <div class="filter-grid">
         <!-- Attribute filters -->
         <div class="filter-group">
-          <label>Services (comma-separated)</label>
+          <label for="rt-filters-services">Services (comma-separated)</label>
           <input type="text" id="rt-filters-services" placeholder="svc1, svc2" />
         </div>
 
         <div class="filter-group">
-          <label>Span Kinds</label>
+          <label for="rt-filters-spankinds">Span Kinds</label>
           <select id="rt-filters-spankinds" multiple>
             <option value="SERVER">SERVER</option>
             <option value="CLIENT">CLIENT</option>
@@ -392,7 +392,7 @@
         </div>
 
         <div class="filter-group">
-          <label>Min Log Severity</label>
+          <label for="rt-filters-minlogseverity">Min Log Severity</label>
           <select id="rt-filters-minlogseverity">
             <option value="">All</option>
             <option value="DEBUG">DEBUG</option>
@@ -404,7 +404,7 @@
 
         <!-- Sampling -->
         <div class="filter-group">
-          <label>Sampling Type</label>
+          <label for="rt-filters-samplingtype">Sampling Type</label>
           <select id="rt-filters-samplingtype">
             <option value="none">None (keep all)</option>
             <option value="head">Head (keep first N)</option>
@@ -414,18 +414,18 @@
         </div>
 
         <div class="filter-group">
-          <label>Sampling Rate</label>
+          <label for="rt-filters-samplingrate">Sampling Rate</label>
           <input type="number" id="rt-filters-samplingrate" placeholder="e.g., 1000" min="0" />
         </div>
 
         <!-- Limits -->
         <div class="filter-group">
-          <label>Max Spans</label>
+          <label for="rt-filters-maxspans">Max Spans</label>
           <input type="number" id="rt-filters-maxspans" value="10000" min="1" />
         </div>
 
         <div class="filter-group">
-          <label>Max Bytes</label>
+          <label for="rt-filters-maxbytes">Max Bytes</label>
           <input type="number" id="rt-filters-maxbytes" value="10485760" min="1" />
         </div>
       </div>

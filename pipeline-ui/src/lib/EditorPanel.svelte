@@ -2,7 +2,7 @@
   import CodeMirrorEditor from './CodeMirrorEditor.svelte'
   import type { PipelinesBySignal } from './types'
   import { load } from 'js-yaml'
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
 
   const WIDTH_DEFAULT = 360
   /** Resize may widen the panel, but never shrink below the default. */
@@ -12,7 +12,9 @@
   let {
     pipelines,
     yaml: yamlProp = '',
+    graphYaml = '',
     onPipelinesChange,
+    onDraftChange,
     selectedNodeId,
     open = $bindable(true),
     onOpenChange,
@@ -20,7 +22,9 @@
     pipelines: PipelinesBySignal
     /** App-owned pipeline YAML (Model 1 — no EditorPanel POST /export). */
     yaml?: string
+    graphYaml?: string
     onPipelinesChange?: (p: PipelinesBySignal) => void
+    onDraftChange?: (text: string | null, ready: boolean, error?: string) => void
     selectedNodeId?: string | null
     open?: boolean
     onOpenChange?: (open: boolean) => void
@@ -31,6 +35,12 @@
   let userIsEditing = $state(false)
   let awaitingOwnSync = $state(false)
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  let generation = 0
+  let syncError = $state('')
+  onDestroy(() => {
+    generation++
+    if (debounceTimer) clearTimeout(debounceTimer)
+  })
   let editorWidth = $state(WIDTH_DEFAULT)
   let isResizing = $state(false)
 
@@ -43,39 +53,52 @@
     onOpenChange?.(next)
   }
 
-  function handleEditorChange(_newValue: string) {
+  function handleEditorChange(value: string) {
+    const current = ++generation
     userIsEditing = true
-    yamlContent = _newValue
-
+    awaitingOwnSync = false
+    yamlContent = value
+    syncError = ''
+    onDraftChange?.(value, false)
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(async () => {
       try {
-        load(_newValue)
+        load(value)
         const res = await fetch('/api/ottl/pipeline/from-yaml', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-yaml' },
-          body: _newValue,
+          body: value,
         })
-        if (!res.ok) throw new Error(`from-yaml failed: ${res.status}`)
-        const parsed = (await res.json()) as PipelinesBySignal
-        const isSame = JSON.stringify(parsed) === JSON.stringify(pipelines)
-        if (!isSame) {
-          awaitingOwnSync = true
-          onPipelinesChange?.(parsed)
-          await tick()
-          awaitingOwnSync = false
+        if (!res.ok) {
+          const message = await res.text()
+          throw new Error(message || `Conversion failed: ${res.status}`)
         }
+        const parsed = (await res.json()) as PipelinesBySignal
+        if (current !== generation) return
+        awaitingOwnSync = true
+        onPipelinesChange?.(parsed)
+        await tick()
+        if (current !== generation) return
+        awaitingOwnSync = false
         userIsEditing = false
-      } catch {
-        // Keep userIsEditing so controlled sync doesn't overwrite editor content
+        onDraftChange?.(value, true)
+      } catch (e) {
+        if (current !== generation) return
+        awaitingOwnSync = false
+        syncError = e instanceof Error ? e.message : String(e)
+        onDraftChange?.(value, false, syncError)
       }
     }, 500)
   }
 
   function resyncFromGraph() {
+    generation++
+    if (debounceTimer) clearTimeout(debounceTimer)
     userIsEditing = false
     awaitingOwnSync = false
-    yamlContent = yamlProp
+    syncError = ''
+    yamlContent = graphYaml
+    onDraftChange?.(null, true)
   }
 
   function startResize(e: MouseEvent) {
@@ -136,10 +159,12 @@
           {#if syncStatus === 'editing'}
             <button type="button" class="resync-btn" onclick={resyncFromGraph}>Resync</button>
           {/if}
+          {#if syncError}<span role="alert">{syncError}</span>{/if}
         </div>
         <button
           type="button"
           class="ghost toggle-btn"
+          disabled={userIsEditing || awaitingOwnSync}
           onclick={() => setOpen(false)}
           aria-label="Hide pipeline YAML"
           aria-expanded="true"

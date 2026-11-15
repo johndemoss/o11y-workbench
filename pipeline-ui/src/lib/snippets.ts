@@ -125,32 +125,25 @@ export function getSnippetForSignal(snippet: SnippetTemplate, signal: SignalType
 }
 
 /** Extract native OTTL lines from a processor config for the inspector textarea. */
-export function extractOttlLines(type: string, processor: Record<string, unknown>): string {
+export function extractOttlLines(type: string, processor: Record<string, unknown>, signal?: SignalType): string {
   if (type === 'filter') {
-    const traces = processor.traces as { span?: unknown[] } | undefined
-    const logs = processor.logs as { log_record?: unknown[] } | undefined
-    const metrics = processor.metrics as { datapoint?: unknown[] } | undefined
-    const lines =
-      traces?.span ??
-      logs?.log_record ??
-      metrics?.datapoint ??
-      []
-    return lines.map(String).join('\n')
+    const keys = signal ? [signal] : ['traces', 'logs', 'metrics']
+    for (const key of keys) {
+      const section = processor[key] as Record<string, unknown> | undefined
+      const field = key === 'traces' ? 'span' : key === 'logs' ? 'log_record' : 'datapoint'
+      if (Array.isArray(section?.[field])) return (section[field] as unknown[]).map(String).join('\n')
+    }
+    return ''
   }
-
-  const blocks =
-    (processor.trace_statements as Array<{ statements?: unknown[] }> | undefined) ??
-    (processor.log_statements as Array<{ statements?: unknown[] }> | undefined) ??
-    (processor.metric_statements as Array<{ statements?: unknown[] }> | undefined) ??
-    []
-  const lines: string[] = []
-  for (const block of blocks) {
-    for (const s of block.statements ?? []) lines.push(String(s))
+  const keys = signal ? [signal === 'traces' ? 'trace_statements' : signal === 'logs' ? 'log_statements' : 'metric_statements'] : ['trace_statements', 'log_statements', 'metric_statements']
+  for (const key of keys) {
+    const blocks = processor[key]
+    if (Array.isArray(blocks) && blocks.length) {
+      const statements = blocks[0]?.statements
+      return Array.isArray(statements) ? statements.map(String).join('\n') : ''
+    }
   }
-  if (lines.length === 0 && Array.isArray(processor.statements)) {
-    return (processor.statements as unknown[]).map(String).join('\n')
-  }
-  return lines.join('\n')
+  return Array.isArray(processor.statements) ? processor.statements.map(String).join('\n') : ''
 }
 
 /** Build processor config from native OTTL lines, preserving unrelated keys when possible. */
@@ -161,25 +154,24 @@ export function buildProcessorFromOttlLines(
   previous: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const lines = linesText.split('\n').map((l) => l.trim()).filter(Boolean)
-  const error_mode = (previous.error_mode as string | undefined) ?? 'ignore'
-
+  const result = { ...previous }
   if (type === 'filter') {
-    if (signal === 'logs') {
-      return { error_mode, logs: { log_record: lines } }
-    }
-    if (signal === 'metrics') {
-      return { error_mode, metrics: { datapoint: lines } }
-    }
-    return { error_mode, traces: { span: lines } }
+    const field = signal === 'logs' ? 'log_record' : signal === 'metrics' ? 'datapoint' : 'span'
+    const section = previous[signal]
+    result[signal] = { ...(section && typeof section === 'object' && !Array.isArray(section) ? section : {}), [field]: lines }
+    return result
   }
 
   const context = signal === 'logs' ? 'log' : signal === 'metrics' ? 'datapoint' : 'span'
-  const key =
-    signal === 'logs' ? 'log_statements' : signal === 'metrics' ? 'metric_statements' : 'trace_statements'
-  return {
-    error_mode,
-    [key]: [{ context, statements: lines }],
-  }
+  const key = signal === 'logs' ? 'log_statements' : signal === 'metrics' ? 'metric_statements' : 'trace_statements'
+  const blocks = Array.isArray(previous[key]) ? [...previous[key] as Record<string, unknown>[]] : []
+  if (blocks.length) blocks[0] = { ...blocks[0], statements: lines }
+  else if (Array.isArray(previous.statements)) {
+    result.statements = lines
+    return result
+  } else blocks.push({ context, statements: lines })
+  result[key] = blocks
+  return result
 }
 
 export function previewProcessorYaml(processor: Record<string, unknown>): string {

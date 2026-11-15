@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildStageUnifiedDiffsLazy, type UnifiedDiffLine } from '../diff'
+import { buildStageUnifiedDiffsLazy, computeUnifiedDiff, type UnifiedDiffLine } from '../diff'
 
 const stages = [
   { intermediate_data: { a: 1 } },
@@ -87,5 +87,25 @@ describe('buildStageUnifiedDiffsLazy', () => {
     cache.get(0, before, after, { expanded: true, unified: true })
     expect(compute).toHaveBeenCalledTimes(1)
     expect(compute).toHaveBeenCalledWith(before, after)
+  })
+
+  it('invalidates a stage entry when either payload changes', () => {
+    const compute = vi.fn((): UnifiedDiffLine[] => [])
+    const cache = buildStageUnifiedDiffsLazy(compute)
+    const before = { a: 1 }
+    const after = { a: 2 }
+    cache.get(0, before, after, { expanded: true, unified: true })
+    cache.get(0, before, { a: 3 }, { expanded: true, unified: true })
+    cache.get(0, { a: 0 }, after, { expanded: true, unified: true })
+    expect(compute).toHaveBeenCalledTimes(3)
+  })
+
+  it('bounds large comparisons without hiding changed lines', () => {
+    const before = Array.from({ length: 1100 }, (_, i) => `old-${i}`)
+    const after = Array.from({ length: 1100 }, (_, i) => `new-${i}`)
+    const lines = computeUnifiedDiff(before, after)
+    expect(lines.some(line => line.type === 'remove' && line.text.includes('old-500'))).toBe(true)
+    expect(lines.some(line => line.type === 'add' && line.text.includes('new-500'))).toBe(true)
+    expect(lines.some(line => line.type === 'context' && line.text.includes('old-500'))).toBe(false)
   })
 })

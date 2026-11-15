@@ -1,7 +1,9 @@
 package ottlengine
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +32,7 @@ func TestWorkerClientValidate(t *testing.T) {
 	defer srv.Close()
 
 	c := NewWorkerClient("0.162.0", "1.68.0", srv.URL)
-	res := c.ValidateStatements([]string{`set(name, "x")`})
+	res := c.ValidateStatements(context.Background(), []string{`set(name, "x")`})
 	if !res.Valid || res.Parsed != 1 {
 		t.Fatalf("ValidateStatements: %+v", res)
 	}
@@ -61,7 +63,7 @@ func TestWorkerClientExecutePipeline(t *testing.T) {
 	defer srv.Close()
 
 	c := NewWorkerClient("0.162.0", "1.68.0", srv.URL)
-	res, err := c.ExecutePipeline(json.RawMessage(`{"ok":true}`), ottl.Pipeline{})
+	res, err := c.ExecutePipeline(context.Background(), json.RawMessage(`{"ok":true}`), ottl.Pipeline{})
 	if err != nil {
 		t.Fatalf("ExecutePipeline: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestWorkerClientImportCollectorConfig(t *testing.T) {
 	defer srv.Close()
 
 	c := NewWorkerClient("0.162.0", "1.68.0", srv.URL)
-	got, err := c.ImportCollectorConfig("service:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: []\n      exporters: [debug]\n")
+	got, err := c.ImportCollectorConfig(context.Background(), "service:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: []\n      exporters: [debug]\n")
 	if err != nil {
 		t.Fatalf("ImportCollectorConfig: %v", err)
 	}
@@ -134,7 +136,7 @@ func TestWorkerClientExecutePipelineForSignal_Logs(t *testing.T) {
 	defer srv.Close()
 
 	c := NewWorkerClient("0.163.0", "1.69.0", srv.URL)
-	res, err := c.ExecutePipelineForSignal(json.RawMessage(`{"resourceLogs":[]}`), ottl.Pipeline{}, "logs")
+	res, err := c.ExecutePipelineForSignal(context.Background(), json.RawMessage(`{"resourceLogs":[]}`), ottl.Pipeline{}, "logs")
 	if err != nil {
 		t.Fatalf("ExecutePipelineForSignal: %v", err)
 	}
@@ -165,7 +167,7 @@ func TestWorkerClientExecutePipelineForSignal_TracesOmitsSignal(t *testing.T) {
 	defer srv.Close()
 
 	c := NewWorkerClient("0.163.0", "1.69.0", srv.URL)
-	if _, err := c.ExecutePipelineForSignal(json.RawMessage(`{}`), ottl.Pipeline{}, ""); err != nil {
+	if _, err := c.ExecutePipelineForSignal(context.Background(), json.RawMessage(`{}`), ottl.Pipeline{}, ""); err != nil {
 		t.Fatalf("ExecutePipelineForSignal: %v", err)
 	}
 	if gotSignal != "" {
@@ -184,7 +186,7 @@ func TestWorkerClientExecutePipelineForSignal_UnsupportedPropagates(t *testing.T
 	defer srv.Close()
 
 	c := NewWorkerClient("0.163.0", "1.69.0", srv.URL)
-	_, err := c.ExecutePipelineForSignal(json.RawMessage(`{}`), ottl.Pipeline{}, "profiles")
+	_, err := c.ExecutePipelineForSignal(context.Background(), json.RawMessage(`{}`), ottl.Pipeline{}, "profiles")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -202,11 +204,48 @@ func TestWorkerClientNon2xx(t *testing.T) {
 	defer srv.Close()
 
 	c := NewWorkerClient("0.162.0", "1.68.0", srv.URL)
-	res := c.ValidateStatements([]string{`set(name, "x")`})
+	res := c.ValidateStatements(context.Background(), []string{`set(name, "x")`})
 	if res.Valid {
 		t.Fatal("expected invalid result on non-2xx")
 	}
 	if len(res.Errors) == 0 || !strings.Contains(res.Errors[0], "ottl worker 0.162.0:") {
 		t.Fatalf("errors = %v", res.Errors)
 	}
+}
+
+func TestWorkerClientTraceCount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{},"span_count":3}`))
+	}))
+	defer srv.Close()
+	_, count, err := NewWorkerClient("0.163.0", "1.69.0", srv.URL).TransformTraces(context.Background(), json.RawMessage(`{}`), nil)
+	if err != nil || count != 3 {
+		t.Fatalf("count=%d err=%v", count, err)
+	}
+}
+
+func TestWorkerClientCancellation(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		// net/http only surfaces a client disconnect after the request body is
+		// consumed, so drain it before waiting on cancellation.
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+		close(canceled)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := NewWorkerClient("0.163.0", "1.69.0", srv.URL).TransformTraces(ctx, json.RawMessage(`{}`), nil)
+		result <- err
+	}()
+	<-started
+	cancel()
+	if err := <-result; err == nil {
+		t.Fatal("expected cancellation")
+	}
+	<-canceled
 }

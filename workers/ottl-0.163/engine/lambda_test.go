@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -41,7 +42,7 @@ func TestTransformLogRunData_LambdaFilter(t *testing.T) {
 }`)
 
 	stmt := `set(body, Concat(Filter(attributes["tags"], (_, v) => v == "prod"), ","))`
-	out, err := TransformLogRunData(logJSON, []string{stmt})
+	out, err := TransformLogRunData(context.Background(), logJSON, []string{stmt})
 	if err != nil {
 		t.Fatalf("TransformLogRunData: %v", err)
 	}

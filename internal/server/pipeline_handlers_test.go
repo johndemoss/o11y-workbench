@@ -2,12 +2,17 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/ottl"
+	"github.com/johndemoss/o11y-workbench/internal/ottlengine"
 )
 
 func TestParsePipelineFromYAML_CollectorConfigFallback(t *testing.T) {
@@ -38,8 +43,8 @@ service:
 	if len(p.Stages) != 1 {
 		t.Fatalf("expected 1 stage, got %d", len(p.Stages))
 	}
-	if p.Stages[0].ID != "add_env" {
-		t.Errorf("expected stage id 'add_env', got %q", p.Stages[0].ID)
+	if p.Stages[0].ID != "transform/add_env" {
+		t.Errorf("expected stage id 'transform/add_env', got %q", p.Stages[0].ID)
 	}
 	if p.Stages[0].Type != ottl.StageTypeTransform {
 		t.Errorf("expected stage type transform, got %v", p.Stages[0].Type)
@@ -336,10 +341,9 @@ processors:
 		wantSignals []string
 	}{
 		{
-			name:        "valid yaml with traces pipeline",
-			yaml:        yamlConfig,
-			wantStatus:  http.StatusOK,
-			wantSignals: []string{"traces"},
+			name:       "yaml with unsupported processor is rejected",
+			yaml:       yamlConfig,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid yaml",
@@ -661,5 +665,173 @@ processors:
 	}
 	if result.FinalSpanCount != 2 {
 		t.Fatalf("FinalSpanCount = %d, want 2", result.FinalSpanCount)
+	}
+}
+
+func TestScenarioUploadIsAtomic(t *testing.T) {
+	const existing = "atomic-upload-existing"
+	const added = "atomic-upload-new"
+	defer gen.DeleteUserScenario(existing)
+	defer gen.DeleteUserScenario(added)
+	if err := gen.RegisterUserScenario(existing, []*gen.ScenarioSpanNode{{Name: "original"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"atomic-upload-existing":{"roots":[{"service_name":"svc","name":"replacement","kind":"INTERNAL"}]},"atomic-upload-new":{"roots":[{"service_name":"svc","name":"new","kind":"INTERNAL"}]},"monolith":{"roots":[{"service_name":"svc","name":"bad","kind":"INTERNAL"}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/scenarios", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	(&Server{}).handleUploadScenarios(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("upload status %d: %s", rr.Code, rr.Body)
+	}
+	roots, ok := gen.GetUserScenario(existing)
+	if !ok || len(roots) != 1 || roots[0].Name != "original" {
+		t.Fatalf("existing scenario changed: %#v", roots)
+	}
+	if _, ok := gen.GetUserScenario(added); ok {
+		t.Fatal("new scenario committed despite conflict")
+	}
+}
+
+func TestCollectorPipelineValidationUsesEngine(t *testing.T) {
+	config := `receivers:
+  otlp:
+    protocols:
+      grpc:
+processors:
+  transform/bad:
+    trace_statements:
+      - context: span
+        statements:
+          - definitely_not_an_ottl_function()
+exporters:
+  debug:
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [transform/bad]
+      exporters: [debug]`
+	for _, tc := range []struct {
+		query  string
+		status int
+	}{
+		{"", http.StatusOK},
+		{"?collector_version=0.0.0", http.StatusBadRequest},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/ottl/pipeline/validate"+tc.query, strings.NewReader(config))
+		req.Header.Set("Content-Type", "application/yaml")
+		rr := httptest.NewRecorder()
+		(&Server{}).handlePipelineValidate(rr, req)
+		if rr.Code != tc.status {
+			t.Fatalf("query %q: status %d body %s", tc.query, rr.Code, rr.Body)
+		}
+		if tc.status == http.StatusOK {
+			var result struct {
+				Valid bool `json:"valid"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil || result.Valid {
+				t.Fatalf("invalid OTTL accepted: %s (%v)", rr.Body, err)
+			}
+		}
+	}
+}
+
+type signalDispatchEngine struct {
+	ottlengine.Engine
+	called map[string]bool
+}
+
+type dispatchContextKey struct{}
+
+func (e *signalDispatchEngine) mark(ctx context.Context, signal string) {
+	e.called[signal] = ctx.Value(dispatchContextKey{}) == "request"
+}
+
+func (e *signalDispatchEngine) ExecutePipelineForSignal(ctx context.Context, data json.RawMessage, _ ottl.Pipeline, signal string) (*ottl.PipelineResult, error) {
+	e.mark(ctx, signal)
+	return &ottl.PipelineResult{
+		Stages:         []ottl.StageResult{{StageIndex: 0, StageID: "transform", InputSpanCount: 1, OutputSpanCount: 1, StatementsParsed: 1}},
+		FinalData:      data,
+		FinalSpanCount: 1,
+	}, nil
+}
+
+func (e *signalDispatchEngine) TransformTraces(ctx context.Context, data json.RawMessage, _ []string) (json.RawMessage, int, error) {
+	e.mark(ctx, "traces")
+	return data, 1, nil
+}
+func (e *signalDispatchEngine) TransformLogs(ctx context.Context, data json.RawMessage, _ []string) (json.RawMessage, error) {
+	e.mark(ctx, "logs")
+	return data, nil
+}
+func (e *signalDispatchEngine) TransformMetrics(ctx context.Context, data json.RawMessage, _ []string) (json.RawMessage, error) {
+	e.mark(ctx, "metrics")
+	return data, nil
+}
+func (e *signalDispatchEngine) FilterTraces(ctx context.Context, data json.RawMessage, _ []string, _ ottl.FilterMode) (json.RawMessage, int, int, error) {
+	e.mark(ctx, "traces")
+	return data, 1, 1, nil
+}
+func (e *signalDispatchEngine) FilterLogs(ctx context.Context, data json.RawMessage, _ []string, _ ottl.FilterMode) (json.RawMessage, int, int, error) {
+	e.mark(ctx, "logs")
+	return data, 1, 1, nil
+}
+func (e *signalDispatchEngine) FilterMetrics(ctx context.Context, data json.RawMessage, _ []string, _ ottl.FilterMode) (json.RawMessage, int, int, error) {
+	e.mark(ctx, "metrics")
+	return data, 1, 1, nil
+}
+
+func TestOTTLSignalCombinationsAndContext(t *testing.T) {
+	transformConfig := "trace_statements:\n  - context: span\n    statements: ['set(name, \"a\")']\nlog_statements:\n  - context: log\n    statements: ['set(body, \"a\")']\nmetric_statements:\n  - context: metric\n    statements: ['set(name, \"a\")']\n"
+	filterConfig := "traces:\n  span: ['name == \"a\"']\nlogs:\n  log_record: ['body == \"a\"']\nmetrics:\n  datapoint: ['value_int == 1']\n"
+	for _, endpoint := range []string{"transform", "filter"} {
+		for mask := 1; mask < 8; mask++ {
+			for _, withTrace := range []bool{true, false} {
+				if mask == 1 && !withTrace {
+					continue
+				}
+				t.Run(fmt.Sprintf("%s-%d-traces-%t", endpoint, mask, withTrace), func(t *testing.T) {
+					engine := &signalDispatchEngine{called: map[string]bool{}}
+					store := NewRunStore()
+					data := json.RawMessage(`{}`)
+					run := &Run{ID: "dispatch", LogData: &data, MetricData: &data}
+					if withTrace {
+						run.TraceData = &data
+					}
+					store.Add(run)
+					s := &Server{store: store, engines: ottlengine.NewRegistry("test", engine)}
+					signals := map[string]bool{"traces": mask&1 != 0, "logs": mask&2 != 0, "metrics": mask&4 != 0}
+					config := transformConfig
+					if endpoint == "filter" {
+						config = filterConfig
+					}
+					if mask == 1 || mask == 2 || mask == 4 {
+						config = ""
+					}
+					body, err := json.Marshal(map[string]any{"run_id": run.ID, "signals": signals, "config": config, "statements": []string{"set(name, \"a\")"}, "conditions": []string{"true"}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					req := httptest.NewRequest(http.MethodPost, "/api/ottl/"+endpoint, bytes.NewReader(body))
+					req = req.WithContext(context.WithValue(req.Context(), dispatchContextKey{}, "request"))
+					rr := httptest.NewRecorder()
+					if endpoint == "transform" {
+						s.handleOTTLTransform(rr, req)
+					} else {
+						s.handleOTTLFilter(rr, req)
+					}
+					if rr.Code != http.StatusOK {
+						t.Fatalf("status %d: %s", rr.Code, rr.Body)
+					}
+					for name, selected := range signals {
+						want := selected && (name != "traces" || withTrace)
+						if engine.called[name] != want {
+							t.Errorf("%s called with request context = %v, want %v", name, engine.called[name], want)
+						}
+					}
+				})
+			}
+		}
 	}
 }

@@ -67,20 +67,34 @@ func ImportCollectorConfig(configYAML string) (PipelinesBySignal, error) {
 			return nil, fmt.Errorf("build pipeline %q: %w", pipelineKey, err)
 		}
 
-		// Merge into existing signal if already present (e.g. traces + traces/foo)
-		if existing, ok := result[signalName]; ok {
-			existing.Stages = append(existing.Stages, pipeline.Stages...)
-			for k, v := range pipeline.Processors {
-				existing.Processors[k] = v
-			}
-			existing.Receivers = unionRefs(existing.Receivers, pipeline.Receivers)
-			existing.Exporters = unionRefs(existing.Exporters, pipeline.Exporters)
-		} else {
-			result[signalName] = pipeline
+		if _, ok := result[signalName]; ok {
+			return nil, fmt.Errorf("parallel %s pipelines are not supported", signalName)
 		}
+		pipeline.ReceiverConfigs = nonNilConfigMap(raw["receivers"])
+		pipeline.ExporterConfigs = nonNilConfigMap(raw["exporters"])
+		result[signalName] = pipeline
 	}
 
 	return result, nil
+}
+
+// nonNilConfigMap keeps only definitions that carry configuration data.
+// A null Collector definition preserves no settings for a model round trip.
+func nonNilConfigMap(value interface{}) map[string]interface{} {
+	raw, _ := value.(map[string]interface{})
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(raw))
+	for name, cfg := range raw {
+		if cfg != nil {
+			out[name] = cfg
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // signalNameFromPipelineKey extracts the base signal type from a pipeline key.
@@ -122,22 +136,6 @@ func parseRefList(v interface{}) []string {
 	for _, item := range list {
 		if s, ok := item.(string); ok {
 			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// unionRefs concatenates two reference lists, preserving order and dropping
-// duplicates. Used when several pipeline keys merge into one signal.
-func unionRefs(a, b []string) []string {
-	seen := make(map[string]bool, len(a)+len(b))
-	out := []string{}
-	for _, group := range [][]string{a, b} {
-		for _, s := range group {
-			if !seen[s] {
-				seen[s] = true
-				out = append(out, s)
-			}
 		}
 	}
 	return out
@@ -202,14 +200,61 @@ func buildPipelineFromConfig(pipelinesMap, topProcessorsMap map[string]interface
 		p.Processors[ref] = procConfig
 
 		stageType := detectStageType(procConfigMap)
-		if stageType == "" {
-			continue
+		if stageType == "" || strings.SplitN(ref, "/", 2)[0] != string(stageType) {
+			return nil, fmt.Errorf("processor %q has unsupported semantics", ref)
+		}
+		for key, value := range procConfigMap {
+			if key == "error_mode" {
+				mode, ok := value.(string)
+				if !ok || (mode != "ignore" && mode != "silent" && mode != "propagate") {
+					return nil, fmt.Errorf("processor %q: invalid error_mode", ref)
+				}
+				continue
+			}
+			if stageType == StageTypeTransform {
+				if key != "trace_statements" && key != "log_statements" && key != "metric_statements" {
+					return nil, fmt.Errorf("processor %q: unsupported field %q", ref, key)
+				}
+				groups, ok := value.([]interface{})
+				if !ok {
+					return nil, fmt.Errorf("processor %q: %s must be a list", ref, key)
+				}
+				for _, group := range groups {
+					m, ok := group.(map[string]interface{})
+					if !ok {
+						return nil, fmt.Errorf("processor %q: unsupported statement group", ref)
+					}
+					for k := range m {
+						if k != "context" && k != "conditions" && k != "statements" {
+							return nil, fmt.Errorf("processor %q: unsupported statement field %q", ref, k)
+						}
+					}
+				}
+			} else {
+				want := map[string]string{"traces": "span", "logs": "log_record", "metrics": "datapoint"}[key]
+				m, ok := value.(map[string]interface{})
+				if want == "" || !ok {
+					return nil, fmt.Errorf("processor %q: unsupported filter field %q", ref, key)
+				}
+				for k := range m {
+					if k != want {
+						return nil, fmt.Errorf("processor %q: unsupported filter field %s.%s", ref, key, k)
+					}
+				}
+			}
 		}
 
 		errorMode := extractErrorMode(procConfigMap)
 
+		stageID := ref
+		for _, existing := range p.Stages {
+			if existing.ID == stageID {
+				stageID = fmt.Sprintf("%s#%d", ref, i)
+				break
+			}
+		}
 		stage := Stage{
-			ID:           stageIDFromRef(ref),
+			ID:           stageID,
 			Type:         stageType,
 			ErrorMode:    errorMode,
 			ProcessorRef: ref,
@@ -254,11 +299,4 @@ func extractErrorMode(config map[string]interface{}) ErrorMode {
 		}
 	}
 	return ErrorModePropagate
-}
-
-func stageIDFromRef(ref string) string {
-	if idx := strings.Index(ref, "/"); idx >= 0 && idx+1 < len(ref) {
-		return ref[idx+1:]
-	}
-	return ref
 }

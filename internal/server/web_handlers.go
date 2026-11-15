@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -67,12 +66,12 @@ func (s *Server) handleUploadScenarios(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := gen.RegisterUserScenarios(scenarios); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
 	registered := make([]string, 0, len(scenarios))
-	for name, roots := range scenarios {
-		if err := gen.RegisterUserScenario(name, roots); err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("scenario %q: %v", name, err)})
-			return
-		}
+	for name := range scenarios {
 		registered = append(registered, name)
 	}
 

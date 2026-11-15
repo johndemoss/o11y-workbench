@@ -1,6 +1,7 @@
 package ottl
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -67,7 +68,7 @@ func TestTransformRunData_SetAttribute(t *testing.T) {
 	}
 
 	statements := []string{`set(attributes["new.key"], "new-value")`}
-	result, _, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(context.Background(), traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestTransformRunData_InvalidStatement(t *testing.T) {
 	}
 
 	statements := []string{`not_a_real_function()`}
-	_, _, err = TransformRunData(traceData, statements)
+	_, _, err = TransformRunData(context.Background(), traceData, statements)
 	if err == nil {
 		t.Fatal("expected error for invalid function, got nil")
 	}
@@ -128,19 +129,19 @@ func TestTransformRunData_NoStatements(t *testing.T) {
 		t.Fatalf("marshal trace: %v", err)
 	}
 
-	_, _, err = TransformRunData(traceData, nil)
+	_, _, err = TransformRunData(context.Background(), traceData, nil)
 	if err == nil {
 		t.Fatal("expected error for nil statements, got nil")
 	}
 
-	_, _, err = TransformRunData(traceData, []string{})
+	_, _, err = TransformRunData(context.Background(), traceData, []string{})
 	if err == nil {
 		t.Fatal("expected error for empty statements, got nil")
 	}
 }
 
 func TestTransformRunData_InvalidTraceData(t *testing.T) {
-	_, _, err := TransformRunData(json.RawMessage(`{"invalid": "data"}`), []string{`set(attributes["x"], "y")`})
+	_, _, err := TransformRunData(context.Background(), json.RawMessage(`{"invalid": "data"}`), []string{`set(attributes["x"], "y")`})
 	if err == nil {
 		t.Fatal("expected error for invalid trace data, got nil")
 	}
@@ -154,7 +155,7 @@ func TestTransformRunData_DeleteKey(t *testing.T) {
 	}
 
 	statements := []string{`delete_key(attributes, "original.key")`}
-	result, _, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(context.Background(), traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -183,7 +184,7 @@ func TestTransformRunData_MultipleStatements(t *testing.T) {
 		`set(attributes["a"], "1")`,
 		`set(attributes["b"], "2")`,
 	}
-	result, _, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(context.Background(), traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -221,7 +222,7 @@ func TestTransformRunData_IsMatch(t *testing.T) {
 
 	// This should match because the span name is "test-span"
 	statements := []string{`set(attributes["matched"], "yes") where name == "test-span"`}
-	result, _, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(context.Background(), traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestTransformRunData_SetResourceAttribute(t *testing.T) {
 	}
 
 	statements := []string{`set(resource.attributes["env"], "staging")`}
-	result, _, err := TransformRunData(traceData, statements)
+	result, _, err := TransformRunData(context.Background(), traceData, statements)
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}
@@ -309,7 +310,7 @@ func TestTransformSpans_SetAttribute(t *testing.T) {
 	}
 
 	statements := []string{`set(attributes["new.key"], "new-value")`}
-	result, count, err := TransformSpans(traces, statements, ErrorModePropagate)
+	result, count, err := TransformSpans(context.Background(), traces, statements, ErrorModePropagate)
 	if err != nil {
 		t.Fatalf("TransformSpans: %v", err)
 	}
@@ -358,7 +359,7 @@ func TestTransformSpans_DeleteKey(t *testing.T) {
 	}
 
 	statements := []string{`delete_key(attributes, "original.key")`}
-	result, count, err := TransformSpans(traces, statements, ErrorModePropagate)
+	result, count, err := TransformSpans(context.Background(), traces, statements, ErrorModePropagate)
 	if err != nil {
 		t.Fatalf("TransformSpans: %v", err)
 	}
@@ -388,7 +389,7 @@ func TestTransformSpans_KeepKeys(t *testing.T) {
 	}
 
 	statements := []string{`keep_keys(attributes, ["original.key"])`}
-	result, count, err := TransformSpans(traces, statements, ErrorModePropagate)
+	result, count, err := TransformSpans(context.Background(), traces, statements, ErrorModePropagate)
 	if err != nil {
 		t.Fatalf("TransformSpans: %v", err)
 	}
@@ -428,7 +429,7 @@ func TestTransformSpans_ErrorModePropagate(t *testing.T) {
 		`set(attributes["first"], "ok")`,
 		`set(attributes["second"], Substring("hello", -1, 10))`,
 	}
-	_, _, err = TransformSpans(traces, statements, ErrorModePropagate)
+	_, _, err = TransformSpans(context.Background(), traces, statements, ErrorModePropagate)
 	if err == nil {
 		t.Fatal("expected error for ErrorModePropagate, got nil")
 	}
@@ -445,7 +446,7 @@ func TestTransformSpans_ErrorModeIgnore(t *testing.T) {
 		`set(attributes["first"], "ok")`,
 		`set(attributes["second"], Substring("hello", -1, 10))`,
 	}
-	result, count, err := TransformSpans(traces, statements, ErrorModeIgnore)
+	result, count, err := TransformSpans(context.Background(), traces, statements, ErrorModeIgnore)
 	if err != nil {
 		t.Fatalf("TransformSpans with ErrorModeIgnore: %v", err)
 	}
@@ -471,5 +472,213 @@ func TestTransformSpans_ErrorModeIgnore(t *testing.T) {
 	}
 	if !found {
 		t.Error("'first' attribute should have been set even with error")
+	}
+}
+
+func makeSampleTracesTwoSpans() *collectortracev1.ExportTraceServiceRequest {
+	return &collectortracev1.ExportTraceServiceRequest{
+		ResourceSpans: []*tracev1.ResourceSpans{
+			{
+				Resource: &resourcev1.Resource{},
+				ScopeSpans: []*tracev1.ScopeSpans{
+					{
+						Spans: []*tracev1.Span{
+							{
+								TraceId:           []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+								SpanId:            []byte{0, 0, 0, 0, 0, 0, 0, 1},
+								Name:              "span-a",
+								StartTimeUnixNano: 1,
+								EndTimeUnixNano:   2,
+								Attributes: []*commonv1.KeyValue{
+									{Key: "mark", Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: "info"}}},
+								},
+							},
+							{
+								TraceId:           []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+								SpanId:            []byte{0, 0, 0, 0, 0, 0, 0, 2},
+								Name:              "span-b",
+								StartTimeUnixNano: 1,
+								EndTimeUnixNano:   2,
+								Attributes: []*commonv1.KeyValue{
+									{Key: "mark", Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: "debug"}}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func spanHasAttr(span *tracev1.Span, key, want string) bool {
+	for _, attr := range span.Attributes {
+		if attr.Key == key {
+			if v, ok := attr.Value.Value.(*commonv1.AnyValue_StringValue); ok {
+				return v.StringValue == want
+			}
+		}
+	}
+	return false
+}
+
+func TestTransformSpansWithGroups_ConditionalOR(t *testing.T) {
+	ctx := context.Background()
+	traces, err := traceToPdata(makeSampleTracesTwoSpans())
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	groups := []ContextStatements{
+		{
+			Conditions: []string{
+				`attributes["mark"] == "info"`,
+				`attributes["mark"] == "warn"`,
+			},
+			Statements: []string{`set(attributes["tagged"], "yes")`},
+		},
+	}
+
+	result, count, err := TransformSpansWithGroups(ctx, traces, groups, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("TransformSpansWithGroups: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+	spans := resultReq.ResourceSpans[0].ScopeSpans[0].Spans
+	if len(spans) != 2 {
+		t.Fatalf("spans = %d, want 2", len(spans))
+	}
+	if !spanHasAttr(spans[0], "tagged", "yes") {
+		t.Error("info span should match OR condition")
+	}
+	if spanHasAttr(spans[1], "tagged", "yes") {
+		t.Error("debug span should not be tagged")
+	}
+}
+
+func TestTransformSpansWithGroups_ResourceOnceForTwoSpans(t *testing.T) {
+	ctx := context.Background()
+	traces, err := traceToPdata(makeSampleTracesTwoSpans())
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	groups := []ContextStatements{
+		{Context: "resource", Statements: []string{`set(attributes["tier"], "gold")`}},
+	}
+
+	result, count, err := TransformSpansWithGroups(ctx, traces, groups, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("TransformSpansWithGroups: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+	resource := resultReq.ResourceSpans[0].Resource
+	found := false
+	for _, attr := range resource.Attributes {
+		if attr.Key == "tier" {
+			found = true
+			if v, ok := attr.Value.Value.(*commonv1.AnyValue_StringValue); !ok || v.StringValue != "gold" {
+				t.Errorf("tier = %v, want gold", attr.Value)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("resource tier not set after single resource-group execution")
+	}
+}
+
+func TestTransformSpansWithGroups_ScopeOncePerScope(t *testing.T) {
+	ctx := context.Background()
+	traces, err := traceToPdata(makeSampleTracesTwoSpans())
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	groups := []ContextStatements{
+		{Context: "scope", Statements: []string{`set(attributes["ver"], "2.0")`}},
+	}
+
+	_, count, err := TransformSpansWithGroups(ctx, traces, groups, ErrorModePropagate)
+	if err != nil {
+		t.Fatalf("TransformSpansWithGroups: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+}
+
+func TestTransformSpansWithGroups_ErrorModeIgnoreContinuesStatements(t *testing.T) {
+	ctx := context.Background()
+	traces, err := traceToPdata(makeSampleTrace())
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	groups := []ContextStatements{
+		{Statements: []string{
+			`set(attributes["first"], "ok")`,
+			`set(attributes["bad"], Substring("x", -1, 3))`,
+		}},
+	}
+
+	result, count, err := TransformSpansWithGroups(ctx, traces, groups, ErrorModeIgnore)
+	if err != nil {
+		t.Fatalf("TransformSpansWithGroups ignore: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	resultReq, err := pdataToTrace(result)
+	if err != nil {
+		t.Fatalf("pdataToTrace: %v", err)
+	}
+	span := resultReq.ResourceSpans[0].ScopeSpans[0].Spans[0]
+	if !spanHasAttr(span, "first", "ok") {
+		t.Error("first=ok should be set after later statement fails with ignore mode")
+	}
+}
+
+func TestTransformSpansWithGroups_Cancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	traces, err := traceToPdata(makeSampleTrace())
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	groups := []ContextStatements{{Statements: []string{`set(attributes["k"], "v")`}}}
+	_, _, err = TransformSpansWithGroups(ctx, traces, groups, ErrorModePropagate)
+	if err == nil {
+		t.Fatal("expected cancellation error from group execution")
+	}
+}
+
+func TestTransformSpansWithGroups_UnsupportedContext(t *testing.T) {
+	ctx := context.Background()
+	traces, err := traceToPdata(makeSampleTrace())
+	if err != nil {
+		t.Fatalf("traceToPdata: %v", err)
+	}
+
+	groups := []ContextStatements{{Context: "log", Statements: []string{`set(attributes["x"], "y")`}}}
+	_, _, err = TransformSpansWithGroups(ctx, traces, groups, ErrorModePropagate)
+	if err == nil {
+		t.Fatal("expected error for unsupported trace context")
 	}
 }

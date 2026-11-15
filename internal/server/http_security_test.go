@@ -498,3 +498,27 @@ func TestHTTPHostForbiddenIncludesSecurityHeaders(t *testing.T) {
 	}
 	assertSecurityHeaders(t, resp.Header)
 }
+
+func TestHTTPAbsoluteDNSHosts(t *testing.T) {
+	policy, err := buildHostPolicy("127.0.0.1:18080", []string{"Example.COM."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{
+		{"localhost.", true}, {"localhost.:18080", true},
+		{"example.com.", true}, {"EXAMPLE.COM.:1234", true},
+		{"example.com..", false}, {"localhost..:18080", false},
+	} {
+		key, err := parseRequestHost(tc.host)
+		got := err == nil && policy.allowedRequestHost(key)
+		if got != tc.want {
+			t.Errorf("host %q allowed=%v, error=%v; want %v", tc.host, got, err, tc.want)
+		}
+	}
+	if _, err := buildHostPolicy("127.0.0.1:18080", []string{"example.com.."}); err == nil {
+		t.Error("double trailing dot accepted in allowed host")
+	}
+}

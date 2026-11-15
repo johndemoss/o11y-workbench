@@ -5,16 +5,16 @@ import (
 	"strings"
 )
 
-type DiffSpan struct {
-	SpanID  string          `json:"spanId"`
+type DiffRecord struct {
+	ID      string          `json:"id"`
 	Name    string          `json:"name,omitempty"`
 	Status  string          `json:"status"`
 	Before  json.RawMessage `json:"before,omitempty"`
 	After   json.RawMessage `json:"after,omitempty"`
-	Changes []SpanChange    `json:"changes,omitempty"`
+	Changes []RecordChange  `json:"changes,omitempty"`
 }
 
-type SpanChange struct {
+type RecordChange struct {
 	Field  string      `json:"field"`
 	Type   string      `json:"type"`
 	Before interface{} `json:"before,omitempty"`
@@ -22,12 +22,13 @@ type SpanChange struct {
 }
 
 type StageDiff struct {
-	StageIndex      int        `json:"stage_index"`
-	InputSpanCount  int        `json:"input_span_count"`
-	OutputSpanCount int        `json:"output_span_count"`
-	Added           []DiffSpan `json:"added"`
-	Removed         []DiffSpan `json:"removed"`
-	Modified        []DiffSpan `json:"modified"`
+	StageIndex  int          `json:"stage_index"`
+	Signal      string       `json:"signal"`
+	InputCount  int          `json:"input_count"`
+	OutputCount int          `json:"output_count"`
+	Added       []DiffRecord `json:"added"`
+	Removed     []DiffRecord `json:"removed"`
+	Modified    []DiffRecord `json:"modified"`
 }
 
 type UnifiedDiffLine struct {
@@ -35,295 +36,200 @@ type UnifiedDiffLine struct {
 	Text string `json:"text"`
 }
 
-func extractSpansFromData(data json.RawMessage) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
-	if len(data) == 0 || string(data) == "null" {
-		return result, nil
-	}
-
-	var raw interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-
-	spans := make([]map[string]interface{}, 0)
-
-	extractFromSlice := func(arr []interface{}) bool {
-		for _, item := range arr {
-			span, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			spanID := getStringField(span, "spanId", "span_id")
-			if spanID != "" {
-				spans = append(spans, span)
-			}
-		}
-		return len(spans) > 0
-	}
-
-	extractFromMap := func(m map[string]interface{}) bool {
-		resourceSpans, ok := m["resourceSpans"].([]interface{})
-		if !ok {
-			resourceSpans, ok = m["resource_spans"].([]interface{})
-		}
-		if !ok {
-			return false
-		}
-		for _, rs := range resourceSpans {
-			rsMap, ok := rs.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			scopeSpans, ok := rsMap["scopeSpans"].([]interface{})
-			if !ok {
-				scopeSpans, ok = rsMap["scope_spans"].([]interface{})
-			}
-			if ok {
-				for _, ss := range scopeSpans {
-					ssMap, ok := ss.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					items, ok := ssMap["spans"].([]interface{})
-					if ok {
-						for _, item := range items {
-							span, ok := item.(map[string]interface{})
-							if !ok {
-								continue
-							}
-							spanID := getStringField(span, "spanId", "span_id")
-							if spanID != "" {
-								spans = append(spans, span)
-							}
-						}
-					}
-				}
-			}
-		}
-		return len(spans) > 0
-	}
-
-	switch r := raw.(type) {
-	case []interface{}:
-		extractFromSlice(r)
-	case map[string]interface{}:
-		if extractFromMap(r) {
-			return spans, nil
-		}
-		if traceData, ok := r["trace_data"].(map[string]interface{}); ok {
-			if extractFromMap(traceData) {
-				return spans, nil
-			}
-		}
-		if flatSpans, ok := r["spans"].([]interface{}); ok {
-			extractFromSlice(flatSpans)
-		}
-	}
-
-	return spans, nil
+type diffItem struct {
+	id    string
+	name  string
+	value map[string]interface{}
 }
 
-func getStringField(m map[string]interface{}, keys ...string) string {
+func field(m map[string]interface{}, keys ...string) interface{} {
 	for _, key := range keys {
-		if v, ok := m[key].(string); ok {
+		if v, ok := m[key]; ok {
 			return v
 		}
 	}
-	return ""
+	return nil
 }
 
-func mustMarshal(v interface{}) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
+func text(m map[string]interface{}, keys ...string) string {
+	s, _ := field(m, keys...).(string)
+	return s
 }
 
-func computeStageDiff(before, after json.RawMessage, stageIndex int) StageDiff {
-	var beforeSpans []map[string]interface{}
-	var afterSpans []map[string]interface{}
-	var err error
-
-	if len(before) > 0 && string(before) != "null" {
-		beforeSpans, err = extractSpansFromData(before)
-		if err != nil {
-			beforeSpans = nil
+func extractRecords(data json.RawMessage, signal string) []diffItem {
+	if signal != "logs" && signal != "metrics" {
+		signal = "traces"
+	}
+	var raw interface{}
+	if len(data) == 0 || json.Unmarshal(data, &raw) != nil {
+		return nil
+	}
+	root, _ := raw.(map[string]interface{})
+	if nested, ok := root[signal[:len(signal)-1]+"_data"].(map[string]interface{}); ok {
+		root = nested
+	}
+	var resourceKeys, scopeKeys []string
+	var itemKey string
+	switch signal {
+	case "logs":
+		resourceKeys, scopeKeys, itemKey = []string{"resourceLogs", "resource_logs"}, []string{"scopeLogs", "scope_logs"}, "logRecords"
+	case "metrics":
+		resourceKeys, scopeKeys, itemKey = []string{"resourceMetrics", "resource_metrics"}, []string{"scopeMetrics", "scope_metrics"}, "metrics"
+	default:
+		resourceKeys, scopeKeys, itemKey = []string{"resourceSpans", "resource_spans"}, []string{"scopeSpans", "scope_spans"}, "spans"
+	}
+	var records []diffItem
+	add := func(v interface{}, resource, scope interface{}) {
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			return
 		}
-	}
-
-	if len(after) > 0 && string(after) != "null" {
-		afterSpans, err = extractSpansFromData(after)
-		if err != nil {
-			afterSpans = nil
+		id := ""
+		if signal == "traces" {
+			id = text(m, "traceId", "trace_id") + "/" + text(m, "spanId", "span_id")
+		} else if signal == "metrics" {
+			id = text(m, "name")
 		}
-	}
-
-	beforeCount := len(beforeSpans)
-	afterCount := len(afterSpans)
-
-	diff := StageDiff{
-		StageIndex:      stageIndex,
-		InputSpanCount:  beforeCount,
-		OutputSpanCount: afterCount,
-		Added:           []DiffSpan{},
-		Removed:         []DiffSpan{},
-		Modified:        []DiffSpan{},
-	}
-
-	beforeMap := make(map[string]map[string]interface{})
-	for _, s := range beforeSpans {
-		if id := getStringField(s, "spanId", "span_id"); id != "" {
-			beforeMap[id] = s
+		if id == "" {
+			id = "record"
 		}
-	}
-
-	afterMap := make(map[string]map[string]interface{})
-	for _, s := range afterSpans {
-		if id := getStringField(s, "spanId", "span_id"); id != "" {
-			afterMap[id] = s
+		value := make(map[string]interface{}, len(m)+2)
+		for k, v := range m {
+			value[k] = v
 		}
+		if resource != nil {
+			value["resource"] = resource
+		}
+		if scope != nil {
+			value["scope"] = scope
+		}
+		records = append(records, diffItem{id: id, name: text(m, "name"), value: value})
 	}
-
-	for id, afterSpan := range afterMap {
-		beforeSpan, exists := beforeMap[id]
-		if !exists {
-			diff.Added = append(diff.Added, DiffSpan{
-				SpanID: id,
-				Name:   getStringField(afterSpan, "name"),
-				Status: "added",
-				After:  mustMarshal(afterSpan),
-			})
-		} else {
-			beforeJSON := mustMarshal(beforeSpan)
-			afterJSON := mustMarshal(afterSpan)
-			if string(beforeJSON) != string(afterJSON) {
-				changes := computeSpanChanges(beforeSpan, afterSpan)
-				diff.Modified = append(diff.Modified, DiffSpan{
-					SpanID:  id,
-					Name:    getStringField(afterSpan, "name"),
-					Status:  "modified",
-					Before:  beforeJSON,
-					After:   afterJSON,
-					Changes: changes,
-				})
+	if list, ok := raw.([]interface{}); ok {
+		for _, v := range list {
+			add(v, nil, nil)
+		}
+		return records
+	}
+	if root == nil {
+		return records
+	}
+	resources, _ := field(root, resourceKeys...).([]interface{})
+	for _, rv := range resources {
+		r, _ := rv.(map[string]interface{})
+		scopes, _ := field(r, scopeKeys...).([]interface{})
+		for _, sv := range scopes {
+			s, _ := sv.(map[string]interface{})
+			items, _ := field(s, itemKey, "log_records").([]interface{})
+			for _, item := range items {
+				add(item, r["resource"], s["scope"])
 			}
 		}
 	}
-
-	for id, beforeSpan := range beforeMap {
-		if _, exists := afterMap[id]; !exists {
-			diff.Removed = append(diff.Removed, DiffSpan{
-				SpanID: id,
-				Name:   getStringField(beforeSpan, "name"),
-				Status: "removed",
-				Before: mustMarshal(beforeSpan),
-			})
+	if len(resources) == 0 {
+		items, _ := field(root, itemKey, "log_records").([]interface{})
+		for _, item := range items {
+			add(item, nil, nil)
 		}
 	}
-
-	return diff
+	return records
 }
 
-func normalizeAttrs(attrs interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-	if attrs == nil {
-		return result
+func marshalDiff(v interface{}) json.RawMessage { b, _ := json.Marshal(v); return b }
+
+func recordChanges(before, after map[string]interface{}) []RecordChange {
+	changes := []RecordChange{}
+	keys := make(map[string]bool, len(before)+len(after))
+	for k := range before {
+		keys[k] = true
 	}
-	switch v := attrs.(type) {
-	case map[string]interface{}:
-		return v
-	case map[string]string:
-		for k, val := range v {
-			result[k] = val
+	for k := range after {
+		keys[k] = true
+	}
+	for k := range keys {
+		b, bok := before[k]
+		a, aok := after[k]
+		if k == "attributes" {
+			bm, am := attributeMap(b), attributeMap(a)
+			for _, c := range recordChanges(bm, am) {
+				c.Field = "attributes." + c.Field
+				changes = append(changes, c)
+			}
+			continue
 		}
-	}
-	return result
-}
-
-func getField(m map[string]interface{}, key string) interface{} {
-	if m == nil {
-		return nil
-	}
-	return m[key]
-}
-
-func jsonEqual(a, b interface{}) bool {
-	aj, _ := json.Marshal(a)
-	bj, _ := json.Marshal(b)
-	return string(aj) == string(bj)
-}
-
-func computeSpanChanges(before, after map[string]interface{}) []SpanChange {
-	changes := []SpanChange{}
-
-	bAttrs := normalizeAttrs(getField(before, "attributes"))
-	aAttrs := normalizeAttrs(getField(after, "attributes"))
-
-	for key, aVal := range aAttrs {
-		if _, exists := bAttrs[key]; !exists {
-			changes = append(changes, SpanChange{
-				Field: "attributes." + key,
-				Type:  "added",
-				After: aVal,
-			})
-		} else if !jsonEqual(bAttrs[key], aVal) {
-			changes = append(changes, SpanChange{
-				Field:  "attributes." + key,
-				Type:   "changed",
-				Before: bAttrs[key],
-				After:  aVal,
-			})
+		if string(marshalDiff(b)) == string(marshalDiff(a)) && bok == aok {
+			continue
 		}
-	}
-	for key, bVal := range bAttrs {
-		if _, exists := aAttrs[key]; !exists {
-			changes = append(changes, SpanChange{
-				Field:  "attributes." + key,
-				Type:   "removed",
-				Before: bVal,
-			})
+		kind := "changed"
+		if !bok {
+			kind = "added"
 		}
-	}
-
-	scalarFields := []string{"name", "kind", "trace_id", "traceId", "parent_span_id", "parentSpanId", "start_time_unix_nano", "end_time_unix_nano", "status_code", "statusCode"}
-	for _, field := range scalarFields {
-		bVal := getField(before, field)
-		aVal := getField(after, field)
-		if aVal != nil && !jsonEqual(bVal, aVal) {
-			changes = append(changes, SpanChange{
-				Field:  field,
-				Type:   "changed",
-				Before: bVal,
-				After:  aVal,
-			})
+		if !aok {
+			kind = "removed"
 		}
+		changes = append(changes, RecordChange{Field: k, Type: kind, Before: b, After: a})
 	}
-
 	return changes
 }
 
-func ComputeAllStageDiffs(stages []StageResult, originalData json.RawMessage) []StageDiff {
-	if len(stages) == 0 {
-		return nil
+func attributeMap(v interface{}) map[string]interface{} {
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
 	}
-
-	diffs := make([]StageDiff, 0, len(stages))
-
-	for i := 0; i < len(stages); i++ {
-		stage := stages[i]
-
-		var before json.RawMessage
-		if i == 0 {
-			before = originalData
-		} else {
-			before = stages[i-1].IntermediateData
+	m := map[string]interface{}{}
+	if list, ok := v.([]interface{}); ok {
+		for _, item := range list {
+			kv, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if key, ok := kv["key"].(string); ok {
+				m[key] = kv["value"]
+			}
 		}
-
-		after := stage.IntermediateData
-
-		stageDiff := computeStageDiff(before, after, stage.StageIndex)
-		diffs = append(diffs, stageDiff)
 	}
+	return m
+}
 
+func computeStageDiff(before, after json.RawMessage, stageIndex int, signal string) StageDiff {
+	b, a := extractRecords(before, signal), extractRecords(after, signal)
+	d := StageDiff{StageIndex: stageIndex, Signal: signal, InputCount: len(b), OutputCount: len(a), Added: []DiffRecord{}, Removed: []DiffRecord{}, Modified: []DiffRecord{}}
+	byID := make(map[string][]int, len(b))
+	for i, item := range b {
+		byID[item.id] = append(byID[item.id], i)
+	}
+	used := make([]bool, len(b))
+	next := make(map[string]int, len(byID))
+	for _, item := range a {
+		indices := byID[item.id]
+		n := next[item.id]
+		if n >= len(indices) {
+			d.Added = append(d.Added, DiffRecord{ID: item.id, Name: item.name, Status: "added", After: marshalDiff(item.value)})
+			continue
+		}
+		i := indices[n]
+		next[item.id] = n + 1
+		used[i] = true
+		old, current := marshalDiff(b[i].value), marshalDiff(item.value)
+		if string(old) != string(current) {
+			d.Modified = append(d.Modified, DiffRecord{ID: item.id, Name: item.name, Status: "modified", Before: old, After: current, Changes: recordChanges(b[i].value, item.value)})
+		}
+	}
+	for i, item := range b {
+		if !used[i] {
+			d.Removed = append(d.Removed, DiffRecord{ID: item.id, Name: item.name, Status: "removed", Before: marshalDiff(item.value)})
+		}
+	}
+	return d
+}
+
+func ComputeAllStageDiffs(stages []StageResult, originalData json.RawMessage, signal string) []StageDiff {
+	diffs := make([]StageDiff, 0, len(stages))
+	before := originalData
+	for _, stage := range stages {
+		diffs = append(diffs, computeStageDiff(before, stage.IntermediateData, stage.StageIndex, signal))
+		before = stage.IntermediateData
+	}
 	return diffs
 }
 

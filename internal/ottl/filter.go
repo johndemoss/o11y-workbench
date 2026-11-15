@@ -183,13 +183,58 @@ const (
 	FilterModeExclude FilterMode = "exclude"
 )
 
+func checkFilterCtx(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func filterKeep(isMatch bool, mode FilterMode) (bool, error) {
+	switch mode {
+	case FilterModeInclude:
+		return isMatch, nil
+	case FilterModeExclude:
+		return !isMatch, nil
+	default:
+		return false, fmt.Errorf("unknown filter mode: %s", mode)
+	}
+}
+
+// SelectFilterConditions returns filter conditions for one signal from structured
+// filter YAML. Unstructured flat lists fall back to ParseFilterConditions.
+func SelectFilterConditions(configYAML, signal string) ([]string, error) {
+	configYAML = strings.TrimSpace(configYAML)
+	if configYAML == "" {
+		return nil, fmt.Errorf("empty filter config")
+	}
+
+	if cfg, ok := parseStructuredFilterConfig(configYAML); ok {
+		switch signal {
+		case "logs":
+			return cfg.Logs.LogRecordConditions, nil
+		case "metrics":
+			return cfg.Metrics.Conditions, nil
+		default:
+			return cfg.Traces.SpanConditions, nil
+		}
+	}
+
+	return ParseFilterConditions(configYAML)
+}
+
 // FilterRunData evaluates OTTL conditions against each span in the trace data
 // and returns a filtered trace containing only the spans that match (include mode)
 // or only the spans that do NOT match (exclude mode).
 //
 // Conditions are ORed together — if ANY condition evaluates to true for a span,
 // the span is considered a match.
-func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMode) (json.RawMessage, int, int, error) {
+func FilterRunData(ctx context.Context, traceData json.RawMessage, conditions []string, mode FilterMode) (json.RawMessage, int, int, error) {
+	if err := checkFilterCtx(ctx); err != nil {
+		return nil, 0, 0, err
+	}
 	if len(conditions) == 0 {
 		return nil, 0, 0, fmt.Errorf("no conditions provided")
 	}
@@ -215,7 +260,7 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 		return nil, 0, 0, fmt.Errorf("unmarshal to pdata: %w", err)
 	}
 
-	filtered, total, kept, err := FilterSpans(traces, conditions, mode, ErrorModePropagate)
+	filtered, total, kept, err := FilterSpans(ctx, traces, conditions, mode, ErrorModePropagate)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("filter spans: %w", err)
 	}
@@ -244,7 +289,8 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 
 // FilterSpans evaluates OTTL conditions against all spans in ptrace.Traces and
 // returns a filtered ptrace.Traces containing only the spans that match (include
-// mode) or only the spans that do NOT match (exclude mode). error_mode controls
+// mode) or only the spans that do NOT match (exclude mode). Collector-aligned
+// pipeline stages pass FilterModeExclude. error_mode controls
 // how evaluation errors are handled:
 //   - ErrorModePropagate: return error immediately (default)
 //   - ErrorModeIgnore: log the error and skip the span
@@ -252,7 +298,10 @@ func FilterRunData(traceData json.RawMessage, conditions []string, mode FilterMo
 //
 // Conditions are ORed together — if ANY condition evaluates to true for a span,
 // the span is considered a match.
-func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
+func FilterSpans(ctx context.Context, traces ptrace.Traces, conditions []string, mode FilterMode, errorMode ErrorMode) (ptrace.Traces, int, int, error) {
+	if err := checkFilterCtx(ctx); err != nil {
+		return traces, 0, 0, err
+	}
 	if len(conditions) == 0 {
 		return traces, 0, 0, fmt.Errorf("no conditions provided")
 	}
@@ -279,7 +328,6 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 
 	condSeq := ottlspan.NewConditionSequence(parsedConditions, settings)
 
-	ctx := context.Background()
 	rss := traces.ResourceSpans()
 
 	type spanKey struct {
@@ -296,12 +344,18 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 	}
 
 	for i := 0; i < rss.Len(); i++ {
+		if err := checkFilterCtx(ctx); err != nil {
+			return traces, 0, 0, err
+		}
 		rs := rss.At(i)
 		sss := rs.ScopeSpans()
 		for j := 0; j < sss.Len(); j++ {
 			ss := sss.At(j)
 			spans := ss.Spans()
 			for k := 0; k < spans.Len(); k++ {
+				if err := checkFilterCtx(ctx); err != nil {
+					return traces, 0, 0, err
+				}
 				span := spans.At(k)
 				tCtx := ottlspan.NewTransformContext(rs, ss, span)
 
@@ -326,14 +380,9 @@ func FilterSpans(traces ptrace.Traces, conditions []string, mode FilterMode, err
 					}
 				}
 
-				var keep bool
-				switch mode {
-				case FilterModeInclude:
-					keep = isMatch
-				case FilterModeExclude:
-					keep = !isMatch
-				default:
-					return traces, 0, 0, fmt.Errorf("unknown filter mode: %s", mode)
+				keep, err := filterKeep(isMatch, mode)
+				if err != nil {
+					return traces, 0, 0, err
 				}
 
 				if keep {

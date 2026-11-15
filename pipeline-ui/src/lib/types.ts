@@ -17,9 +17,11 @@ export interface Pipeline {
   processors: Record<string, ProcessorConfig>
   receivers?: string[]
   exporters?: string[]
+  receiver_configs?: Record<string, Record<string, unknown>>
+  exporter_configs?: Record<string, Record<string, unknown>>
 }
 
-export interface SpanChange {
+export interface RecordChange {
   field: string
   type: 'added' | 'removed' | 'changed'
   before?: unknown
@@ -33,22 +35,23 @@ export interface FullAttributeDiff {
   change_type: 'added' | 'removed' | 'changed' | 'unchanged'
 }
 
-export interface DiffSpan {
-  spanId: string
+export interface DiffRecord {
+  id: string
   name?: string
   status: 'added' | 'removed' | 'modified'
   before?: unknown
   after?: unknown
-  changes?: SpanChange[]
+  changes?: RecordChange[]
 }
 
 export interface StageDiff {
   stage_index: number
-  input_span_count: number
-  output_span_count: number
-  added: DiffSpan[]
-  removed: DiffSpan[]
-  modified: DiffSpan[]
+  signal: SignalType
+  input_count: number
+  output_count: number
+  added: DiffRecord[]
+  removed: DiffRecord[]
+  modified: DiffRecord[]
 }
 
 export interface QuickConfig {
@@ -76,6 +79,34 @@ export interface PipelineResult {
 
 // ─── Multi-signal types ──────────────────────────────────────────
 export type SignalType = 'traces' | 'logs' | 'metrics'
+
+export interface CaptureDroppedCounts {
+  traces?: number
+  logs?: number
+  metrics?: number
+}
+
+export function formatCaptureDropped(dropped: CaptureDroppedCounts | undefined): string {
+  if (dropped === undefined) return ''
+  const parts: string[] = []
+  if ((dropped.traces ?? 0) > 0) parts.push(`${dropped.traces} spans`)
+  if ((dropped.logs ?? 0) > 0) parts.push(`${dropped.logs} log records`)
+  if ((dropped.metrics ?? 0) > 0) parts.push(`${dropped.metrics} data points`)
+  return parts.join(', ')
+}
+
+export interface Run {
+  id: string
+  status: 'pending' | 'running' | 'paused' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'streaming'
+  span_count: number
+  format?: 'json' | 'protobuf'
+  capture_truncated?: boolean
+  capture_dropped?: CaptureDroppedCounts
+  capture_limit_bytes?: number
+  has_trace_data?: boolean
+  has_log_data?: boolean
+  has_metric_data?: boolean
+}
 
 export type PipelinesBySignal = Record<SignalType, Pipeline>
 
