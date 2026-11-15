@@ -13,19 +13,13 @@
   import QuickTab from './lib/QuickTab.svelte'
   import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
   import { withCollectorVersion } from './lib/collector-version'
+  import { defaultPipeline, normalizePipelines } from './lib/pipeline-defaults'
   import { dump } from 'js-yaml'
 
-  function initialPipeline(): Pipeline {
-    return {
-      stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'],
-      receiver_configs: { otlp: { protocols: { grpc: {} } } },
-      exporter_configs: { debug: {} },
-    }
-  }
   let pipelinesBySignal: PipelinesBySignal = $state({
-    traces: initialPipeline(),
-    logs: initialPipeline(),
-    metrics: initialPipeline()
+    traces: defaultPipeline(),
+    logs: defaultPipeline(),
+    metrics: defaultPipeline()
   })
   let selectedSignal: SignalType = $state('traces')
   let pipeline = $derived(pipelinesBySignal[selectedSignal] || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
