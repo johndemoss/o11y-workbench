@@ -235,6 +235,9 @@
       alert(e instanceof Error ? e.message : String(e))
     }
   }
+  function handlePipelineChange(p: Pipeline) {
+    handlePipelinesChange({ ...pipelinesBySignal, [selectedSignal]: p })
+  }
   function handleValidate(p: Pipeline) {
     if (activeTab === 'graph' && !draftReady) {
       alert('Synchronize or resync the YAML draft before validation.')
@@ -540,7 +543,7 @@
         <option value="metrics">metrics</option>
       </select>
     </div>
-    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={openImport} />
+    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={openImport} onchange={handlePipelineChange} />
     <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'pipeline')} onrunselect={handleRunSelect} /></section>
   {/if}
   {#if activeTab !== 'graph'}
