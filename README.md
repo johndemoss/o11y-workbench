@@ -7,7 +7,7 @@
 
 **Seeded mock OTLP telemetry generator and local development workbench** for testing distributed system scenarios, trace-ID-aware load balancing, [OpenTelemetry Transformation Language (OTTL)](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/ottl) prototyping, and pipeline authoring.
 
-Generate structurally valid OTLP traces with the CLI, or traces, logs, and metrics in the web dashboard. Feed them into a collector (Jaeger, Datadog, Grafana, etc.), inspect locally as JSON/protobuf files, or prototype collector pipelines in the browser. Seeds reproduce generation choices, not byte-identical telemetry: normal runs use fresh IDs and wall-clock timestamps.
+Generate structurally valid OTLP traces with the CLI, or traces, logs, and metrics in the web dashboard. Feed them into a collector, inspect locally as JSON/protobuf files, or prototype collector pipelines in the browser. Seeds reproduce generation choices, not byte-identical telemetry: normal runs use fresh IDs and wall-clock timestamps.
 
 This is an **unauthenticated, trusted single-user development tool**, not a public HTTP service. Keep it on loopback and use synthetic data. Read [SECURITY.md](SECURITY.md) before using real captures or changing network bindings.
 
