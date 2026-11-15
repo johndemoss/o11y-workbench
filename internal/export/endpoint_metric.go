@@ -22,6 +22,12 @@ func NewMetricEndpointRouter(exporters map[region.Name]MetricExporter) *MetricEn
 }
 
 func (r *MetricEndpointRouter) Export(ctx context.Context, metrics []*metricspb.ResourceMetrics) error {
+	_, err := r.ExportWithReceipt(ctx, metrics)
+	return err
+}
+
+func (r *MetricEndpointRouter) ExportWithReceipt(ctx context.Context, metrics []*metricspb.ResourceMetrics) (ExportReceipt, error) {
+	total := ReceiptFullSuccess(0)
 	groups := make(map[region.Name][]*metricspb.ResourceMetrics)
 
 	for _, rm := range metrics {
@@ -32,13 +38,24 @@ func (r *MetricEndpointRouter) Export(ctx context.Context, metrics []*metricspb.
 	for reg, batch := range groups {
 		exp, ok := r.exporters[reg]
 		if !ok {
-			continue
+			err := fmt.Errorf("no exporter for region %s", reg)
+			return ReceiptRPCFailure(CountDataPoints(metrics), err), err
 		}
-		if err := exp.Export(ctx, batch); err != nil {
-			return fmt.Errorf("region %s: %w", reg, err)
+		var receipt ExportReceipt
+		var err error
+		if re, ok := exp.(metricReceiptExporter); ok {
+			receipt, err = re.ExportWithReceipt(ctx, batch)
+		} else {
+			err = exp.Export(ctx, batch)
+			receipt = ReceiptFullSuccess(CountDataPoints(batch))
 		}
+		if err != nil {
+			err = fmt.Errorf("region %s: %w", reg, err)
+			return ReceiptRPCFailure(CountDataPoints(metrics), err), err
+		}
+		mergeReceipts(&total, receipt)
 	}
-	return nil
+	return total, nil
 }
 
 func (r *MetricEndpointRouter) Shutdown(ctx context.Context) error {

@@ -19,8 +19,11 @@
 // as a string discriminant:
 //
 //	if doTraces  { Generator.Run(ctx, exp) }
-//	if doLogs    { LogGenerator.Run(ctx, logExp, traceSpans) }
+//	if doLogs    { LogGenerator.Run(ctx, logExp) or LogGenerator.RunCorrelated(ctx, refs, logExp) }
 //	if doMetrics { MetricGenerator.Run(ctx, metricExp) }
+//
+// Correlated logs stream from Generator.OnTraceSpans into RunCorrelated;
+// neither side reads exported or captured trace data.
 //
 // SignalType is never inspected inside any generator — each generator is
 // purely self-contained and signal-agnostic beyond its own typed Export call.
@@ -45,9 +48,9 @@
 //
 // CONCERNS:
 // ⚠️  Generators are already independent — no shared base class or parent interface
-// ⚠️  MetricGenerator.Run and LogGenerator.Run have different signatures
+// ⚠️  MetricGenerator.Run and LogGenerator.RunCorrelated have different signatures
 //
-//	(LogGenerator.Run accepts traceSpans for correlation; MetricGenerator.Run does not)
+//	(LogGenerator.RunCorrelated consumes span references; MetricGenerator.Run does not)
 //
 // ⚠️  Run.go would still need to know which signals are enabled (doTraces/doLogs/doMetrics)
 //
@@ -82,7 +85,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -186,10 +188,21 @@ func (c Config) IncludesMetrics() bool {
 	return st == "metrics" || st == "all" || st == "traces+metrics" || st == "logs+metrics"
 }
 
+// SpanRef identifies one exported span for trace/log correlation.
+type SpanRef struct {
+	TraceID [16]byte
+	SpanID  [8]byte
+	Service string
+}
+
 type Generator struct {
 	config     Config
 	stats      statsCounters
 	OnProgress func(completed, total int)
+	// OnTraceSpans receives the spans of each trace whose exports succeeded,
+	// before OnProgress and before pacing waits for the next trace. The slice
+	// is not reused by the generator. Blocking applies backpressure to Run.
+	OnTraceSpans func([]SpanRef)
 	// Regions pins routing labels for this instance. Nil uses CLI process defaults.
 	// Set before Run and do not mutate while generation is active.
 	Regions []region.Name
@@ -222,6 +235,9 @@ func (g *Generator) Stats() Stats {
 // traces per second. The actual rate may be lower if generation + export
 // takes longer than the tick interval.
 func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
+	if err := ValidateConfig(g.config); err != nil {
+		return err
+	}
 	// Explicit flat evidence grammar: Workload.Shape=flat or Scenario=workload.
 	// WorkloadProfile knobs alone still compose onto topology/tree scenarios.
 	if g.config.Workload.flatShape() || IsWorkloadScenario(g.config.Scenario) {
@@ -256,25 +272,12 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 	}
 
 	var exportSeq uint64
+	pacer := workloadPacer{profile: wl}
+	if useWorkloadPacing {
+		pacer.fallbackRate = g.config.Rate
+	}
 	for i := 0; traceCount == 0 || i < traceCount; i++ {
-		if useWorkloadPacing {
-			rate := wl.requestRate(time.Now())
-			if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(wl.Mode, "burst") {
-				rate = float64(g.config.Rate)
-			}
-			if rate <= 0 {
-				select {
-				case <-ctx.Done():
-					if ctx.Err() == context.DeadlineExceeded {
-						return nil
-					}
-					return ctx.Err()
-				case <-time.After(10 * time.Millisecond):
-				}
-				i-- // do not consume a trace slot during burst-off / zero-rate wait
-				continue
-			}
-		} else if i > 0 && ticker != nil {
+		if !useWorkloadPacing && i > 0 && ticker != nil {
 			select {
 			case <-ticker.C:
 			case <-ctx.Done():
@@ -357,6 +360,14 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 			}
 		}
 
+		var refs []SpanRef
+		if g.OnTraceSpans != nil {
+			total := 0
+			for _, spans := range spansByService {
+				total += len(spans)
+			}
+			refs = make([]SpanRef, 0, total)
+		}
 		for _, ep := range endpoints {
 			for _, svcName := range svcNames {
 				key := epSvcKey{ep, svcName}
@@ -379,44 +390,50 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 					},
 					SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
 				}
+				exported := groupSpans
 				if wl.Active() {
-					if err := g.exportSpanBatches(ctx, exp, rs, &exportSeq); err != nil {
+					var err error
+					exported, err = g.exportSpanBatches(ctx, exp, rs, &exportSeq, &pacer)
+					if err != nil {
+						if err == context.DeadlineExceeded {
+							return nil
+						}
 						return err
 					}
 				} else {
-					if err := g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, len(groupSpans)); err != nil {
+					ok, err := g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, len(groupSpans))
+					if err != nil {
 						return err
 					}
+					if !ok {
+						exported = nil
+					}
+				}
+				if g.OnTraceSpans != nil {
+					refs = appendSpanRefs(refs, svcName, exported)
 				}
 			}
+		}
+		if len(refs) > 0 {
+			g.OnTraceSpans(refs)
 		}
 		if g.OnProgress != nil {
 			g.OnProgress(i+1, g.config.TraceCount)
 		}
 
-		if useWorkloadPacing {
-			rate := wl.requestRate(time.Now())
-			if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(wl.Mode, "burst") {
-				rate = float64(g.config.Rate)
-			}
-			if rate > 0 {
-				interval := time.Duration(float64(time.Second) / rate)
-				if interval <= 0 {
-					interval = time.Millisecond
-				}
-				select {
-				case <-ctx.Done():
-					if ctx.Err() == context.DeadlineExceeded {
-						return nil
-					}
-					return ctx.Err()
-				case <-time.After(interval):
-				}
-			}
-		}
 	}
 
 	return nil
+}
+
+func appendSpanRefs(refs []SpanRef, service string, spans []*tracev1.Span) []SpanRef {
+	for _, sp := range spans {
+		ref := SpanRef{Service: service}
+		copy(ref.TraceID[:], sp.TraceId)
+		copy(ref.SpanID[:], sp.SpanId)
+		refs = append(refs, ref)
+	}
+	return refs
 }
 
 // buildSpans recursively converts a SpanNode tree into OTLP Span objects

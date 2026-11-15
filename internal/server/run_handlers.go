@@ -3,12 +3,19 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/logging"
+	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +47,17 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logging.Debugf("StartRun: Received request body: signals=%+v, log_config=%+v", body.Signals, body.LogConfig)
+	if body.Format == "" {
+		body.Format = "json"
+	}
+	if body.Format != "json" && body.Format != "protobuf" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "format must be json or protobuf"})
+		return
+	}
+	if body.Duration < 0 || int64(body.Duration) > int64((1<<63-1)/int64(time.Second)) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "duration is out of range"})
+		return
+	}
 
 	insecure := true
 	if body.Insecure != nil {
@@ -58,6 +76,10 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		}
 		s := gen.NewSignalsFromType(signalType)
 		signals = &s
+	}
+	if (body.Workload != nil || gen.IsWorkloadScenario(body.Scenario)) && (signals.Logs || signals.Metrics) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workload profiles support traces only"})
+		return
 	}
 
 	wl := workloadFromRequest(body.Workload)
@@ -117,6 +139,10 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 			cfg.MetricConfig.MetricCount = gen.DefaultMetricConfig().MetricCount
 		}
 	}
+	if err := gen.ValidateConfig(cfg); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 
 	run, err := StartRun(r.Context(), s.store, cfg, endpoints, insecure, body.Output)
 	if err != nil {
@@ -127,6 +153,14 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
+	s.store.mu.RLock()
+	if live := s.store.runs[run.ID]; live != nil {
+		live.mu.Lock()
+		live.Format = body.Format
+		live.mu.Unlock()
+	}
+	s.store.mu.RUnlock()
+	run.Format = body.Format
 	writeJSON(w, http.StatusAccepted, run)
 }
 
@@ -152,7 +186,7 @@ func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.StopRun(id)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "id": id})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopping", "id": id})
 }
 
 func (s *Server) handlePauseRun(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +209,64 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.ResumeRun(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed", "id": id})
+}
+
+func (s *Server) handleDownloadRun(w http.ResponseWriter, r *http.Request) {
+	run := s.store.Get(r.PathValue("id"))
+	if run == nil {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
+	signal, format := r.URL.Query().Get("signal"), r.URL.Query().Get("format")
+	if signal == "" {
+		signal = "traces"
+	}
+	if format == "" {
+		format = "json"
+	}
+	var data *json.RawMessage
+	var msg proto.Message
+	switch signal {
+	case "traces":
+		data, msg = run.TraceData, &collectortracev1.ExportTraceServiceRequest{}
+	case "logs":
+		data, msg = run.LogData, &collectorlogsv1.ExportLogsServiceRequest{}
+	case "metrics":
+		data, msg = run.MetricData, &collectormetricsv1.ExportMetricsServiceRequest{}
+	default:
+		http.Error(w, "invalid signal", http.StatusBadRequest)
+		return
+	}
+	if format != "json" && format != "protobuf" {
+		http.Error(w, "invalid format", http.StatusBadRequest)
+		return
+	}
+	if data == nil {
+		http.Error(w, "signal capture not available", http.StatusNotFound)
+		return
+	}
+	payload := []byte(*data)
+	contentType, ext := "application/json", "json"
+	if format == "protobuf" {
+		normalized, err := export.FixTraceSpanIDsForUnmarshal(payload)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := protojson.Unmarshal(normalized, msg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		payload, err = proto.Marshal(msg)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		contentType, ext = "application/x-protobuf", "pb"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", run.ID+"-"+signal+"."+ext))
+	_, _ = w.Write(payload)
 }
 
 // workloadRequest is the dashboard/API shape for WorkloadProfile overlays.

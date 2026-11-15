@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -29,12 +30,21 @@ type MockServer struct {
 	addr  string
 	limit int // msgs/sec; 0 = unlimited
 
-	listener net.Listener
-	server   *http.Server
+	listener   net.Listener
+	server     *http.Server
+	generation *mockGeneration
+	mu         sync.Mutex
+	started    bool
+	sequence   atomic.Uint64
+}
+
+type mockGeneration struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	mu       sync.Mutex
-	started  bool
+	closing  bool
+	conns    map[net.Conn]struct{}
+	handlers sync.WaitGroup
 }
 
 // NewMockServer creates a mock server that listens on addr and streams up to
@@ -62,14 +72,17 @@ func (s *MockServer) Start() error {
 		return fmt.Errorf("mock server listen: %w", err)
 	}
 	s.listener = listener
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	gen := &mockGeneration{ctx: ctx, cancel: cancel, conns: make(map[net.Conn]struct{})}
+	s.generation = gen
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.handleWS)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { s.handleWS(gen, w, r) })
 	s.server = &http.Server{Handler: mux}
 
+	server := s.server
 	go func() {
-		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("remotetap mock server error: %v", err)
 		}
 	}()
@@ -85,8 +98,16 @@ func (s *MockServer) Stop() error {
 	if !s.started {
 		return nil
 	}
-	s.cancel()
+	gen := s.generation
+	gen.mu.Lock()
+	gen.closing = true
+	gen.cancel()
+	for conn := range gen.conns {
+		conn.Close()
+	}
+	gen.mu.Unlock()
 	err := s.server.Close()
+	gen.handlers.Wait()
 	s.started = false
 	return err
 }
@@ -94,13 +115,24 @@ func (s *MockServer) Stop() error {
 // Addr returns the listening address. Useful when the port is dynamically
 // assigned (e.g., ":0").
 func (s *MockServer) Addr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.listener != nil {
 		return s.listener.Addr().String()
 	}
 	return s.addr
 }
 
-func (s *MockServer) handleWS(w http.ResponseWriter, r *http.Request) {
+func (s *MockServer) handleWS(gen *mockGeneration, w http.ResponseWriter, r *http.Request) {
+	gen.mu.Lock()
+	if gen.closing {
+		gen.mu.Unlock()
+		http.Error(w, "server stopping", http.StatusServiceUnavailable)
+		return
+	}
+	gen.handlers.Add(1)
+	gen.mu.Unlock()
+	defer gen.handlers.Done()
 	key := r.Header.Get("Sec-WebSocket-Key")
 	if key == "" {
 		http.Error(w, "missing Sec-WebSocket-Key", http.StatusBadRequest)
@@ -124,6 +156,20 @@ func (s *MockServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("hijack: %v", err), http.StatusInternalServerError)
 		return
 	}
+	gen.mu.Lock()
+	if gen.closing {
+		gen.mu.Unlock()
+		conn.Close()
+		return
+	}
+	gen.conns[conn] = struct{}{}
+	gen.mu.Unlock()
+	defer func() {
+		conn.Close()
+		gen.mu.Lock()
+		delete(gen.conns, conn)
+		gen.mu.Unlock()
+	}()
 
 	resp := "HTTP/1.1 101 Switching Protocols\r\n" +
 		"Upgrade: websocket\r\n" +
@@ -138,7 +184,7 @@ func (s *MockServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.streamData(r.Context(), buf, conn)
+	s.streamData(gen.ctx, buf, conn)
 }
 
 func (s *MockServer) streamData(ctx context.Context, buf *bufio.ReadWriter, conn net.Conn) {
@@ -151,20 +197,16 @@ func (s *MockServer) streamData(ctx context.Context, buf *bufio.ReadWriter, conn
 	ticker := time.NewTicker(time.Second / time.Duration(rate))
 	defer ticker.Stop()
 
-	seq := 0
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.ctx.Done():
-			return
 		case <-ticker.C:
+			seq := int(s.sequence.Add(1) - 1)
 			data := generateMessage(seq)
 			if err := writeWSTextFrame(buf, data); err != nil {
 				return
 			}
-			seq++
 		}
 	}
 }
@@ -190,21 +232,26 @@ func generateTrace(seq int) []byte {
 	ss := rs.ScopeSpans().AppendEmpty()
 	ss.Scope().SetName("mock-scope")
 
-	traceID := pcommon.TraceID([16]byte{byte(seq)})
+	var traceBytes [16]byte
+	binary.BigEndian.PutUint64(traceBytes[8:], uint64(seq)+1)
+	traceID := pcommon.TraceID(traceBytes)
+	var rootID, childID [8]byte
+	binary.BigEndian.PutUint64(rootID[:], uint64(seq)*2+1)
+	binary.BigEndian.PutUint64(childID[:], uint64(seq)*2+2)
 	now := time.Now()
 
 	span := ss.Spans().AppendEmpty()
 	span.SetName(fmt.Sprintf("operation-%d", seq))
-	span.SetSpanID(pcommon.SpanID([8]byte{byte(seq), 0, 0, 0, 0, 0, 0, 0}))
+	span.SetSpanID(pcommon.SpanID(rootID))
 	span.SetTraceID(traceID)
 	span.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(50 * time.Millisecond)))
 
 	span2 := ss.Spans().AppendEmpty()
 	span2.SetName(fmt.Sprintf("child-%d", seq))
-	span2.SetSpanID(pcommon.SpanID([8]byte{byte(seq), 1, 0, 0, 0, 0, 0, 0}))
+	span2.SetSpanID(pcommon.SpanID(childID))
 	span2.SetTraceID(traceID)
-	span2.SetParentSpanID(pcommon.SpanID([8]byte{byte(seq), 0, 0, 0, 0, 0, 0, 0}))
+	span2.SetParentSpanID(pcommon.SpanID(rootID))
 	span2.SetStartTimestamp(pcommon.NewTimestampFromTime(now.Add(5 * time.Millisecond)))
 	span2.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(45 * time.Millisecond)))
 

@@ -72,8 +72,18 @@ func TestIntegration_RunLifecycle(t *testing.T) {
 	}
 
 	store.StopRun(runZero.ID)
-	time.Sleep(100 * time.Millisecond)
-	snapStopped := store.Get(runZero.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	var snapStopped *Run
+	for {
+		snapStopped = store.Get(runZero.ID)
+		if snapStopped != nil && isTerminalStatus(snapStopped.Status) {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 	if snapStopped == nil {
 		t.Fatal("stopped run not found in store")
 	}

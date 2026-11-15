@@ -15,7 +15,7 @@ import (
 )
 
 // TraceFileExporter writes each trace to its own file organized by
-// <outputDir>/<traceID>/<endpoint>/spans.{json,pb}.
+// <outputDir>/<traceID>/<endpoint>/spans-<unique>.{json,pb}.
 // Each file is a self-contained ExportTraceServiceRequest that can be
 // sent directly to a collector (e.g. via curl).
 type TraceFileExporter struct {
@@ -30,8 +30,7 @@ func NewTraceFileExporter(outputDir string, format Format) *TraceFileExporter {
 	}
 }
 
-// Export writes the given spans to a file, expecting them to belong to a
-// single trace. The output path is <outputDir>/<traceID>/<endpoint>/spans.{json,pb}.
+// Export writes one self-contained, uniquely named request per batch.
 func (e *TraceFileExporter) Export(ctx context.Context, spans []*tracev1.ResourceSpans) error {
 	if len(spans) == 0 {
 		return nil
@@ -75,9 +74,18 @@ func (e *TraceFileExporter) Export(ctx context.Context, spans []*tracev1.Resourc
 		ext = "pb"
 	}
 
-	filename := filepath.Join(dir, "spans."+ext)
-	if err := os.WriteFile(filename, data, 0o644); err != nil {
+	f, err := os.CreateTemp(dir, "spans-*."+ext)
+	if err != nil {
+		return fmt.Errorf("create spans file: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(f.Name())
 		return fmt.Errorf("write spans file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return fmt.Errorf("close spans file: %w", err)
 	}
 
 	return nil

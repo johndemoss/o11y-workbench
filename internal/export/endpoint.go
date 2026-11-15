@@ -20,6 +20,12 @@ func NewEndpointRouter(exporters map[region.Name]TraceExporter) *EndpointRouter 
 }
 
 func (r *EndpointRouter) Export(ctx context.Context, spans []*tracev1.ResourceSpans) error {
+	_, err := r.ExportWithReceipt(ctx, spans)
+	return err
+}
+
+func (r *EndpointRouter) ExportWithReceipt(ctx context.Context, spans []*tracev1.ResourceSpans) (ExportReceipt, error) {
+	total := ReceiptFullSuccess(0)
 	groups := make(map[region.Name][]*tracev1.ResourceSpans)
 
 	for _, rs := range spans {
@@ -30,13 +36,24 @@ func (r *EndpointRouter) Export(ctx context.Context, spans []*tracev1.ResourceSp
 	for reg, batch := range groups {
 		exp, ok := r.exporters[reg]
 		if !ok {
-			continue
+			err := fmt.Errorf("no exporter for region %s", reg)
+			return ReceiptRPCFailure(CountSpans(spans), err), err
 		}
-		if err := exp.Export(ctx, batch); err != nil {
-			return fmt.Errorf("region %s: %w", reg, err)
+		var receipt ExportReceipt
+		var err error
+		if re, ok := exp.(traceReceiptExporter); ok {
+			receipt, err = re.ExportWithReceipt(ctx, batch)
+		} else {
+			err = exp.Export(ctx, batch)
+			receipt = ReceiptFullSuccess(CountSpans(batch))
 		}
+		if err != nil {
+			err = fmt.Errorf("region %s: %w", reg, err)
+			return ReceiptRPCFailure(CountSpans(spans), err), err
+		}
+		mergeReceipts(&total, receipt)
 	}
-	return nil
+	return total, nil
 }
 
 func (r *EndpointRouter) Shutdown(ctx context.Context) error {

@@ -20,6 +20,9 @@ func (g *Generator) RunLogs(ctx context.Context, exp export.LogExporter) error {
 	if g == nil {
 		return fmt.Errorf("generator is nil")
 	}
+	if err := ValidateConfig(g.config); err != nil {
+		return err
+	}
 	return g.runLogWorkloadProfile(ctx, exp)
 }
 
@@ -41,15 +44,20 @@ func (g *Generator) runLogWorkloadProfile(ctx context.Context, exp export.LogExp
 	}
 
 	var seq uint64
+	pacer := workloadPacer{profile: p, fallbackRate: g.config.Rate}
+	idPrefix := NewIDRng().SpanID()
 	requestBudget := 0
 	if g.config.TraceCount > 0 {
 		// Reuse TraceCount as request budget for flat evidence workloads.
 		requestBudget = g.config.TraceCount
 	} else if g.config.LogConfig.LogCount > 0 && !p.pacingActive() && g.config.Duration == 0 {
-		requestBudget = (g.config.LogConfig.LogCount + items - 1) / items
+		requestBudget = (g.config.LogConfig.LogCount-1)/items + 1
 	}
 
 	for {
+		if requestBudget > 0 && int(seq) >= requestBudget {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
@@ -59,33 +67,14 @@ func (g *Generator) runLogWorkloadProfile(ctx context.Context, exp export.LogExp
 		default:
 		}
 
-		if requestBudget > 0 && int(seq) >= requestBudget {
-			return nil
-		}
-
-		rate := p.requestRate(time.Now())
-		if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(p.Mode, "burst") {
-			rate = float64(g.config.Rate)
-		}
-		if rate <= 0 {
-			select {
-			case <-ctx.Done():
-				if ctx.Err() == context.DeadlineExceeded {
-					return nil
-				}
-				return ctx.Err()
-			case <-time.After(10 * time.Millisecond):
+		if err := pacer.start(ctx, items); err != nil {
+			if err == context.DeadlineExceeded {
+				return nil
 			}
-			continue
+			return err
 		}
-
-		interval := time.Duration(float64(time.Second) / rate)
-		if interval <= 0 {
-			interval = time.Millisecond
-		}
-
 		seq++
-		rl := g.workloadResourceLogs(expID, svc, seq, items)
+		rl := g.workloadResourceLogs(expID, svc, seq, items, idPrefix)
 		if err := g.exportAccountLogs(ctx, exp, []*logsv1.ResourceLogs{rl}, items); err != nil {
 			return err
 		}
@@ -94,18 +83,10 @@ func (g *Generator) runLogWorkloadProfile(ctx context.Context, exp export.LogExp
 			g.OnProgress(int(seq), requestBudget)
 		}
 
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				return nil
-			}
-			return ctx.Err()
-		case <-time.After(interval):
-		}
 	}
 }
 
-func (g *Generator) workloadResourceLogs(expID, svc string, seq uint64, items int) *logsv1.ResourceLogs {
+func (g *Generator) workloadResourceLogs(expID, svc string, seq uint64, items int, prefix [8]byte) *logsv1.ResourceLogs {
 	records := make([]*logsv1.LogRecord, 0, items)
 	now := uint64(time.Now().UnixNano())
 	card := g.config.Workload.Cardinality
@@ -116,9 +97,10 @@ func (g *Generator) workloadResourceLogs(expID, svc string, seq uint64, items in
 	for i := 0; i < items; i++ {
 		tid := make([]byte, 16)
 		sid := make([]byte, 8)
-		binary.BigEndian.PutUint64(tid[0:8], uint64(g.config.Seed))
-		binary.BigEndian.PutUint64(tid[8:16], seq*1000+uint64(i))
-		binary.BigEndian.PutUint64(sid, seq*1000+uint64(i)+1)
+		copy(tid[:8], prefix[:])
+		id := (seq-1)*uint64(items) + uint64(i) + 1
+		binary.BigEndian.PutUint64(tid[8:], id)
+		binary.BigEndian.PutUint64(sid, id)
 
 		attrs := []*commonv1.KeyValue{
 			stringAttr("experiment.id", expID),

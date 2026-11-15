@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os/signal"
@@ -128,16 +129,10 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-
-			if err := generator.Run(ctx, exporter); err != nil {
-				return fmt.Errorf("generate and export traces: %w", err)
+			if viper.GetString("output") == "otlp" {
+				exporter = export.WithExportTimeoutContext(ctx, exporter, 10*time.Second)
 			}
-
-			if err := exporter.Shutdown(ctx); err != nil {
-				return fmt.Errorf("shutdown exporter: %w", err)
-			}
-
-			return nil
+			return runAndShutdown(ctx, exporter, func() error { return generator.Run(ctx, exporter) })
 		},
 	}
 
@@ -174,6 +169,20 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 	cmd.AddCommand(regionsCmd())
 
 	return cmd
+}
+
+func runAndShutdown(ctx context.Context, exporter export.TraceExporter, run func() error) error {
+	runErr := run()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	shutdownErr := exporter.Shutdown(shutdownCtx)
+	if runErr != nil && !(ctx.Err() != nil && errors.Is(runErr, context.Canceled)) {
+		return fmt.Errorf("generate and export traces: %w", runErr)
+	}
+	if shutdownErr != nil {
+		return fmt.Errorf("shutdown exporter: %w", shutdownErr)
+	}
+	return nil
 }
 
 func initConfig() error {

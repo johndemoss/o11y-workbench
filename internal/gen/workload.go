@@ -127,12 +127,17 @@ func (g *Generator) runWorkloadProfile(ctx context.Context, exp export.TraceExpo
 	}
 
 	var seq uint64
+	pacer := workloadPacer{profile: p, fallbackRate: g.config.Rate}
+	idPrefix := NewIDRng().SpanID()
 	requestBudget := 0
 	if g.config.TraceCount > 0 {
 		requestBudget = g.config.TraceCount
 	}
 
 	for {
+		if requestBudget > 0 && int(seq) >= requestBudget {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
@@ -142,55 +147,29 @@ func (g *Generator) runWorkloadProfile(ctx context.Context, exp export.TraceExpo
 		default:
 		}
 
-		if requestBudget > 0 && int(seq) >= requestBudget {
-			return nil
-		}
-
-		rate := p.requestRate(time.Now())
-		if rate <= 0 && g.config.Rate > 0 && !strings.EqualFold(p.Mode, "burst") {
-			rate = float64(g.config.Rate)
-		}
-		if rate <= 0 {
-			// Burst off-window or unset rate: wait briefly.
-			select {
-			case <-ctx.Done():
-				if ctx.Err() == context.DeadlineExceeded {
-					return nil
-				}
-				return ctx.Err()
-			case <-time.After(10 * time.Millisecond):
+		if err := pacer.start(ctx, items); err != nil {
+			if err == context.DeadlineExceeded {
+				return nil
 			}
-			continue
-		}
-
-		interval := time.Duration(float64(time.Second) / rate)
-		if interval <= 0 {
-			interval = time.Millisecond
-		}
-
-		seq++
-		rs := g.workloadResourceSpans(expID, svc, seq, items)
-		if err := g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, items); err != nil {
 			return err
+		}
+		seq++
+		rs := g.workloadResourceSpans(expID, svc, seq, items, idPrefix)
+		ok, err := g.exportAccount(ctx, exp, []*tracev1.ResourceSpans{rs}, items)
+		if err != nil {
+			return err
+		}
+		if ok && g.OnTraceSpans != nil {
+			g.OnTraceSpans(appendSpanRefs(make([]SpanRef, 0, items), svc, rs.ScopeSpans[0].Spans))
 		}
 
 		if g.OnProgress != nil {
-			total := requestBudget
-			g.OnProgress(int(seq), total)
-		}
-
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				return nil
-			}
-			return ctx.Err()
-		case <-time.After(interval):
+			g.OnProgress(int(seq), requestBudget)
 		}
 	}
 }
 
-func (g *Generator) workloadResourceSpans(expID, svc string, seq uint64, items int) *tracev1.ResourceSpans {
+func (g *Generator) workloadResourceSpans(expID, svc string, seq uint64, items int, prefix [8]byte) *tracev1.ResourceSpans {
 	spans := make([]*tracev1.Span, 0, items)
 	now := uint64(time.Now().UnixNano())
 	card := g.config.Workload.Cardinality
@@ -201,9 +180,10 @@ func (g *Generator) workloadResourceSpans(expID, svc string, seq uint64, items i
 	for i := 0; i < items; i++ {
 		tid := make([]byte, 16)
 		sid := make([]byte, 8)
-		binary.BigEndian.PutUint64(tid[0:8], uint64(g.config.Seed))
-		binary.BigEndian.PutUint64(tid[8:16], seq*1000+uint64(i))
-		binary.BigEndian.PutUint64(sid, seq*1000+uint64(i)+1)
+		copy(tid[:8], prefix[:])
+		id := (seq-1)*uint64(items) + uint64(i) + 1
+		binary.BigEndian.PutUint64(tid[8:], id)
+		binary.BigEndian.PutUint64(sid, id)
 
 		attrs := []*commonv1.KeyValue{
 			stringAttr("experiment.id", expID),
@@ -264,16 +244,18 @@ func (g *Generator) stampEvidenceAttrs(spans []*tracev1.Span, expID string, seq 
 	}
 }
 
-func (g *Generator) exportSpanBatches(ctx context.Context, exp export.TraceExporter, rs *tracev1.ResourceSpans, seq *uint64) error {
+// exportSpanBatches paces and exports rs in ItemsPerRequest chunks. It returns
+// the spans whose export succeeded.
+func (g *Generator) exportSpanBatches(ctx context.Context, exp export.TraceExporter, rs *tracev1.ResourceSpans, seq *uint64, pacer *workloadPacer) ([]*tracev1.Span, error) {
 	if rs == nil {
-		return nil
+		return nil, nil
 	}
 	var spans []*tracev1.Span
 	for _, ss := range rs.ScopeSpans {
 		spans = append(spans, ss.Spans...)
 	}
 	if len(spans) == 0 {
-		return nil
+		return nil, nil
 	}
 	p := g.config.Workload
 	batch := 0
@@ -281,8 +263,14 @@ func (g *Generator) exportSpanBatches(ctx context.Context, exp export.TraceExpor
 		batch = p.ItemsPerRequest
 	}
 	if batch <= 0 || batch >= len(spans) {
-		return g.exportOne(ctx, exp, rs, spans, seq)
+		ok, err := g.exportOne(ctx, exp, rs, spans, seq, pacer)
+		if !ok {
+			return nil, err
+		}
+		return spans, err
 	}
+	// Chunks are disjoint, so exported accumulates the successful ones in order.
+	exported := make([]*tracev1.Span, 0, len(spans))
 	for start := 0; start < len(spans); start += batch {
 		end := start + batch
 		if end > len(spans) {
@@ -297,14 +285,24 @@ func (g *Generator) exportSpanBatches(ctx context.Context, exp export.TraceExpor
 				Spans: chunk,
 			}},
 		}
-		if err := g.exportOne(ctx, exp, part, chunk, seq); err != nil {
-			return err
+		ok, err := g.exportOne(ctx, exp, part, chunk, seq, pacer)
+		if err != nil {
+			return exported, err
+		}
+		if ok {
+			exported = append(exported, chunk...)
 		}
 	}
-	return nil
+	return exported, nil
 }
 
-func (g *Generator) exportOne(ctx context.Context, exp export.TraceExporter, rs *tracev1.ResourceSpans, spans []*tracev1.Span, seq *uint64) error {
+// exportOne paces one batch, stamps evidence attributes, and exports it.
+// ok reports whether the batch was accepted; a failure tolerated by
+// ContinueOnExportErr returns ok=false with a nil error.
+func (g *Generator) exportOne(ctx context.Context, exp export.TraceExporter, rs *tracev1.ResourceSpans, spans []*tracev1.Span, seq *uint64, pacer *workloadPacer) (bool, error) {
+	if err := pacer.start(ctx, len(spans)); err != nil {
+		return false, err
+	}
 	*seq++
 	expID := g.config.Workload.experimentID(g.config.Seed)
 	if g.config.Workload.evidenceAttrsActive() || g.config.Workload.ExperimentID != "" {

@@ -224,8 +224,8 @@ func TestEndpointRouter_UnknownRegionFallsBack(t *testing.T) {
 		},
 	}
 
-	if err := router.Export(context.Background(), spans); err != nil {
-		t.Fatalf("Export: %v", err)
+	if err := router.Export(context.Background(), spans); err == nil {
+		t.Fatal("expected unknown region to fail")
 	}
 	if localExp.got != 0 {
 		t.Errorf("expected unknown region span to be dropped, got %d", localExp.got)
@@ -281,14 +281,21 @@ func TestTraceFileExporter_WritesJSON(t *testing.T) {
 		t.Fatalf("Export: %v", err)
 	}
 
-	// Expected path: <dir>/0102030405060708090a0b0c0d0e0f10/localhost_4317/spans.json
-	expected := filepath.Join(dir, "0102030405060708090a0b0c0d0e0f10", "localhost_4317", "spans.json")
+	matches, err := filepath.Glob(filepath.Join(dir, "0102030405060708090a0b0c0d0e0f10", "localhost_4317", "spans-*.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected one batch file: %v %v", matches, err)
+	}
+	expected := matches[0]
 	data, err := os.ReadFile(expected)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", expected, err)
 	}
 
 	var req collectortracev1.ExportTraceServiceRequest
+	data, err = export.FixTraceSpanIDsForUnmarshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := protojson.Unmarshal(data, &req); err != nil {
 		t.Fatalf("Unmarshal JSON: %v", err)
 	}
@@ -306,7 +313,11 @@ func TestTraceFileExporter_WritesProtobuf(t *testing.T) {
 		t.Fatalf("Export: %v", err)
 	}
 
-	expected := filepath.Join(dir, "0102030405060708090a0b0c0d0e0f10", "localhost_4317", "spans.pb")
+	matches, err := filepath.Glob(filepath.Join(dir, "0102030405060708090a0b0c0d0e0f10", "localhost_4317", "spans-*.pb"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected one batch file: %v %v", matches, err)
+	}
+	expected := matches[0]
 	data, err := os.ReadFile(expected)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", expected, err)
@@ -364,5 +375,74 @@ func TestTraceFileExporter_TraceIDDirectory(t *testing.T) {
 	}
 	if !info.IsDir() {
 		t.Fatal("endpoint path is not a directory")
+	}
+}
+
+func TestTraceFileExporterPreservesBatches(t *testing.T) {
+	for _, format := range []export.Format{export.FormatJSON, export.FormatProtobuf} {
+		t.Run(format.String(), func(t *testing.T) {
+			dir := t.TempDir()
+			exp := export.NewTraceFileExporter(dir, format)
+			for _, name := range []string{"service-a", "service-b", "split-batch"} {
+				batch := makeTraceFileSpan()
+				batch[0].ScopeSpans[0].Spans[0].Name = name
+				if err := exp.Export(context.Background(), batch); err != nil {
+					t.Fatal(err)
+				}
+			}
+			files, err := filepath.Glob(filepath.Join(dir, "*", "*", "spans-*"))
+			if err != nil || len(files) != 3 {
+				t.Fatalf("files %v: %v", files, err)
+			}
+			names := map[string]int{}
+			for _, file := range files {
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var req collectortracev1.ExportTraceServiceRequest
+				if format == export.FormatJSON {
+					data, err = export.FixTraceSpanIDsForUnmarshal(data)
+					if err == nil {
+						err = protojson.Unmarshal(data, &req)
+					}
+				} else {
+					err = proto.Unmarshal(data, &req)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, rs := range req.ResourceSpans {
+					for _, ss := range rs.ScopeSpans {
+						for _, span := range ss.Spans {
+							names[span.Name]++
+						}
+					}
+				}
+			}
+			for _, name := range []string{"service-a", "service-b", "split-batch"} {
+				if names[name] != 1 {
+					t.Fatalf("span counts: %v", names)
+				}
+			}
+		})
+	}
+}
+
+type partialTraceExporter struct{}
+
+func (partialTraceExporter) Export(context.Context, []*tracev1.ResourceSpans) error { return nil }
+func (partialTraceExporter) Shutdown(context.Context) error                         { return nil }
+func (partialTraceExporter) ExportWithReceipt(_ context.Context, spans []*tracev1.ResourceSpans) (export.ExportReceipt, error) {
+	return export.ReceiptFromRejected(export.CountSpans(spans), 1, "rejected"), nil
+}
+
+func TestEndpointRouterPartialReceipt(t *testing.T) {
+	router := export.NewEndpointRouter(map[region.Name]export.TraceExporter{region.RegionLocal: partialTraceExporter{}})
+	batch := makeTraceFileSpan()
+	batch[0].ScopeSpans[0].Spans = append(batch[0].ScopeSpans[0].Spans, proto.Clone(batch[0].ScopeSpans[0].Spans[0]).(*tracev1.Span))
+	receipt, err := router.ExportWithReceipt(context.Background(), batch)
+	if err != nil || receipt.AcceptedItems != 1 || receipt.RejectedItems != 1 || receipt.Outcome != export.OutcomePartialRejection {
+		t.Fatalf("receipt %+v, error %v", receipt, err)
 	}
 }
