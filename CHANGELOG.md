@@ -43,6 +43,26 @@ here describe user-visible behavior rather than internal work.
 
 ### Fixed
 
+- Native pipelines with configured receivers validate and execute as authored
+  instead of being rejected as incomplete Collector configs; structured
+  transforms honor their declared `error_mode`, and invalid group conditions
+  fail validation on every supported Collector train.
+- Pipeline Prototyper results stay honest when the selected run, signal, or
+  execution surface changes, and Dashboard job cards show retained log and
+  metric record counts, including zero.
+- Statement and condition parse errors stay fatal regardless of `error_mode`,
+  while evaluation errors keep honoring it; a run whose configured duration
+  expires during an in-flight export completes cleanly instead of failing.
+- Group conditions validate in their declared context (span, scope, resource)
+  on every supported Collector train, and repeated pauses require a live
+  acknowledged barrier. Remote TAP job cards report streaming progress and
+  retained record counts.
+- Correlated logs keep streaming throughout trace generation; finite runs finish
+  their logs before generating metrics, and signal failures stop sibling work.
+- Pause acknowledgement waits for in-flight exports, concurrent controls preserve
+  the export barrier, and paused runs finish cleanly when their duration expires.
+  Pausing also preserves trace partial-success accounting.
+
 - Metrics filter validation recognizes datapoint conditions across all supported
   Collector versions, including configurations with `error_mode`.
 - Trace filter stages report zero output spans when every span is removed.
