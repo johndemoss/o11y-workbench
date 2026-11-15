@@ -9,7 +9,7 @@ import (
 
 func TestStartRunReturnsDetachedSnapshot(t *testing.T) {
 	store := NewRunStore()
-	cfg := gen.Config{Seed: 42, TraceCount: 1, SpanCount: 1, Topology: gen.TopologyFlat}
+	cfg := gen.Config{Seed: 42, TraceCount: 1, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}
 	run, err := StartRun(context.Background(), store, cfg, nil, true, "file")
 	if err != nil {
 		t.Fatal(err)

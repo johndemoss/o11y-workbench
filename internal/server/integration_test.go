@@ -21,6 +21,7 @@ func TestIntegration_RunLifecycle(t *testing.T) {
 	cfg := gen.Config{
 		Seed: 42, TraceCount: 2, Topology: gen.TopologyFlat,
 		SpanCount: 5, ServiceName: "test",
+		Signals:       gen.Signals{Traces: true},
 		BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		TraceDuration: 5 * time.Second,
 	}
@@ -48,6 +49,7 @@ func TestIntegration_RunLifecycle(t *testing.T) {
 	cfgZero := gen.Config{
 		Seed: 42, TraceCount: 0, Topology: gen.TopologyFlat,
 		SpanCount: 5, ServiceName: "test", Rate: 1000,
+		Signals:       gen.Signals{Traces: true},
 		BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		TraceDuration: 5 * time.Second,
 	}
@@ -190,6 +192,7 @@ func TestIntegration_ScenarioParser(t *testing.T) {
 	cfg := gen.Config{
 		Seed: 42, TraceCount: 1, Scenario: "parsed-scenario",
 		SpanCount: 10, MaxDepth: 5, ServiceName: "test",
+		Signals:       gen.Signals{Traces: true},
 		BaseTime:      time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		TraceDuration: 5 * time.Second,
 	}
@@ -385,6 +388,7 @@ func TestIntegration_RunDuration(t *testing.T) {
 		MaxDepth:    3,
 		Topology:    gen.TopologyFlat,
 		ServiceName: "test-duration",
+		Signals:     gen.Signals{Traces: true},
 		BaseTime:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
