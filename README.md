@@ -154,6 +154,24 @@ The web dashboard at `http://localhost:18080` provides:
 - **Remote TAP** — stream live telemetry from an OTel Collector `remotetap` WebSocket endpoint, with connection status and usage monitoring.
 - **Signal selection** — generate traces, logs, and metrics independently or together.
 
+### Multi-endpoint routing
+
+When several OTLP endpoints are configured, each signal fans out to all of
+them, deliberately not by trace:
+
+- **Spans** are assigned per span, so the spans of one trace intentionally land
+  on different collectors. Use this to test trace-ID-aware load balancing and
+  backend aggregation: a balancer that keys on trace ID must re-home the pieces,
+  and a backend that never sees a whole trace exercises partial-view handling.
+- **Correlated log records** follow their span, so every log lands on the exact
+  collector that received the span it references.
+- **Independent logs and metric series** spread deterministically across the
+  configured endpoints, one home per series.
+
+Each endpoint is labeled with a generated region name (`local`,
+`endpoint-1`, …) in the `cloud.region` resource attribute, which is also how
+runs report their routing in the API.
+
 ### API Endpoints
 
 | Method | Path | Description |

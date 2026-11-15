@@ -36,6 +36,10 @@ here describe user-visible behavior rather than internal work.
 - Weekly Dependabot updates for the Go modules, both npm manifests, and GitHub
   Actions, plus issue and pull-request templates, `CODEOWNERS`, and a code of
   conduct.
+- Documentation of multi-endpoint routing semantics: spans of a trace are
+  deliberately spread across endpoints to exercise trace-ID-aware load
+  balancing, correlated logs follow their span, and metric series keep one
+  home each. The Dashboard's endpoints field explains the behavior on hover.
 
 ### Changed
 

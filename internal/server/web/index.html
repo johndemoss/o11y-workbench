@@ -46,8 +46,8 @@
       </select>
     </div>
     <div class="field" style="grid-column: span 2;">
-      <label for="endpoints">Endpoints (comma-separated)</label>
-      <input type="text" id="endpoints" value="localhost:4317" placeholder="e.g. localhost:4317,collector:4317">
+      <label for="endpoints" title="Spans of a trace are deliberately spread across endpoints (anti-affinity) to exercise trace-ID-aware load balancing; correlated logs follow their span.">Endpoints (comma-separated)</label>
+      <input type="text" id="endpoints" value="localhost:4317" placeholder="e.g. localhost:4317,collector:4317" title="Multiple endpoints spread each trace's spans across collectors; correlated logs follow their span, metric series get one home each.">
     </div>
     <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:20px">
       <input type="checkbox" id="insecure" checked style="width:18px;height:18px">
