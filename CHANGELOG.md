@@ -57,6 +57,15 @@ here describe user-visible behavior rather than internal work.
   on every supported Collector train, and repeated pauses require a live
   acknowledged barrier. Remote TAP job cards report streaming progress and
   retained record counts.
+- Multi-endpoint runs now deliver logs and metrics across all configured
+  collectors: correlated logs follow their spans' region, and independent
+  records and metric series spread deterministically.
+- Run configuration is one shape: `signals` selects signals (legacy
+  `signal_type` values are still accepted as input only) and the embedded
+  run `config` document uses snake_case keys throughout.
+- Export failures that merely coincide with a run's duration expiry are no
+  longer stored as clean completions; only deadline- and cancellation-class
+  errors are.
 - Correlated logs keep streaming throughout trace generation; finite runs finish
   their logs before generating metrics, and signal failures stop sibling work.
 - Pause acknowledgement waits for in-flight exports, concurrent controls preserve

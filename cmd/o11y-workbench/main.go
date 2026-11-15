@@ -97,6 +97,8 @@ any trace collector (Jaeger, Datadog, etc.) or inspected as JSON/protobuf files.
 				Scenario:          scenario,
 				ScenarioSpanCount: viper.GetInt("scenario-span-count"),
 				Workload:          wl,
+				Regions:           region.All(),
+				Signals:           gen.Signals{Traces: true},
 			}
 
 			var exporter export.TraceExporter
