@@ -23,7 +23,7 @@
   } from './types'
   import { signalEdgeProps } from './types'
   import {
-    getPipelinesHash,
+    getPipelinesTopologyHash,
     STAGE_WIDTH,
     MIN_GAP,
     FIRST_STAGE_X,
@@ -54,6 +54,28 @@
     }
   }
 
+  function laneEdges(flowNodes: Node<StageNodeData>[], flowEdges: Edge[], parentId: string, signal: SignalType): Edge[] {
+    const laneNodes = flowNodes.filter((node) => node.parentId === parentId)
+    const stages = laneNodes.filter((node) => node.type === 'stage').sort((a, b) => a.position.x - b.position.x)
+    const stageIds = new Set(stages.map((node) => node.id))
+    const infra = laneNodes.filter((node) => node.type === 'infra')
+    const infraIds = new Set(infra.map((node) => node.id))
+    const result = flowEdges.filter((edge) =>
+      !(stageIds.has(edge.source) && (stageIds.has(edge.target) || infraIds.has(edge.target))) &&
+      !(infraIds.has(edge.source) && stageIds.has(edge.target)),
+    )
+    if (stages.length === 0) return result
+    const connect = (source: string, target: string) => {
+      result.push({ id: `e-${source}-${target}`, source, target, type: 'straight', ...signalEdgeProps(signal) })
+    }
+    for (const node of infra) {
+      if (node.data.type === 'receiver') connect(node.id, stages[0].id)
+      if (node.data.type === 'exporter') connect(stages[stages.length - 1].id, node.id)
+    }
+    for (let i = 1; i < stages.length; i++) connect(stages[i - 1].id, stages[i].id)
+    return result
+  }
+
   // ─── Props ────────────────────────────────────────────────────────────────
   let {
     pipelines = {
@@ -76,7 +98,7 @@
   pipelines: PipelinesBySignal
     onImport?: () => void
     onExport?: () => void
-    onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig }) => void
+    onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig; signal: SignalType }) => void
     onPipelinesChange?: (p: PipelinesBySignal) => void
     onNodeSelected?: (nodeId: string | null) => void
     onResultClear?: () => void
@@ -93,7 +115,10 @@
   let edges = $state.raw<Edge[]>([])
   let nodeIdCounter = $state(1)
 
-  let lastPipelinesHash = $state('')
+  let lastPipelinesHash = ''
+  let lastTopologyHash = ''
+  let lastFlowHash = ''
+  let flowRequest = 0
 
   let skipNextFlowToPipelines = false
 
@@ -102,45 +127,64 @@
   // ─── Pipelines → Flow (external pipeline changes) ─────────────────────────
   $effect(() => {
     const p = pipelines
-    const hash = getPipelinesHash(p)
+    const hash = JSON.stringify(p)
     if (hash === lastPipelinesHash) return
+    const topologyHash = getPipelinesTopologyHash(p)
+    const topologyChanged = topologyHash !== lastTopologyHash
     lastPipelinesHash = hash
+    lastTopologyHash = topologyHash
 
     const initial = pipelinesToFlow(p)
-    for (const node of initial.nodes) {
-      if (node.type === 'swimlane') {
-        node.draggable = false
-        node.selectable = false
-      }
-    }
     untrack(() => {
-      skipNextFlowToPipelines = true
-      pipelineVersion++
-      nodes = initial.nodes as Node<StageNodeData>[]
-      edges = initial.edges
+      if (topologyChanged) {
+        flowRequest++
+        skipNextFlowToPipelines = true
+        pipelineVersion++
+        nodes = initial.nodes as Node<StageNodeData>[]
+        edges = initial.edges
+      } else {
+        // Update model data without disturbing graph positions, selection, or viewport.
+        const fresh = new Map(initial.nodes.map((node) => [node.id, node]))
+        nodes = nodes.map((node) => {
+          const updated = fresh.get(node.id)
+          return updated ? { ...node, data: { ...node.data, ...updated.data } } : node
+        })
+      }
     })
   })
 
   // ─── Flow → Pipelines (user edits to the graph) ───────────────────────────
-  let lastFlowHash = $state('')
+  function getFlowHash(flowNodes: Node<StageNodeData>[], flowEdges: Edge[]): string {
+    return JSON.stringify({
+      nodes: flowNodes.map((node) => [node.id, node.parentId, node.position.x, node.position.y]),
+      edges: flowEdges.map((edge) => [edge.source, edge.target]),
+    })
+  }
 
   $effect(() => {
-    const flowHash = JSON.stringify({
-      nodeIds: nodes.map((n) => n.id),
-      stagePositions: nodes
-        .filter((n) => n.type === 'stage')
-        .map((n) => `${Math.round(n.position.x)},${Math.round(n.position.y)}`),
-    })
-    if (flowHash === lastFlowHash) return
-    lastFlowHash = flowHash
+    const flowNodes = nodes
+    const flowEdges = edges
+    const flowHash = getFlowHash(flowNodes, flowEdges)
+    const p = pipelines
+    const pipelinesHash = JSON.stringify(p)
 
     untrack(() => {
       if (skipNextFlowToPipelines) {
         skipNextFlowToPipelines = false
+        lastFlowHash = flowHash
         return
       }
-      void flowToPipelines(nodes as any, edges, pipelines)
-        .then((updated) => onPipelinesChange?.(updated))
+      if (flowHash === lastFlowHash) return
+
+      const request = ++flowRequest
+      void flowToPipelines(flowNodes as any, flowEdges, p)
+        .then((updated) => {
+          if (request !== flowRequest ||
+              pipelinesHash !== JSON.stringify(pipelines) ||
+              flowHash !== getFlowHash(nodes, edges)) return
+          lastFlowHash = flowHash
+          onPipelinesChange?.(updated)
+        })
         .catch(() => {
           // Cycle errors during editing are swallowed; handled during connect
         })
@@ -195,7 +239,9 @@
       currentNodes = initial.nodes as Node<StageNodeData>[]
       edges = initial.edges
     }
-    const siblings = currentNodes.filter((n) => n.parentId === parentId && n.type === 'stage')
+    const siblings = currentNodes
+      .filter((n) => n.parentId === parentId && n.type === 'stage')
+      .sort((a, b) => a.position.x - b.position.x)
     const receiverNodes = currentNodes.filter(
       (n) => n.parentId === parentId && n.type === 'infra' && (n.data as any)?.type === 'receiver',
     )
@@ -225,22 +271,11 @@
       },
     }
     const newNodes = [...currentNodes, newNode]
-    const newEdges = [...edges]
-    if (siblings.length > 0) {
-      const lastSibling = siblings[siblings.length - 1]
-      newEdges.push({
-        id: `e-${lastSibling.id}-${id}`,
-        source: lastSibling.id,
-        target: id,
-        type: 'straight',
-        ...signalEdgeProps(opts.signal),
-      })
-    }
     packSwimlane(newNodes, parentId)
     nodes = newNodes
-    edges = newEdges
+    edges = laneEdges(newNodes, edges, parentId, opts.signal)
     onNodeSelected?.(id)
-    onNodeEdit?.({ stage: newNode.data.stage, processor })
+    onNodeEdit?.({ stage: newNode.data.stage, processor, signal: opts.signal })
   }
 
   // Highlight all shared receiver references when one is selected
@@ -273,117 +308,68 @@
   // ─── Drag-over (allow drop) ───────────────────────────────────────────────
   function handleDragOver(event: DragEvent) {
     event.preventDefault()
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
   }
 
   // ─── Drop (add new stage node into target swimlane) ───────────────────────
   function handleDrop(event: DragEvent) {
     event.preventDefault()
-    onResultClear?.()
-    const stageType = event.dataTransfer?.getData('application/svelteflow') || undefined
+    const stageType = event.dataTransfer?.getData('application/svelteflow')
     const snippetData = event.dataTransfer?.getData('application/snippet')
     if (!stageType && !snippetData) return
 
-    const type = (stageType || (snippetData ? JSON.parse(snippetData).type : 'transform')) as StageType
+    // Svelte Flow applies pan and zoom to these elements, so their screen
+    // rectangles are the authoritative drop targets in client coordinates.
+    const canvas = event.currentTarget as HTMLElement
+    const laneElements = canvas.querySelectorAll<HTMLElement>('.svelte-flow__node-swimlane')
+    const laneElement = Array.from(laneElements).find((element) => {
+      const rect = element.getBoundingClientRect()
+      return event.clientX >= rect.left && event.clientX <= rect.right &&
+        event.clientY >= rect.top && event.clientY <= rect.bottom
+    })
+    const lane = nodes.find((node) => node.type === 'swimlane' && node.id === laneElement?.dataset.id)
+    const signal = lane?.data.signal
+    if (!lane || lane.data.disabled || (signal !== 'traces' && signal !== 'logs' && signal !== 'metrics')) return
 
+    const snippet = snippetData ? JSON.parse(snippetData) as SnippetTemplate : undefined
+    const type = (stageType || snippet?.type) as StageType
+    const siblings = nodes
+      .filter((node) => node.parentId === lane.id && node.type === 'stage')
+      .sort((a, b) => a.position.x - b.position.x)
+    const stageElements = Array.from(canvas.querySelectorAll<HTMLElement>('.svelte-flow__node-stage'))
+    const index = siblings.findIndex((node) => {
+      const element = stageElements.find((candidate) => candidate.dataset.id === node.id)
+      if (!element) return false
+      const rect = element.getBoundingClientRect()
+      return event.clientX < rect.left + rect.width / 2
+    })
+    const insertionIndex = index < 0 ? siblings.length : index
     const id = `stage-${nodeIdCounter++}`
-    const procName = `${type}/${type}-${id}`
-
-    const canvasEl = event.currentTarget as HTMLElement
-    const rect = canvasEl.getBoundingClientRect()
-    const flowPos = { x: event.clientX - rect.left, y: event.clientY - rect.top }
-
-    let currentNodes = [...nodes]
-    if (currentNodes.filter((n) => n.type === 'swimlane').length === 0) {
-      const defaultPipelines = {
-        traces: { stages: [], processors: {} },
-        logs: { stages: [], processors: {} },
-        metrics: { stages: [], processors: {} },
-      }
-      const initial = pipelinesToFlow(defaultPipelines)
-      currentNodes = [...initial.nodes.filter((n) => n.type === 'swimlane'), ...currentNodes]
-    }
-
-    const swimlaneNodes = currentNodes.filter((n) => n.type === 'swimlane')
-    let parentId: string | undefined
-    let parentOrigin = { x: 0, y: 0 }
-    for (const sn of swimlaneNodes) {
-      const sx = sn.position.x
-      const sy = sn.position.y
-      const sw = ((sn.style as any)?.width as number) || 400
-      const sh = ((sn.style as any)?.height as number) || 150
-      if (flowPos.x >= sx && flowPos.x <= sx + sw && flowPos.y >= sy && flowPos.y <= sy + sh) {
-        parentId = sn.id
-        parentOrigin = { x: sx, y: sy }
-        if (sn.data?.disabled) return
-        break
-      }
-    }
-    if (!parentId && swimlaneNodes.length > 0) {
-      parentId = swimlaneNodes[0].id
-      parentOrigin = {
-        x: swimlaneNodes[0].position.x,
-        y: swimlaneNodes[0].position.y,
-      }
-    }
-
-    let siblings: Node<StageNodeData>[] = []
-    if (parentId) {
-      siblings = currentNodes.filter(
-        (n) => n.parentId === parentId && n.type === 'stage',
-      )
-    }
-
-    const receiverNodes = currentNodes.filter(
-      (n) => n.parentId === parentId && n.type === 'infra' && (n.data as any)?.type === 'receiver',
-    )
-    const receiverRight = receiverNodes.length > 0
-      ? receiverNodes[0].position.x + (receiverNodes[0].width || STAGE_WIDTH)
-      : 180
-    const firstStageX = receiverRight + MIN_GAP
-
-    const position = {
-      x: siblings.length > 0
-        ? siblings[siblings.length - 1].position.x + STAGE_WIDTH + MIN_GAP
-        : firstStageX,
-      y: NODE_Y,
-    }
-
+    const processor = (snippet?.processor ?? {}) as ProcessorConfig
     const newNode: Node<StageNodeData> = {
       id,
       type: 'stage',
-      parentId,
-      position,
+      parentId: lane.id,
+      position: { x: FIRST_STAGE_X + insertionIndex * (STAGE_WIDTH + MIN_GAP), y: NODE_Y },
       zIndex: 10,
       draggable: false,
       data: {
-        stage: { id, type, processor_ref: procName },
-        processor: snippetData ? JSON.parse(snippetData).processor ?? {} : {},
-        stageIndex: siblings.length,
-        signal: (parentId?.replace('swimlane-', '') as any) || 'traces',
+        stage: { id, type, processor_ref: `${type}/${type}-${id}` },
+        processor,
+        stageIndex: insertionIndex,
+        signal,
       },
     }
 
-    const newNodes = [...currentNodes, newNode]
-    const newEdges = [...edges]
-
-    if (siblings.length > 0) {
-      const lastSibling = siblings[siblings.length - 1]
-      const signal = ((parentId?.replace('swimlane-', '') as SignalType) || 'traces')
-      newEdges.push({
-        id: `e-${lastSibling.id}-${id}`,
-        source: lastSibling.id,
-        target: id,
-        type: 'straight',
-        // No arrowheads — directional dashed stroke only (design contract).
-        ...signalEdgeProps(signal),
-      })
+    const ordered = [...siblings.slice(0, insertionIndex), newNode, ...siblings.slice(insertionIndex)]
+    for (let i = 0; i < ordered.length; i++) {
+      ordered[i].position = { x: FIRST_STAGE_X + i * (STAGE_WIDTH + MIN_GAP), y: NODE_Y }
     }
-
-    if (parentId) packSwimlane(newNodes, parentId)
-
+    const newNodes = [...nodes, newNode]
+    packSwimlane(newNodes, lane.id)
+    onResultClear?.()
     nodes = newNodes
-    edges = newEdges
+    edges = laneEdges(newNodes, edges, lane.id, signal)
   }
 </script>
 

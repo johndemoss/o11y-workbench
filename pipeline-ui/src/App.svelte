@@ -228,11 +228,10 @@
     showImport = false
     if (activeTab !== 'graph') activeTab = 'graph'
   }
-  function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig }) {
+  function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig; signal: SignalType }) {
     // Graph: persistent inspector. Other tabs: modal.
     if (activeTab === 'graph') {
-      const sig = getSignalForStage(data.stage.id) || selectedSignal
-      inspectorSelection = { kind: 'stage', stage: data.stage, processor: data.processor, signal: sig }
+      inspectorSelection = { kind: 'stage', stage: data.stage, processor: data.processor, signal: data.signal }
       selectedNodeId = data.stage.id
       return
     }
@@ -570,7 +569,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    overflow: hidden;
+    overflow: auto;
   }
 
   .layout {
@@ -578,8 +577,8 @@
     grid-template-columns: 360px minmax(0, 1fr) 290px;
     gap: 12px;
     align-items: stretch;
-    flex: 1;
-    min-height: 0;
+    flex: 1 0 400px;
+    min-height: 400px;
   }
 
   .layout.yaml-closed {
@@ -609,6 +608,10 @@
     border-radius: var(--radius-lg);
     overflow: hidden;
     min-height: 0;
+  }
+
+  .panel.bottom:not(.dialog-panel):not(.collapsed) {
+    max-height: max(160px, 60vh);
   }
 
   .panel.bottom.collapsed {
@@ -719,7 +722,7 @@
   .execute {
     padding: 12px;
     border-right: 1px solid var(--color-border);
-    overflow: hidden;
+    overflow: auto;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -808,12 +811,18 @@
   @media (max-width: 1450px) {
     .layout {
       grid-template-columns: minmax(0, 1fr) 290px;
+      flex-basis: 612px;
+      grid-template-rows: 200px minmax(400px, 1fr);
+    }
+    .layout.yaml-closed {
+      flex-basis: 400px;
+      grid-template-rows: minmax(400px, 1fr);
     }
     .layout :global(#yaml-panel) {
       grid-column: 1 / -1;
       width: 100% !important;
-      min-height: 240px;
-      max-height: min(42vh, 420px);
+      min-height: 0;
+      max-height: 200px;
     }
   }
 
@@ -821,9 +830,24 @@
     .layout,
     .layout.yaml-closed {
       grid-template-columns: 1fr;
+      flex-basis: 1114px;
+      grid-template-rows: 200px 650px 240px;
+    }
+    .layout.yaml-closed {
+      flex-basis: 902px;
+      grid-template-rows: 650px 240px;
+    }
+    .layout :global(.graph-workspace) {
+      grid-template-rows: 200px minmax(360px, 1fr);
+    }
+    .layout :global(.palette) {
+      width: 100%;
+      min-height: 0;
     }
     .bottom-content {
       grid-template-columns: 1fr;
+      grid-template-rows: minmax(180px, auto) minmax(180px, 1fr);
+      overflow: auto;
     }
     .execute {
       border-right: 0;

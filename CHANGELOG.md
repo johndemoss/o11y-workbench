@@ -44,3 +44,6 @@ here describe user-visible behavior rather than internal work.
   Collector versions, including configurations with `error_mode`.
 - Trace filter stages report zero output spans when every span is removed.
 - Party mode positions o11y's hat on the crown instead of over the forehead.
+- Pipeline Prototyper stage additions and drag-and-drop target the correct signal
+  lane and preserve existing OTTL edits. Graph controls remain accessible with the
+  YAML and results panels open.
