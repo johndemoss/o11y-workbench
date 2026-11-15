@@ -207,10 +207,21 @@ func TestStopIsNonterminalUntilFinalization(t *testing.T) {
 
 func TestPausedGateObservesDeadline(t *testing.T) {
 	gate := newRunPauseGate()
+
+	// Hold an export in flight so the pause genuinely parks instead of
+	// completing instantly.
+	if err := gate.beginExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { _, err := gate.pause(ctx); done <- err }()
+
+	// Cancel before releasing the export: whether the parked pause wakes on
+	// the context or on the release broadcast, ctx.Err() is already set, so
+	// it must report Canceled and reopen admission.
 	cancel()
+	gate.endExport()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
