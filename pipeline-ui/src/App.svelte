@@ -426,7 +426,7 @@
 
 <Layout {activeTab} onTabChange={(t) => { if (draftReady) activeTab = t; else alert('Synchronize or resync the YAML draft before switching tabs.') }}>
   {#if activeTab === 'quick'}
-    <QuickTab ondraft={(yaml) => quickYaml = yaml} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'quick')} />
+    <QuickTab ondraft={(yaml) => quickYaml = yaml} onrunselect={(id, payload, signal) => handleRunSelect('quick', id, payload, signal)} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'quick')} />
   {:else if activeTab === 'graph'}
     <div class="graph-shell">
       <div class="layout" class:yaml-closed={!yamlOpen} id="layout">
@@ -558,7 +558,7 @@
         <option value="metrics">metrics</option>
       </select>
     </div>
-    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={openImport} onchange={handlePipelineChange} />
+    <PipelineBuilder {pipeline} signal={selectedSignal} pipelineYaml={pipelineYaml} onValidate={handleValidate} onImport={openImport} onchange={handlePipelineChange} />
     <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'pipeline')} onrunselect={(id, payload, signal) => handleRunSelect('pipeline', id, payload, signal)} /></section>
   {/if}
   {#if activeTab !== 'graph'}
@@ -586,7 +586,7 @@
       onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}
     >
       <div class="modal">
-        <StageEditor stage={editingStage.stage} processor={editingStage.processor} signal={editingStage.signal} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
+        <StageEditor stage={editingStage.stage} processor={editingStage.processor} signal={editingStage.signal} pipelineYaml={yamlStringify(pipelinesBySignal[editingStage.signal])} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
         <button class="btn-close" onclick={() => editingStage = null}>Close</button>
       </div>
     </div>

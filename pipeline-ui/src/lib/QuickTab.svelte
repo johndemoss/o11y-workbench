@@ -5,10 +5,12 @@
 
   let {
     onresult,
-    ondraft
+    ondraft,
+    onrunselect
   }: {
     onresult?: (result: PipelineResult | null, error?: string, runId?: string, originalTrace?: unknown, submittedYaml?: string, signal?: SignalType) => void
     ondraft?: (yaml: string) => void
+    onrunselect?: (runId: string, data: unknown, signal: SignalType) => void
   } = $props()
 
   let quickType: 'transform' | 'filter' = $state('transform')
@@ -53,7 +55,7 @@
     ></textarea>
   </div>
 
-  <RunSelector pipelineYaml={yaml} bind:signal {onresult} />
+  <RunSelector pipelineYaml={yaml} bind:signal {onresult} {onrunselect} />
 </div>
 
 <style>
