@@ -51,3 +51,5 @@ here describe user-visible behavior rather than internal work.
   destination lane for drag-and-drop, with native log and metric contexts.
   Span-only filters are clearly unavailable outside traces. Pipeline-tab editors
   also preserve their selected signal.
+- Template previews stay within the viewport, scroll long configurations internally,
+  and keep their actions visible on narrow and short screens.
