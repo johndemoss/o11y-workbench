@@ -5,6 +5,8 @@ here describe user-visible behavior rather than internal work.
 
 ## Unreleased
 
+## [0.1.0-rc.1] - 2026-11-15
+
 ### Security
 
 - The web server rejects requests whose `Host` header is not `localhost`, a
