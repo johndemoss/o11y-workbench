@@ -96,34 +96,65 @@ type Run struct {
 	CaptureLimitBytes int64              `json:"capture_limit_bytes"`
 	GeneratorStats    *gen.Stats         `json:"generator_stats,omitempty"`
 	cancel            context.CancelFunc // not exported, not json
-	pauseCh           chan struct{}      // nil when running; non-nil live channel when paused; not exported
+	gate              *runPauseGate      // nil when the run is not executing; not exported
 	routes            []region.Region    // immutable per-run destinations, never process-global
 }
 
-func (r *Run) Pause() {
+// Pause waits until no export is in flight before reporting the paused state.
+func (r *Run) Pause(ctx context.Context) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	if r.Status == RunStatusPaused {
+		if r.gate == nil || !r.gate.pauseAcknowledged() {
+			r.mu.Unlock()
+			return fmt.Errorf("run is not executing")
+		}
+		r.mu.Unlock()
+		return nil
+	}
 	if r.Status != RunStatusRunning {
-		return
+		r.mu.Unlock()
+		return fmt.Errorf("run is not running")
+	}
+	gate := r.gate
+	r.mu.Unlock()
+	if gate == nil {
+		return fmt.Errorf("run is not executing")
+	}
+	sequence, err := gate.pause(ctx)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		gate.cancelPause(sequence)
+		r.mu.Unlock()
+		return err
+	}
+	if (r.Status != RunStatusRunning && r.Status != RunStatusPaused) || !gate.acknowledge() {
+		r.mu.Unlock()
+		return context.Canceled
 	}
 	r.Status = RunStatusPaused
-	r.pauseCh = make(chan struct{})
+	r.mu.Unlock()
+	return nil
 }
 
-func (r *Run) Resume() {
+func (r *Run) Resume() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.Status != RunStatusPaused {
-		return
+		r.mu.Unlock()
+		return fmt.Errorf("run is not paused")
+	}
+	if r.gate != nil {
+		r.gate.resume()
 	}
 	r.Status = RunStatusRunning
-	close(r.pauseCh)
-	r.pauseCh = nil
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *Run) Stop() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.cancel != nil {
 		r.cancel()
 		r.cancel = nil
@@ -132,6 +163,10 @@ func (r *Run) Stop() {
 		r.Status = RunStatusStopping
 		r.Error = "stopped"
 	}
+	if r.gate != nil {
+		r.gate.stop()
+	}
+	r.mu.Unlock()
 }
 
 func (r *Run) snapshot() *Run {
@@ -334,6 +369,9 @@ func (e multiExporter) Shutdown(ctx context.Context) error {
 }
 
 var ErrRunStoreClosed = errors.New("run store is closed")
+
+// ErrRunNotFound reports an unknown run identifier.
+var ErrRunNotFound = errors.New("run not found")
 
 type RunStore struct {
 	mu      sync.RWMutex
@@ -571,20 +609,25 @@ func (s *RunStore) StopRun(id string) {
 	}
 }
 
-func (s *RunStore) PauseRun(id string) {
+// PauseRun waits for the run's in-flight exports before returning.
+func (s *RunStore) PauseRun(ctx context.Context, id string) error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if r, ok := s.runs[id]; ok {
-		r.Pause()
+	r := s.runs[id]
+	s.mu.RUnlock()
+	if r == nil {
+		return ErrRunNotFound
 	}
+	return r.Pause(ctx)
 }
 
-func (s *RunStore) ResumeRun(id string) {
+func (s *RunStore) ResumeRun(id string) error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if r, ok := s.runs[id]; ok {
-		r.Resume()
+	r := s.runs[id]
+	s.mu.RUnlock()
+	if r == nil {
+		return ErrRunNotFound
 	}
+	return r.Resume()
 }
 
 func (s *RunStore) Delete(id string) {
@@ -748,7 +791,9 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 	}()
 
+	gate := newRunPauseGate()
 	run.mu.Lock()
+	run.gate = gate
 	if run.Status != RunStatusStopping {
 		run.Status = RunStatusRunning
 	}
@@ -757,15 +802,25 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	start := time.Now()
 	genCtx, stopGeneration := context.WithCancel(genCtx)
 	defer stopGeneration()
+	defer func() {
+		gate.stop()
+		run.mu.Lock()
+		run.gate = nil
+		run.mu.Unlock()
+	}()
 	if cfg.Duration > 0 {
 		var cancel context.CancelFunc
 		genCtx, cancel = context.WithTimeout(genCtx, cfg.Duration)
 		defer cancel()
 	}
+	// Cancellation must release pause admission before joining generators: a
+	// correlated log generator may flush with a fresh context on cancellation.
+	stopGateWatcher := context.AfterFunc(genCtx, gate.stop)
+	defer stopGateWatcher()
 	buf := &bufferExporter{}
 	logBuf := &bufferLogExporter{}
 	metricBuf := &bufferMetricExporter{}
-	var traceErr, logErr, metricErr error
+	var traceErr error
 	routes := run.routes
 	if len(routes) == 0 { // Direct engine/test call rather than StartRun.
 		routes = routesForEndpoints(run.Endpoints)
@@ -780,34 +835,48 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	doLogs := cfg.IncludesLogs()
 	doMetrics := cfg.IncludesMetrics()
 
-	// Streaming correlation: traces publish their generated span references so
-	// logs can consume them while generation runs, instead of reading a
-	// mutable capture buffer after the fact.
+	// Correlated logs consume span references while traces run, for both finite
+	// and indefinite generation, so references are never retained in a slice.
 	correlate := doTraces && doLogs && cfg.LogConfig.LogsPerSpan > 0
 	var (
 		refs       chan []gen.SpanRef
 		logDone    chan struct{}
-		logStopped chan struct{}
 		metricDone chan struct{}
-		collected  []gen.SpanRef
 	)
 	if correlate {
 		refs = make(chan []gen.SpanRef, 64)
 	}
-	closeRefs := func() {
-		if refs != nil {
-			close(refs)
-			refs = nil
+
+	// The first non-cancellation failure is the run's root cause and cancels
+	// every sibling generator; later cancellation errors are not reported.
+	var failureMu sync.Mutex
+	var failureErr error
+	recordFailure := func(err error) {
+		if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
 		}
+		failureMu.Lock()
+		if failureErr == nil {
+			failureErr = err
+		}
+		failureMu.Unlock()
+		stopGeneration()
+	}
+	runFailure := func() error {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		return failureErr
 	}
 
-	// Indefinite traces run concurrently; logs correlate to a bounded snapshot
-	// after the first completed trace rather than reading a mutable buffer.
+	// Indefinite traces run concurrently with the other signals.
 	streaming := doTraces && cfg.TraceCount == 0 && (doLogs || doMetrics)
 	var traceDone chan error
 	firstTrace := make(chan struct{})
 	var firstTraceOnce sync.Once
 	generateTraces := func() error {
+		if correlate {
+			defer close(refs)
+		}
 		exp := export.TraceExporter(buf)
 		if run.Output == "otlp" {
 			otlpExporters := make(map[region.Name]export.TraceExporter)
@@ -825,6 +894,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			router := export.NewEndpointRouter(otlpExporters)
 			exp = multiExporter{buf, router}
 		}
+		exp = gatedTraceExporter{gate: gate, inner: exp}
 
 		g := gen.NewGenerator(cfg)
 		g.Regions = names
@@ -834,29 +904,12 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			run.SpanCount = buf.SpanCount()
 			run.mu.Unlock()
 			firstTraceOnce.Do(func() { close(firstTrace) })
-
-			run.mu.Lock()
-			ch := run.pauseCh
-			run.mu.Unlock()
-			if ch != nil {
-				select {
-				case <-ch:
-				case <-genCtx.Done():
-				}
-			}
 		}
 		if correlate {
-			if streaming {
-				g.OnTraceSpans = func(batch []gen.SpanRef) {
-					select {
-					case refs <- batch:
-					case <-genCtx.Done():
-					case <-logStopped:
-					}
-				}
-			} else {
-				g.OnTraceSpans = func(batch []gen.SpanRef) {
-					collected = append(collected, batch...)
+			g.OnTraceSpans = func(batch []gen.SpanRef) {
+				select {
+				case refs <- batch:
+				case <-genCtx.Done():
 				}
 			}
 		}
@@ -868,41 +921,40 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		return err
 	}
 	if doTraces {
-		if streaming {
-			if correlate {
-				logStopped = make(chan struct{})
-				logExp, closers, err := buildRunLogExporter(run, routes, logBuf, genCtx)
-				if err != nil {
-					logErr = err
-					close(logStopped)
-				} else {
-					for _, closer := range closers {
-						defer closer()
-					}
-					lg := gen.NewLogGenerator(cfg.LogConfig)
-					lg.Regions = names
-					lg.OnProgress = func(completed, total int) {
-						run.mu.Lock()
-						run.LogCountCompleted = completed
-						run.LogCount = total
-						run.mu.Unlock()
-						waitIfPaused(run, genCtx)
-					}
-					logDone = make(chan struct{})
-					go func() {
-						defer close(logDone)
-						logErr = lg.RunCorrelated(genCtx, refs, logExp)
-						close(logStopped)
-					}()
+		if correlate {
+			logExp, closers, err := buildRunLogExporter(run, routes, logBuf, genCtx)
+			if err != nil {
+				recordFailure(err)
+			} else {
+				for _, closer := range closers {
+					defer closer()
 				}
+				logExp = &gatedLogExporter{gate: gate, inner: logExp}
+				lg := gen.NewLogGenerator(cfg.LogConfig)
+				lg.Regions = names
+				lg.OnProgress = func(completed, total int) {
+					run.mu.Lock()
+					run.LogCountCompleted = completed
+					run.LogCount = total
+					run.mu.Unlock()
+				}
+				logDone = make(chan struct{})
+				go func() {
+					defer close(logDone)
+					err := lg.RunCorrelated(genCtx, refs, logExp)
+					recordFailure(err)
+				}()
 			}
+		}
+		if streaming {
 			if doMetrics {
 				if metricExp, closers, err := buildRunMetricExporter(run, routes, metricBuf, genCtx); err != nil {
-					metricErr = err
+					recordFailure(err)
 				} else {
 					for _, closer := range closers {
 						defer closer()
 					}
+					metricExp = gatedMetricExporter{gate: gate, inner: metricExp}
 					mg := gen.NewMetricGenerator(cfg.MetricConfig)
 					mg.Regions = names
 					mg.OnProgress = func(completed, total int) {
@@ -910,31 +962,36 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 						run.MetricCountCompleted = completed
 						run.MetricCount = total
 						run.mu.Unlock()
-						waitIfPaused(run, genCtx)
 					}
 					metricDone = make(chan struct{})
 					go func() {
 						defer close(metricDone)
-						metricErr = mg.Run(genCtx, metricExp)
+						recordFailure(mg.Run(genCtx, metricExp))
 					}()
 				}
 			}
 			traceDone = make(chan error, 1)
-			go func() { traceDone <- generateTraces() }()
+			go func() {
+				err := generateTraces()
+				recordFailure(err)
+				traceDone <- err
+			}()
 			select {
 			case <-firstTrace:
 			case traceErr = <-traceDone:
 				traceDone = nil
 			case <-genCtx.Done():
 			}
+			recordFailure(traceErr)
 		} else {
 			traceErr = generateTraces()
+			recordFailure(traceErr)
 		}
 	}
 
 	// --- LOG GENERATION ---
 	// Streaming correlation already consumed references while traces were running.
-	if doLogs && !(streaming && correlate) && traceErr == nil {
+	if doLogs && !correlate && runFailure() == nil {
 		logging.Debugf("Starting log generation. doLogs=%v, correlate=%v", doLogs, correlate)
 
 		logExp, closers, err := buildRunLogExporter(run, routes, logBuf, genCtx)
@@ -942,33 +999,32 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			defer closer()
 		}
 		if err != nil {
-			logErr = err
-			goto finalize
-		}
-
-		lg := gen.NewLogGenerator(cfg.LogConfig)
-		lg.Regions = names
-		lg.OnProgress = func(completed, total int) {
-			run.mu.Lock()
-			run.LogCountCompleted = completed
-			if run.LogCount == 0 {
-				run.LogCount = total
-			}
-			run.mu.Unlock()
-			waitIfPaused(run, genCtx)
-		}
-
-		if correlate {
-			logErr = lg.RunCorrelated(genCtx, closedRefChannel(collected), logExp)
+			recordFailure(err)
 		} else {
-			logErr = lg.Run(genCtx, logExp)
+			logExp = &gatedLogExporter{gate: gate, inner: logExp}
+			lg := gen.NewLogGenerator(cfg.LogConfig)
+			lg.Regions = names
+			lg.OnProgress = func(completed, total int) {
+				run.mu.Lock()
+				run.LogCountCompleted = completed
+				if run.LogCount == 0 {
+					run.LogCount = total
+				}
+				run.mu.Unlock()
+			}
+			recordFailure(lg.Run(genCtx, logExp))
+			logging.Debugf("Log generation completed. failure=%v", runFailure())
 		}
-		logging.Debugf("Log generation completed. logErr=%v", logErr)
+	}
+	// Finite metrics follow both trace generation and correlated logs.
+	if !streaming && logDone != nil {
+		<-logDone
+		logDone = nil
 	}
 
 	// --- METRIC GENERATION ---
-	if doMetrics && !streaming && traceErr == nil && logErr == nil {
-		logging.Debugf("Starting metric generation. doMetrics=%v, traceErr=%v, logErr=%v", doMetrics, traceErr, logErr)
+	if doMetrics && !streaming && runFailure() == nil {
+		logging.Debugf("Starting metric generation. doMetrics=%v", doMetrics)
 		logging.Debugf("cfg.MetricConfig = %+v", cfg.MetricConfig)
 
 		metricExp := export.MetricExporter(metricBuf)
@@ -978,7 +1034,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				reg, ep := route.Name, route.Endpoint
 				otlpMetricExp, err := export.NewOTLPMetricExporter(ep, run.Insecure, nil)
 				if err != nil {
-					metricErr = fmt.Errorf("create OTLP metric exporter for %s: %w", reg, err)
+					recordFailure(fmt.Errorf("create OTLP metric exporter for %s: %w", reg, err))
 					goto finalize
 				}
 				defer func() { _ = otlpMetricExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
@@ -988,6 +1044,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			router := export.NewMetricEndpointRouter(otlpMetricExporters)
 			metricExp = multiMetricExporter{metricBuf, router}
 		}
+		metricExp = gatedMetricExporter{gate: gate, inner: metricExp}
 
 		mg := gen.NewMetricGenerator(cfg.MetricConfig)
 		mg.Regions = names
@@ -998,28 +1055,24 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				run.MetricCount = total
 			}
 			run.mu.Unlock()
-			waitIfPaused(run, genCtx)
 		}
-		metricErr = mg.Run(genCtx, metricExp)
+		recordFailure(mg.Run(genCtx, metricExp))
 	}
 
 finalize:
-	if traceDone != nil {
-		traceErr = <-traceDone
-		traceDone = nil
-	}
-	if traceErr != nil {
+	if runFailure() != nil {
 		stopGeneration()
 	}
-	closeRefs()
+	if traceDone != nil {
+		traceErr = <-traceDone
+		recordFailure(traceErr)
+		traceDone = nil
+	}
 	if logDone != nil {
 		<-logDone
 	}
 	if metricDone != nil {
 		<-metricDone
-	}
-	if traceErr != nil || logErr != nil || metricErr != nil {
-		stopGeneration()
 	}
 	elapsed := time.Since(start).Nanoseconds()
 
@@ -1050,27 +1103,8 @@ finalize:
 	run.CaptureTruncated = run.CaptureDropped > 0
 	run.mu.Unlock()
 
-	// Duration expired — clean completion, not failure.
-	if cfg.Duration > 0 {
-		if errors.Is(traceErr, context.DeadlineExceeded) {
-			traceErr = nil
-		}
-		if errors.Is(logErr, context.DeadlineExceeded) {
-			logErr = nil
-		}
-		if errors.Is(metricErr, context.DeadlineExceeded) {
-			metricErr = nil
-		}
-	}
-
-	// Determine the primary error.
-	err := logErr
-	if err == nil {
-		err = metricErr
-	}
-	if err == nil {
-		err = traceErr
-	}
+	// A cancelled sibling generator never replaces the originating failure.
+	err := runFailure()
 
 	traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
 
@@ -1097,24 +1131,3 @@ finalize:
 	run.mu.Unlock()
 }
 
-// closedRefChannel delivers a finite reference batch and closes immediately.
-func closedRefChannel(batch []gen.SpanRef) <-chan []gen.SpanRef {
-	ch := make(chan []gen.SpanRef, 1)
-	if len(batch) > 0 {
-		ch <- batch
-	}
-	close(ch)
-	return ch
-}
-
-func waitIfPaused(run *Run, ctx context.Context) {
-	run.mu.Lock()
-	ch := run.pauseCh
-	run.mu.Unlock()
-	if ch != nil {
-		select {
-		case <-ch:
-		case <-ctx.Done():
-		}
-	}
-}
