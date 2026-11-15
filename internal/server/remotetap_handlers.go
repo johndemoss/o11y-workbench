@@ -229,15 +229,7 @@ func (m *RemotetapManager) Connect(ctx context.Context, endpoint string, filters
 	if m.client != nil {
 		return nil, fmt.Errorf("already connected to %s", m.endpoint)
 	}
-	if filters.MaxSpans == 0 {
-		filters.MaxSpans = DefaultMaxSpans
-	}
-	if filters.MaxBytes == 0 {
-		filters.MaxBytes = DefaultMaxBytes
-	}
-	if filters.SamplingType == "" {
-		filters.SamplingType = "none"
-	}
+	filters = normalizeTAPFilters(filters)
 	if err := validateTAPFilters(filters); err != nil {
 		return nil, err
 	}
@@ -346,6 +338,7 @@ func (m *RemotetapManager) processData(data *remotetap.RemotetapData) {
 				m.buffer.add(&logsv1.ResourceLogs{Resource: rl.Resource, SchemaUrl: rl.SchemaUrl,
 					ScopeLogs: []*logsv1.ScopeLogs{{Scope: scope.Scope, SchemaUrl: scope.SchemaUrl, LogRecords: []*logsv1.LogRecord{record}}}})
 				run.LogCount++
+				run.LogCountCompleted++
 			}
 		}
 	}
@@ -364,6 +357,7 @@ func (m *RemotetapManager) processData(data *remotetap.RemotetapData) {
 				m.buffer.add(&metricsv1.ResourceMetrics{Resource: rm.Resource, SchemaUrl: rm.SchemaUrl,
 					ScopeMetrics: []*metricsv1.ScopeMetrics{{Scope: scope.Scope, SchemaUrl: scope.SchemaUrl, Metrics: []*metricsv1.Metric{metric}}}})
 				run.MetricCount++
+				run.MetricCountCompleted++
 			}
 		}
 	}
@@ -416,6 +410,8 @@ func (m *RemotetapManager) onDisconnect(client *remotetap.Client) {
 		m.run.mu.Lock()
 		if m.buffer != nil {
 			traces, logs, metrics := m.buffer.payloads()
+			m.run.LogRecordCount, m.run.LogSeverityCounts = summarizeLogs(logs)
+			m.run.MetricRecordCount, m.run.MetricSeriesCount, m.run.MetricTypes = summarizeMetrics(metrics)
 			m.run.CaptureDropped = int64(m.buffer.EvictedCount())
 			m.run.CaptureTruncated = m.run.CaptureDropped > 0
 			marshal := func(message proto.Message) *json.RawMessage {
@@ -641,6 +637,21 @@ func severityFromString(s string) logsv1.SeverityNumber {
 	}
 }
 
+// normalizeTAPFilters applies the documented zero-value defaults so the HTTP
+// handler and the manager validate the same configuration.
+func normalizeTAPFilters(filters RemotetapFilters) RemotetapFilters {
+	if filters.MaxSpans == 0 {
+		filters.MaxSpans = DefaultMaxSpans
+	}
+	if filters.MaxBytes == 0 {
+		filters.MaxBytes = DefaultMaxBytes
+	}
+	if filters.SamplingType == "" {
+		filters.SamplingType = "none"
+	}
+	return filters
+}
+
 func validateTAPFilters(filters RemotetapFilters) error {
 	if filters.MaxSpans <= 0 || filters.MaxBytes <= 0 {
 		return fmt.Errorf("maxSpans and maxBytes must be positive")
@@ -682,6 +693,7 @@ func (s *Server) handleRemotetapConnect(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	body.Filters = normalizeTAPFilters(body.Filters)
 	if err := validateTAPFilters(body.Filters); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
