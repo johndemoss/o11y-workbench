@@ -187,13 +187,6 @@ runtime_install_binary() {
   return 0
 }
 
-runtime_json_string() {
-  local value=$1
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  printf '"%s"' "$value"
-}
-
 runtime_proc_start_ticks() {
   local pid=$1 stat rest
   stat=$(cat "/proc/$pid/stat" 2>/dev/null) || return 1
@@ -206,19 +199,20 @@ runtime_proc_start_ticks() {
   printf '%s' "${20}"
 }
 
-runtime_proc_cmdline() {
+runtime_verify_cmdline() {
   local pid=$1
-  python3 - "$pid" <<'PY'
+  shift
+  python3 - "$pid" "$@" <<'PY'
+import os
 import sys
 try:
     with open(f"/proc/{sys.argv[1]}/cmdline", "rb") as handle:
         data = handle.read()
 except OSError:
     sys.exit(1)
-parts = [part.decode("utf-8", "surrogateescape") for part in data.split(b"\0") if part]
-if not parts:
+if not data or not data.endswith(b"\0"):
     sys.exit(1)
-sys.stdout.write("\n".join(parts))
+sys.exit(data[:-1].split(b"\0") != [os.fsencode(arg) for arg in sys.argv[2:]])
 PY
 }
 
@@ -255,13 +249,10 @@ runtime_record_pid() {
 
   local start_ticks="null"
   if [ "$(runtime_platform)" = "Linux" ]; then
-    local want got attempt=0
-    want=$(printf '%s\n' "${expected[@]}")
-    want=${want%$'\n'}
+    local attempt=0 verified=false
     while [ "$attempt" -lt 40 ]; do
-      got=$(runtime_proc_cmdline "$pid" 2>/dev/null || true)
-      got=${got%$'\n'}
-      if [ -n "$got" ] && [ "$got" = "$want" ]; then
+      if runtime_verify_cmdline "$pid" "${expected[@]}" 2>/dev/null; then
+        verified=true
         break
       fi
       if ! kill -0 "$pid" 2>/dev/null; then
@@ -271,7 +262,7 @@ runtime_record_pid() {
       sleep 0.05
       attempt=$((attempt + 1))
     done
-    if [ -z "$got" ] || [ "$got" != "$want" ]; then
+    if [ "$verified" != true ]; then
       echo "ERROR: could not verify the command line of pid $pid." >&2
       return 1
     fi
@@ -281,18 +272,29 @@ runtime_record_pid() {
     }
   fi
 
-  local argv_json="" value escaped
-  for value in "${expected[@]}"; do
-    escaped=$(runtime_json_string "$value")
-    if [ -z "$argv_json" ]; then
-      argv_json="$escaped"
-    else
-      argv_json="$argv_json, $escaped"
-    fi
-  done
+  runtime_write_pid_record "$pidfile" "$pid" "$start_ticks" "${expected[@]}"
+}
 
+# runtime_write_pid_record PIDFILE PID START_TICKS ARGS...
+# Serializes the exact argument vector as JSON; START_TICKS "null" is allowed.
+runtime_write_pid_record() {
+  local pidfile=$1 pid=$2 ticks=$3
+  shift 3
   local tmp="$pidfile.tmp.$$"
-  printf '{"pid": %s, "start_ticks": %s, "argv": [%s]}\n' "$pid" "$start_ticks" "$argv_json" > "$tmp" || return 1
+  python3 - "$tmp" "$pid" "$ticks" "$@" <<'PY' || return 1
+import json
+import sys
+
+path, pid, ticks, *argv = sys.argv[1:]
+record = {
+    "pid": int(pid),
+    "start_ticks": None if ticks == "null" else int(ticks),
+    "argv": argv,
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(record, handle)
+    handle.write("\n")
+PY
   chmod 600 "$tmp" || return 1
   mv -f "$tmp" "$pidfile" || return 1
   return 0
