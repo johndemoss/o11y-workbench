@@ -257,7 +257,7 @@
       {nodeTypes}
       {edgeTypes}
       bind:nodes
-      bind:edges
+      {edges}
       fitView
       minZoom={0.10}
       fitViewOptions={{ padding: 0.3 }}

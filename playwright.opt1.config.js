@@ -18,7 +18,7 @@ module.exports = defineConfig({
     command: 'go run ./cmd/o11y-workbench-web/ -addr :18080 -pipeline-prototyper',
     url: 'http://127.0.0.1:18080/api/health',
     timeout: 120000,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     cwd: __dirname,
   },
 });

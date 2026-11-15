@@ -14,20 +14,60 @@ for path in list(pathlib.Path(".").glob("Dockerfile*")) + list(pathlib.Path(".")
     if "opentelemetry-collector-contrib" in text and digest not in text:
         print(f"{path}: collector image is not pinned to {digest}", file=sys.stderr)
         fail = True
-    in_ports = False
-    for lineno, line in enumerate(text.splitlines(), 1):
-        stripped = line.strip()
-        if stripped.startswith("ports:"):
-            in_ports = True
-            continue
-        if in_ports and stripped and not stripped.startswith("-") and not stripped.startswith("#"):
-            in_ports = False
-        if in_ports and re.search(r"\d+:\d+", stripped) and "127.0.0.1:" not in stripped and "[::1]:" not in stripped:
-            print(f"{path}:{lineno}: host port is not loopback-only", file=sys.stderr)
-            fail = True
-        if path.name == "Makefile" and re.search(r"(^|\s)-p \d+:\d+", stripped) and "127.0.0.1:" not in stripped:
-            print(f"{path}:{lineno}: published port is not loopback-only", file=sys.stderr)
-            fail = True
+    if path.name.startswith("docker-compose"):
+        lines = text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            match = re.match(r"^(\s*)ports:\s*(?:#.*)?$", line)
+            if not match:
+                if re.match(r"^\s*ports:", line):
+                    print(f"{path}:{i + 1}: unsupported ports declaration", file=sys.stderr)
+                    fail = True
+                i += 1
+                continue
+            indent = len(match.group(1))
+            i += 1
+            entries = []
+            while i < len(lines):
+                raw = lines[i]
+                stripped = raw.strip()
+                if not stripped or stripped.startswith("#"):
+                    i += 1
+                    continue
+                depth = len(raw) - len(raw.lstrip())
+                if depth <= indent:
+                    break
+                entries.append((i + 1, depth, stripped))
+                i += 1
+            groups = []
+            for number, depth, entry in entries:
+                if entry.startswith("- "):
+                    groups.append([number, depth, [entry[2:].strip()]])
+                elif groups and depth > groups[-1][1]:
+                    groups[-1][2].append(entry)
+                else:
+                    groups.append([number, depth, [entry]])
+            if not groups:
+                print(f"{path}:{i}: empty or unsupported ports declaration", file=sys.stderr)
+                fail = True
+            for number, _, fields in groups:
+                first = fields[0].split(" #", 1)[0].strip().strip("'\"")
+                if re.match(r"(?:target|published|host_ip|protocol|mode|app_protocol|name):", first):
+                    hosts = [re.fullmatch(r"host_ip:\s*['\"]?(127\.0\.0\.1|::1)['\"]?\s*(?:#.*)?", field) for field in fields]
+                    valid = sum(bool(host) for host in hosts) == 1
+                else:
+                    expanded = re.sub(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::[-?+][^}]*)?\}", "1", first)
+                    valid = len(fields) == 1 and bool(re.fullmatch(r"(?:127\.0\.0\.1|\[::1\]):[^:]+:[^:]+", expanded))
+                if not valid:
+                    print(f"{path}:{number}: unsupported or non-loopback host port", file=sys.stderr)
+                    fail = True
+    if path.name == "Makefile":
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for match in re.finditer(r"(?:^|\s)(?:-p|--publish)(?:\s+|=)(\S+)", line):
+                if not re.match(r"(?:127\.0\.0\.1|\[::1\]):", match.group(1)):
+                    print(f"{path}:{lineno}: published port is not loopback-only", file=sys.stderr)
+                    fail = True
 for path in pathlib.Path(".").glob("Dockerfile*"):
     for lineno, line in enumerate(path.read_text().splitlines(), 1):
         if line.startswith("FROM ") and "@sha256:" not in line:

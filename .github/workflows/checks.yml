@@ -48,7 +48,8 @@ jobs:
       - run: ./scripts/check-go.sh
 
   ui:
-    runs-on: ubuntu-latest
+    # Component Playwright's pinned Chromium does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         directory: [pipeline-ui]
@@ -66,6 +67,8 @@ jobs:
           cache-dependency-path: ${{ matrix.directory }}/package-lock.json
       - run: npm ci
       - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ct
       - run: npm run build
       - name: Verify generated entry-point assets
         run: node ../scripts/check-ui-assets.mjs dist /pipeline/

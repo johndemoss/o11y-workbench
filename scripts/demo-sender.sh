@@ -64,6 +64,11 @@ if ! go build -o "$tmp_bin" "$PROJECT_DIR/cmd/o11y-workbench/"; then
   exit 1
 fi
 runtime_install_binary "$tmp_bin" "$BINARY"
+if [ "$(runtime_platform)" = Linux ] && ! runtime_pidfd_available; then
+  echo "ERROR: pidfd signaling and /proc are required for daemon mode." >&2
+  exit 1
+fi
+
 
 echo "==> Starting demo sender (${SENDER_ARGS[*]})..."
 SENDER_LOG="$RUN_DIR/$SENDER_NAME.log"
@@ -74,7 +79,12 @@ SENDER_PID=$!
 disown "$SENDER_PID" 2>/dev/null || true
 
 if ! runtime_record_pid "$PIDFILE" "$SENDER_PID" "$BINARY" "${SENDER_ARGS[@]}"; then
-  kill "$SENDER_PID" 2>/dev/null || true
+  if [ "$(runtime_platform)" = Linux ]; then
+    python3 "$SCRIPT_DIR/safe-stop.py" --child "$SENDER_PID" "$$" "$BINARY" "${SENDER_ARGS[@]}" || \
+      echo "ERROR: inspect child $SENDER_PID and stop it manually if still running." >&2
+  else
+    echo "ERROR: inspect child $SENDER_PID and stop it manually if still running." >&2
+  fi
   echo "       Last lines from $SENDER_LOG:" >&2
   tail -n 8 "$SENDER_LOG" >&2 || true
   exit 1
