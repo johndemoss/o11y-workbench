@@ -91,10 +91,7 @@ endif
 ifeq ($(CONTAINER_RUNTIME),podman)
 export DOCKER_BUILDKIT := 0
 export COMPOSE_DOCKER_CLI_BUILD := 0
-# Create empty docker config to prevent credential store prompts
-# docker-compose reads ~/.docker/config.json which triggers osxkeychain auth
-EMPTY_DOCKER_CONFIG := $(shell mkdir -p /tmp/docker-config-empty && echo '{}' > /tmp/docker-config-empty/config.json && echo /tmp/docker-config-empty)
-export DOCKER_CONFIG := $(EMPTY_DOCKER_CONFIG)
+COMPOSE := bash "$(CURDIR)/scripts/runtime.sh" compose $(COMPOSE)
 endif
 
 # OTel collector config for remotetap

@@ -84,7 +84,7 @@ Open [http://localhost:18080/pipeline/](http://localhost:18080/pipeline/) for th
 ```bash
 docker build -f Dockerfile.web -t o11y-workbench-web .
 # Host 18080 → container 8080, published on loopback only.
-docker run -p 127.0.0.1:18080:8080 o11y-workbench-web
+docker run --read-only --tmpfs /tmp -p 127.0.0.1:18080:8080 o11y-workbench-web
 ```
 
 Docker Compose offers two independent local fixtures:
@@ -261,29 +261,40 @@ Define custom service graphs in YAML/JSON and load them via `--scenario-file` or
 ```yaml
 my-api:
   roots:
-    - service: api-gateway
+    - service_name: api-gateway
+      name: GET /checkout
+      kind: SERVER
       children:
-        - service: auth-service
+        - service_name: auth-service
+          name: authorize
+          kind: SERVER
           children:
-            - service: user-db
-        - service: payment-service
+            - service_name: user-db
+              name: SELECT users
+              kind: CLIENT
+        - service_name: payment-service
+          name: charge
+          kind: SERVER
           children:
-            - service: ledger-db
+            - service_name: ledger-db
+              name: INSERT ledger
+              kind: CLIENT
 ```
 
-Each node specifies a service name and optional nested children. Scenarios support configurable span budgets and produce realistic trace trees with timing, attributes, and random errors.
+Every node requires `service_name` and `name`; `kind`, `children`, `min_duration`, `max_duration`, `is_error`, and `attributes` are optional. Scenarios support configurable span budgets and produce realistic trace trees with timing, attributes, and random errors.
 
 ## Output Formats
 
 ### File Mode (default)
 
-Writes each trace to `./traces/<traceID>/<endpoint>/spans.{json,pb}`. Each output file is a self-contained `ExportTraceServiceRequest` that can be sent directly to a collector.
+Writes each exported batch to `./traces/<traceID>/<endpoint>/spans-<unique>.{json,pb}`. A trace that spans several services or batches produces several files in its endpoint directory; none overwrites another. Each file is a self-contained `ExportTraceServiceRequest` that can be sent directly to a collector.
 
 ```bash
-# Send a generated trace to a collector
-curl -X POST -H "Content-Type: application/x-protobuf" \
-  --data-binary @./traces/abc123/default/spans.pb \
-  http://collector:4318/v1/traces
+# Send every batch of a generated trace to a collector
+for f in ./traces/abc123/default/spans-*.pb; do
+  curl -X POST -H "Content-Type: application/x-protobuf" \
+    --data-binary @"$f" http://collector:4318/v1/traces
+done
 ```
 
 ### OTLP Mode
@@ -313,13 +324,15 @@ Example config file (`config.yaml`):
 seed: 42
 traces: 10
 topology: branching
-span_count: 15
-max_depth: 4
+span-count: 15
+max-depth: 4
 output: otlp
-endpoints:
+endpoint:
   - localhost:4317
   - collector:4317
 ```
+
+Config keys use the same names as the CLI flags (for example `span-count`, `max-depth`, and `endpoint`).
 
 ## Development
 

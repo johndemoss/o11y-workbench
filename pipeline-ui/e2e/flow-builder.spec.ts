@@ -1,74 +1,96 @@
 import { test, expect } from '@playwright/test'
+import { addTransformStages, installGraphApiFallback, openGraphBuilder, tracesStageOrder } from './helpers'
 
-test.describe('Flow Builder - Graph Tab', () => {
+test.describe('Flow builder graph edits', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/')
-    await page.click('button:has-text("Graph Builder")')
+    await installGraphApiFallback(page)
+    await openGraphBuilder(page)
   })
 
-  test('Full workflow: drag stage, edit, execute', async ({ page }) => {
-    await page.waitForSelector('.svelte-flow', { timeout: 5000 }).catch(() => {})
+  test('delete middle stage preserves left-to-right order of survivors', async ({ page }) => {
+    await addTransformStages(page, 3)
+    const before = await tracesStageOrder(page)
+    expect(before).toHaveLength(3)
 
-    await expect(page.locator('text=Pipeline Stages')).toBeVisible()
-    await expect(page.locator('text=Transform')).toBeVisible()
-    await expect(page.locator('text=Filter')).toBeVisible()
+    const middle = page.locator('.svelte-flow__node-stage').nth(1)
+    await middle.getByRole('button', { name: 'Delete stage' }).click()
+    await page.getByRole('button', { name: 'Yes' }).click()
 
-    await expect(page.locator('button:has-text("Import YAML")')).toBeVisible()
+    await expect(page.locator('.svelte-flow__node-stage')).toHaveCount(2)
+    const after = await tracesStageOrder(page)
+    expect(after).toEqual([before[0], before[2]])
   })
 
-  test('Palette drag: both Transform and Filter types', async ({ page }) => {
-    const transformCard = page.locator('.drag-card--transform')
-    const filterCard = page.locator('.drag-card--filter')
-    await expect(transformCard).toBeVisible()
-    await expect(filterCard).toBeVisible()
-    await expect(transformCard).toContainText('Transform')
-    await expect(filterCard).toContainText('Filter')
+  test('move-right control reorders stages on the canvas', async ({ page }) => {
+    await addTransformStages(page, 2)
+    const before = await tracesStageOrder(page)
+    await page
+      .locator(`[data-id="${before[0]}"]`)
+      .getByRole('button', { name: 'Move stage right' })
+      .click()
+    await expect
+      .poll(async () => tracesStageOrder(page))
+      .toEqual([before[1], before[0]])
   })
 
-  test('Delete workflow: add 2 stages, delete one', async ({ page }) => {
-    const nodeCards = page.locator('.node-card')
-    const count = await nodeCards.count()
+  test('horizontal drag reorders a stage within its swimlane', async ({ page }) => {
+    await addTransformStages(page, 2)
+    const before = await tracesStageOrder(page)
+    const dragged = page.locator(`[data-id="${before[0]}"]`)
+    const box = await dragged.boundingBox()
+    if (!box) throw new Error('missing stage bounding box')
 
-    if (count > 0) {
-      const deleteBtn = nodeCards.first().locator('.delete-btn')
-      await deleteBtn.click()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 + 240, box.y + box.height / 2, { steps: 16 })
+    await page.mouse.up()
 
-      await expect(page.locator('.confirm-dialog')).toBeVisible()
-      await expect(page.locator('.confirm-dialog')).toContainText('Delete')
-
-      await page.locator('.confirm-btn-danger').click()
-
-      await expect(page.locator('.node-card')).toHaveCount(count - 1)
-    }
+    await expect
+      .poll(async () => tracesStageOrder(page))
+      .toEqual([before[1], before[0]])
   })
 
-  test('Cycle prevention', async ({ page }) => {
-    await expect(page.locator('.svelte-flow')).toBeVisible()
+  test('rejected cycle connections surface feedback', async ({ page }) => {
+    await addTransformStages(page, 2)
+    const order = await tracesStageOrder(page)
+    expect(order).toHaveLength(2)
+
+    const source = page.locator(`[data-id="${order[1]}"] .svelte-flow__handle-right`)
+    const target = page.locator(`[data-id="${order[0]}"] .svelte-flow__handle-left`)
+    await source.dragTo(target)
+
+    await expect(page.getByRole('alert').filter({ hasText: 'Cannot create a cycle' })).toBeVisible()
   })
 
-  test('Empty state guidance text', async ({ page }) => {
-    const emptyState = page.locator('.empty-state')
-    const svelteFlow = page.locator('.svelte-flow')
+  test('topological sort failures restore the graph and alert', async ({ page }) => {
+    await page.route('**/api/ottl/pipeline/topological-sort', (route) =>
+      route.fulfill({ status: 500, body: 'sort unavailable' }),
+    )
 
-    const isEmptyVisible = await emptyState.isVisible().catch(() => false)
-    const isFlowVisible = await svelteFlow.isVisible().catch(() => false)
+    await addTransformStages(page, 2)
+    const before = await tracesStageOrder(page)
 
-    if (isEmptyVisible) {
-      await expect(emptyState).toContainText('Drag stages from the palette')
-    } else if (isFlowVisible) {
-      // no-op: pipeline already has nodes
-    }
+    await page
+      .locator(`[data-id="${before[0]}"]`)
+      .getByRole('button', { name: 'Move stage right' })
+      .click()
+
+    await expect(page.getByRole('alert').filter({ hasText: 'Could not update pipeline graph' })).toBeVisible()
+    await expect.poll(async () => tracesStageOrder(page)).toEqual(before)
   })
 
-  test('Results display: badges on nodes', async ({ page }) => {
-    await expect(page.locator('button:has-text("Validate")')).toBeVisible()
+  test('network-level sort failure restores the graph and alert', async ({ page }) => {
+    await addTransformStages(page, 2)
+    const before = await tracesStageOrder(page)
 
-    await expect(page.locator('h2:has-text("Execute Pipeline")')).toBeVisible()
-  })
+    await page.route('**/api/ottl/pipeline/topological-sort', (route) => route.abort('failed'))
 
-  test('Import button triggers config modal', async ({ page }) => {
-    await page.locator('button:has-text("Import YAML")').click()
+    await page
+      .locator(`[data-id="${before[0]}"]`)
+      .getByRole('button', { name: 'Move stage right' })
+      .click()
 
-    await page.waitForTimeout(500)
+    await expect(page.getByRole('alert').filter({ hasText: 'Could not update pipeline graph' })).toBeVisible()
+    await expect.poll(async () => tracesStageOrder(page)).toEqual(before)
   })
 })

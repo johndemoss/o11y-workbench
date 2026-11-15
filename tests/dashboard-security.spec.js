@@ -188,7 +188,7 @@ test.describe('Dashboard HTML injection + CSP', () => {
         needle: text,
       };
     }, failedScenario);
-    expect(detailProbe.errText.length).toBeGreaterThan(0);
+    expect(detailProbe.errText).toContain(detailProbe.needle);
     expect(detailProbe.errHtmlHasMarkup).toBe(false);
     expect(detailProbe.imgCount).toBe(0);
 
@@ -205,17 +205,29 @@ test.describe('Dashboard HTML injection + CSP', () => {
 
     const attrNeedleKey = '"key<>';
     const attrNeedleVal = "'val&<>";
-    await page.click('#add-log-attr-btn');
-    await page.click('#add-metric-attr-btn');
-    await page.locator('#attr-body .attr-key').last().fill(attrNeedleKey);
-    await page.locator('#attr-body .attr-val').last().fill(attrNeedleVal);
-    await page.locator('#metric-attr-body .attr-key').last().fill(attrNeedleKey);
-    await page.locator('#metric-attr-body .attr-val').last().fill(attrNeedleVal);
+    await page.evaluate(({ key, value }) => {
+      addLogAttr(key, value);
+      addMetricAttr(key, value);
+    }, { key: attrNeedleKey, value: attrNeedleVal });
 
     await expect(page.locator('#attr-body .attr-key').last()).toHaveValue(attrNeedleKey);
     await expect(page.locator('#attr-body .attr-val').last()).toHaveValue(attrNeedleVal);
     await expect(page.locator('#metric-attr-body .attr-key').last()).toHaveValue(attrNeedleKey);
     await expect(page.locator('#metric-attr-body .attr-val').last()).toHaveValue(attrNeedleVal);
+
+    const severity = '<img src=x onerror=alert(1)>';
+    const severityProbe = await page.evaluate((text) => {
+      const container = document.createElement('div');
+      container.innerHTML = renderLogTable({
+        resourceLogs: [{ scopeLogs: [{ logRecords: [{ severityText: text }] }] }],
+      });
+      return {
+        text: container.querySelector('.severity-tag')?.textContent,
+        images: container.querySelectorAll('img').length,
+      };
+    }, severity);
+    expect(severityProbe.text).toBe(severity);
+    expect(severityProbe.images).toBe(0);
 
     const inlineHandlers = await scanInlineHandlerAttrs(page);
     expect(inlineHandlers).toEqual([]);

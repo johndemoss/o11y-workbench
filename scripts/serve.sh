@@ -103,6 +103,32 @@ if $STOP_ONLY; then
   exit 0
 fi
 
+# The in-process OTTL default is pinned in the Go binary; extra supported
+# collector trains run in workers listed in versions/otel.env.
+if [ -f "$PROJECT_DIR/versions/otel.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PROJECT_DIR/versions/otel.env"
+  set +a
+fi
+if [ -z "${O11Y_OTTL_WORKERS:-}" ]; then
+  bindings=()
+  IFS=',' read -r -a worker_versions <<< "${OTEL_OTTL_WORKER_VERSIONS:-}"
+  for ver in "${worker_versions[@]}"; do
+    ver="${ver//[[:space:]]/}"
+    [ -z "$ver" ] && continue
+    bindings+=("$ver=$PROJECT_DIR/bin/ottl-worker-$ver")
+  done
+  if [ "${#bindings[@]}" -gt 0 ]; then
+    old_ifs=$IFS
+    IFS=,
+    export O11Y_OTTL_WORKERS="${bindings[*]}"
+    IFS=$old_ifs
+  fi
+fi
+if [ -n "${O11Y_OTTL_WORKERS:-}" ]; then
+  echo "==> OTTL workers: $O11Y_OTTL_WORKERS"
+fi
 if $FOREGROUND; then
   # Playwright and other callers own this process group and drive shutdown
   # themselves. Never read, replace or remove the operator's daemon PID record.
@@ -151,7 +177,8 @@ if ! $SKIP_BUILD; then
   echo "==> Go binary rebuilt with embedded frontend assets"
   echo "==> Building OTTL worker binaries..."
   (cd "$PROJECT_DIR" && make ottl-workers)
-  release_locks
+  runtime_release_lock "$BUILD_LOCK_DIR"
+  BUILD_LOCK_HELD=false
 else
   runtime_verify_executable "$BINARY" || {
     echo "ERROR: --skip-build requires an existing executable at $BINARY" >&2
@@ -160,37 +187,16 @@ else
   echo "WARNING: --skip-build reuses $BINARY without checking source/asset freshness" >&2
 fi
 
-# The in-process OTTL default is pinned in the Go binary; extra supported
-# collector trains run in workers listed in versions/otel.env.
-if [ -f "$PROJECT_DIR/versions/otel.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$PROJECT_DIR/versions/otel.env"
-  set +a
-fi
-if [ -z "${O11Y_OTTL_WORKERS:-}" ]; then
-  bindings=()
-  IFS=',' read -r -a worker_versions <<< "${OTEL_OTTL_WORKER_VERSIONS:-}"
-  for ver in "${worker_versions[@]}"; do
-    ver="${ver//[[:space:]]/}"
-    [ -z "$ver" ] && continue
-    bindings+=("$ver=$PROJECT_DIR/bin/ottl-worker-$ver")
-  done
-  if [ "${#bindings[@]}" -gt 0 ]; then
-    old_ifs=$IFS
-    IFS=,
-    export O11Y_OTTL_WORKERS="${bindings[*]}"
-    IFS=$old_ifs
-  fi
-fi
-if [ -n "${O11Y_OTTL_WORKERS:-}" ]; then
-  echo "==> OTTL workers: $O11Y_OTTL_WORKERS"
-fi
 
 if [ -e "$PIDFILE" ]; then
   echo "==> Stopping existing server..."
   runtime_stop "$PIDFILE" "$BINARY"
 fi
+if [ "$(runtime_platform)" = Linux ] && ! runtime_pidfd_available; then
+  echo "ERROR: pidfd signaling and /proc are required for daemon mode; use --foreground." >&2
+  exit 1
+fi
+
 
 echo "==> Starting o11y-workbench-web on $ADDR..."
 nohup "$BINARY" "${SERVER_ARGS[@]}" </dev/null >/dev/null 2>&1 &
@@ -198,8 +204,12 @@ SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null || true
 
 if ! runtime_record_pid "$PIDFILE" "$SERVER_PID" "$BINARY" "${SERVER_ARGS[@]}"; then
-  # This is our own just-spawned child, so signalling it directly is safe here.
-  kill "$SERVER_PID" 2>/dev/null || true
+  if [ "$(runtime_platform)" = Linux ]; then
+    python3 "$SCRIPT_DIR/safe-stop.py" --child "$SERVER_PID" "$$" "$BINARY" "${SERVER_ARGS[@]}" || \
+      echo "ERROR: inspect child $SERVER_PID and stop it manually if still running." >&2
+  else
+    echo "ERROR: inspect child $SERVER_PID and stop it manually if still running." >&2
+  fi
   exit 1
 fi
 
@@ -225,7 +235,7 @@ while true; do
   ELAPSED=$((SECONDS - START_TIME))
   if [ "$ELAPSED" -ge "$WAIT_SECONDS" ]; then
     echo "ERROR: server did not become ready within ${WAIT_SECONDS}s" >&2
-    runtime_stop "$PIDFILE" "$BINARY" || kill "$SERVER_PID" 2>/dev/null || true
+    runtime_stop "$PIDFILE" "$BINARY" || echo "ERROR: safe stop failed; inspect the recorded process manually." >&2
     exit 1
   fi
   sleep 0.5

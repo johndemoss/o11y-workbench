@@ -66,7 +66,44 @@ def read_cmdline(pid):
     return [part.decode("utf-8", "surrogateescape") for part in data.split(b"\0") if part]
 
 
+def stop_child(pid, parent, expected):
+    """Stop only our still-identifiable, freshly spawned child through a pidfd."""
+    try:
+        handle = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return 0
+    except (OSError, AttributeError) as exc:
+        fail(f"cannot open a handle for child {pid}: {exc}")
+    try:
+        try:
+            owner = os.stat(f"/proc/{pid}").st_uid
+            with open(f"/proc/{pid}/stat", encoding="utf-8", errors="surrogateescape") as stream:
+                fields = stream.read().rsplit(") ", 1)[1].split()
+            ppid = int(fields[1])
+        except (OSError, IndexError, ValueError) as exc:
+            fail(f"cannot verify child {pid}: {exc}")
+        if owner != os.getuid() or ppid != parent or read_cmdline(pid) != expected:
+            fail(f"child {pid} no longer matches its expected identity; refusing to signal")
+        try:
+            signal.pidfd_send_signal(handle, signal.SIGTERM)
+        except ProcessLookupError:
+            return 0
+        except OSError as exc:
+            fail(f"cannot signal child {pid}: {exc}")
+        if not select.select([handle], [], [], WAIT_SECONDS)[0]:
+            fail(f"child {pid} did not exit within {WAIT_SECONDS:g}s")
+    finally:
+        os.close(handle)
+    return 0
+
+
 def main():
+    if len(sys.argv) >= 5 and sys.argv[1] == "--child":
+        try:
+            pid, parent = int(sys.argv[2]), int(sys.argv[3])
+        except ValueError:
+            fail("invalid child or parent pid")
+        return stop_child(pid, parent, sys.argv[4:])
     if len(sys.argv) != 3:
         fail("usage: safe-stop.py PIDFILE EXPECTED_BINARY")
     pidfile = sys.argv[1]

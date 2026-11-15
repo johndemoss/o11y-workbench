@@ -1,93 +1,66 @@
 import { test, expect } from '@playwright/test'
+import { installGraphApiFallback, openGraphBuilder } from './helpers'
 
-test.describe('Swimlane Flow Builder - Graph Tab', () => {
+test.describe('Swimlane flow layout', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/')
-    await page.click('button:has-text("Graph Builder")')
+    await installGraphApiFallback(page)
+    await openGraphBuilder(page)
   })
 
-  test('Swimlane headers and canvas render', async ({ page }) => {
-    await page.waitForSelector('.svelte-flow', { timeout: 5000 }).catch(() => {})
-
-    await expect(page.locator('text=Traces').or(page.locator('text=traces'))).toBeVisible()
-    await expect(page.locator('text=Logs').or(page.locator('text=logs'))).toBeVisible()
-    await expect(page.locator('text=Metrics').or(page.locator('text=metrics'))).toBeVisible()
-
-    await expect(page.locator('text=Pipeline Stages')).toBeVisible()
-    await expect(page.locator('text=Transform')).toBeVisible()
-    await expect(page.locator('text=Filter')).toBeVisible()
+  test('swimlane regions are exposed to assistive labels', async ({ page }) => {
+    await expect(page.getByRole('region', { name: 'Traces pipeline' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Logs pipeline' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Metrics pipeline' })).toBeVisible()
   })
 
-  test('EditorPanel toggle', async ({ page }) => {
-    const editorPanel = page.locator('.editor-panel')
-    await expect(editorPanel).toBeVisible()
-    await expect(editorPanel).not.toHaveClass(/collapsed/)
-    await expect(page.locator('.editor-title')).toContainText('Pipeline YAML')
+  test('multiple infrastructure cards remain vertically separated', async ({ page }) => {
+    await page.route('**/api/ottl/pipeline/import-config', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          traces: {
+            stages: [{ id: 'imp-1', type: 'transform', processor_ref: 'transform/imp' }],
+            processors: { 'transform/imp': {} },
+            receivers: ['alpha', 'beta'],
+            exporters: ['gamma', 'delta', 'epsilon'],
+            receiver_configs: { alpha: { token: 'a' }, beta: { token: 'b' } },
+            exporter_configs: { gamma: { q: 1 }, delta: {}, epsilon: { z: 3 } },
+          },
+          logs: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+          metrics: { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] },
+        }),
+      })
+    })
 
-    await page.locator('.editor-panel button:has-text("◀")').click()
-    await expect(editorPanel).toHaveClass(/collapsed/)
-    await expect(page.locator('.toggle-tab')).toContainText('Editor ▶')
+    await page.getByRole('button', { name: 'Import', exact: true }).first().click()
+    await page.getByRole('button', { name: /^Import$/ }).click()
 
-    await page.locator('.toggle-tab').click()
-    await expect(editorPanel).toBeVisible()
-    await expect(editorPanel).not.toHaveClass(/collapsed/)
-  })
+    await expect(page.locator('[data-id="infra-traces-receiver-alpha"]')).toBeVisible()
+    await expect(page.locator('[data-id="infra-traces-receiver-beta"]')).toBeVisible()
+    await expect(page.locator('[data-id="infra-traces-exporter-gamma"]')).toBeVisible()
 
-  test('Export button present', async ({ page }) => {
-    const exportBtn = page.locator('button:has-text("Export YAML")')
-    await expect(exportBtn).toBeVisible()
-    await expect(exportBtn).toBeEnabled()
-  })
+    const tops = await page.locator('[data-id^="infra-traces-"]').evaluateAll((nodes) =>
+      nodes.map((node) => Math.round(node.getBoundingClientRect().top)),
+    )
+    expect(new Set(tops).size).toBe(tops.length)
 
-  test('Snippets section in palette', async ({ page }) => {
-    await expect(page.locator('h3:has-text("Snippets")')).toBeVisible()
-
-    await expect(page.locator('text=Drop internal spans')).toBeVisible()
-    await expect(page.locator('text=Set environment attribute')).toBeVisible()
-
-    const snippetCards = page.locator('.drag-card[draggable="true"]')
-    const count = await snippetCards.count()
-    expect(count).toBeGreaterThanOrEqual(5)
-  })
-
-  test('Stage node rendering', async ({ page }) => {
-    await page.waitForSelector('.svelte-flow', { timeout: 5000 }).catch(() => {})
-
-    const flowNodes = page.locator('.svelte-flow__node')
-    const nodeCount = await flowNodes.count().catch(() => 0)
-
-    if (nodeCount > 0) {
-      await expect(flowNodes.first()).toBeVisible()
+    const boxes = await page.locator('[data-id^="infra-traces-receiver-"]').evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect()),
+    )
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]
+        const b = boxes[j]
+        const overlap = !(a.bottom <= b.top || b.bottom <= a.top)
+        expect(overlap).toBe(false)
+      }
     }
   })
 
-  test('Results display section', async ({ page }) => {
-    const collapseToggle = page.locator('.collapse-toggle')
-    await expect(collapseToggle).toBeVisible()
-    await expect(collapseToggle).toContainText('Execute & Results')
-
-    await expect(page.locator('h2:has-text("Execute Pipeline")')).toBeVisible()
-  })
-
-  test('Empty state guidance text', async ({ page }) => {
-    await page.waitForSelector('.svelte-flow', { timeout: 5000 }).catch(() => {})
-
-    const emptyState = page.locator('.empty-state')
-    const svelteFlow = page.locator('.svelte-flow')
-
-    const isEmptyVisible = await emptyState.isVisible().catch(() => false)
-    const isFlowVisible = await svelteFlow.isVisible().catch(() => false)
-
-    if (isEmptyVisible) {
-      await expect(emptyState).toContainText('Drag stages from the palette')
-    } else if (isFlowVisible) {
-      // pipeline already has nodes — no empty state to check
-    }
-  })
-
-  test('Validate button', async ({ page }) => {
-    const validateBtn = page.locator('.builder-header button:has-text("Validate")')
-    await expect(validateBtn).toBeVisible()
-    await expect(validateBtn).toBeEnabled()
+  test('stage palette remains keyboard-accessible alongside the graph', async ({ page }) => {
+    await expect(page.locator('[data-od-id="stage-palette"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add Transform blank stage' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add Filter blank stage' })).toBeVisible()
+    await expect(page.locator('[data-od-id="library-search"]')).toBeVisible()
   })
 })
