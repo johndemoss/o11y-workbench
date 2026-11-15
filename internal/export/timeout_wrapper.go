@@ -2,12 +2,15 @@ package export
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // WithExportTimeout wraps a TraceExporter to use a fresh context with timeout for each export,
@@ -147,10 +150,14 @@ func (w *metricExporterWithTimeout) Shutdown(ctx context.Context) error {
 }
 
 func ownerExportError(owner context.Context, err error) error {
-	if err != nil {
-		if ownerErr := owner.Err(); ownerErr != nil {
-			return fmt.Errorf("export failed: %v: %w", err, ownerErr)
-		}
+	if err == nil || owner.Err() == nil {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("export failed: %v: %w", err, owner.Err())
+	}
+	if s, ok := status.FromError(err); ok && (s.Code() == codes.DeadlineExceeded || s.Code() == codes.Canceled) {
+		return fmt.Errorf("export failed: %v: %w", err, owner.Err())
 	}
 	return err
 }
