@@ -12,6 +12,7 @@ import (
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
 	"github.com/johndemoss/o11y-workbench/internal/logging"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -35,7 +36,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Format            string           `json:"format"`
 		Endpoints         []string         `json:"endpoints"`
 		Insecure          *bool            `json:"insecure"`
-		SignalType        string           `json:"signal_type"` // DEPRECATED: use Signals
+		SignalType        string           `json:"signal_type"` // Legacy input alias, translated to Signals below.
 		Signals           *gen.Signals     `json:"signals"`
 		LogConfig         gen.LogConfig    `json:"log_config"`
 		MetricConfig      gen.MetricConfig `json:"metric_config"`
@@ -66,16 +67,17 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	endpoints := body.Endpoints
+	routes := routesForEndpoints(endpoints)
+	regions := make([]region.Name, len(routes))
+	for i, route := range routes {
+		regions[i] = route.Name
+	}
 
-	// Normalize signal selection: prefer new Signals format, fall back to SignalType
+	// Signal selection comes from Signals; the legacy signal_type string is
+	// accepted as input only, translated here and never stored in the config.
 	signals := body.Signals
 	if signals == nil {
-		// Backwards compat: derive from SignalType string
-		signalType := body.SignalType
-		if signalType == "" {
-			signalType = "traces"
-		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(body.SignalType)
 		signals = &s
 	}
 	if (body.Workload != nil || gen.IsWorkloadScenario(body.Scenario)) && (signals.Logs || signals.Metrics) {
@@ -109,7 +111,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		TraceDuration: 5 * time.Second,
 		Scenario:      body.Scenario, ScenarioSpanCount: body.ScenarioSpanCount,
 		Signals:      *signals,
-		SignalType:   gen.DeriveSignalType(*signals), // for backwards compat in responses
+		Regions:      regions,
 		LogConfig:    body.LogConfig,
 		MetricConfig: body.MetricConfig,
 		Workload:     wl,
@@ -163,6 +165,27 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	s.store.mu.RUnlock()
 	run.Format = body.Format
 	writeJSON(w, http.StatusAccepted, run)
+}
+
+// signalsFromLegacyType translates the pre-Signals signal_type vocabulary into
+// a current signal selection. Empty or unrecognized values select traces.
+func signalsFromLegacyType(signalType string) gen.Signals {
+	switch strings.ToLower(strings.TrimSpace(signalType)) {
+	case "logs":
+		return gen.Signals{Logs: true}
+	case "metrics":
+		return gen.Signals{Metrics: true}
+	case "both":
+		return gen.Signals{Traces: true, Logs: true}
+	case "traces+metrics":
+		return gen.Signals{Traces: true, Metrics: true}
+	case "logs+metrics":
+		return gen.Signals{Logs: true, Metrics: true}
+	case "all":
+		return gen.Signals{Traces: true, Logs: true, Metrics: true}
+	default: // "traces", empty, and unknown legacy values
+		return gen.Signals{Traces: true}
+	}
 }
 
 func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {

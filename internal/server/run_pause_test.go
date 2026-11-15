@@ -9,6 +9,7 @@ import (
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )
@@ -284,7 +285,7 @@ func (partialPauseTraceExporter) ExportWithReceipt(_ context.Context, spans []*t
 func TestGatedTraceExporterPreservesGeneratorReceipts(t *testing.T) {
 	cfg := gen.Config{Seed: 1, TraceCount: 1, Rate: 1000, Workload: gen.WorkloadProfile{
 		Shape: "flat", ExperimentID: "pause-receipt", ItemsPerRequest: 10,
-	}}
+	}, Signals: gen.Signals{Traces: true}, Regions: []region.Name{region.RegionLocal}}
 	g := gen.NewGenerator(cfg)
 	if err := g.Run(context.Background(), gatedTraceExporter{gate: newRunPauseGate(), inner: partialPauseTraceExporter{}}); err != nil {
 		t.Fatal(err)

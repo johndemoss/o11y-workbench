@@ -135,7 +135,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		if signalType == "" {
 			signalType = "traces"
 		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(signalType)
 		signals = &s
 	}
 	if !signals.Traces && !signals.Logs && !signals.Metrics {
@@ -406,7 +406,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		if signalType == "" {
 			signalType = "traces"
 		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(signalType)
 		signals = &s
 	}
 	if !signals.Traces && !signals.Logs && !signals.Metrics {
@@ -597,7 +597,7 @@ func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request
 		if signalType == "" {
 			signalType = "traces"
 		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(signalType)
 		signals = &s
 	}
 

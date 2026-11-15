@@ -9,6 +9,25 @@ import (
 	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
+// buildRunTraceExporter wraps a buffered trace sink with OTLP routing when the
+// run targets OTLP. Returned closers shut down every successfully created client.
+func buildRunTraceExporter(run *Run, routes []region.Region, sink export.TraceExporter, ctx context.Context) (export.TraceExporter, []func(), error) {
+	var closers []func()
+	if run.Output != "otlp" {
+		return sink, closers, nil
+	}
+	exporters := make(map[region.Name]export.TraceExporter, len(routes))
+	for _, route := range routes {
+		exp, err := export.NewOTLPExporter(route.Endpoint, run.Insecure, nil)
+		if err != nil {
+			return nil, closers, fmt.Errorf("create OTLP exporter for %s: %w", route.Name, err)
+		}
+		closers = append(closers, func() { _ = exp.Shutdown(context.Background()) })
+		exporters[route.Name] = export.WithExportTimeoutContext(ctx, exp, 30*time.Second)
+	}
+	return multiExporter{sink, export.NewEndpointRouter(exporters)}, closers, nil
+}
+
 // buildRunLogExporter wraps a buffered log sink with OTLP routing when the run
 // targets OTLP. Returned closers shut down every successfully created client.
 func buildRunLogExporter(run *Run, routes []region.Region, sink export.LogExporter, ctx context.Context) (export.LogExporter, []func(), error) {

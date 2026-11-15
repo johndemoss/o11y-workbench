@@ -539,6 +539,14 @@ func (e multiMetricExporter) Shutdown(ctx context.Context) error {
 
 // StartRun detaches accepted jobs from HTTP request cancellation, not from their store.
 func StartRun(_ context.Context, store *RunStore, cfg gen.Config, endpoints []string, insecure bool, output string) (*Run, error) {
+	routes := routesForEndpoints(endpoints)
+	names := make([]region.Name, len(routes))
+	for i, route := range routes {
+		names[i] = route.Name
+	}
+	// Validation requires the routing regions the run will generate against;
+	// derive them from the same routes so engine and HTTP callers agree.
+	cfg.Regions = names
 	if err := gen.ValidateConfig(cfg); err != nil {
 		return nil, fmt.Errorf("invalid run configuration: %w", err)
 	}
@@ -550,7 +558,6 @@ func StartRun(_ context.Context, store *RunStore, cfg gen.Config, endpoints []st
 	if cfg.Scenario != "" {
 		scenario = cfg.Scenario
 	}
-	routes := routesForEndpoints(endpoints)
 	epCopy := make([]string, len(routes))
 	for i, route := range routes {
 		epCopy[i] = route.Endpoint
@@ -877,22 +884,14 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		if correlate {
 			defer close(refs)
 		}
-		exp := export.TraceExporter(buf)
-		if run.Output == "otlp" {
-			otlpExporters := make(map[region.Name]export.TraceExporter)
-			for _, route := range routes {
-				reg, ep := route.Name, route.Endpoint
-				otlpExp, err := export.NewOTLPExporter(ep, run.Insecure, nil)
-				if err != nil {
-					return fmt.Errorf("create OTLP exporter for %s: %w", reg, err)
-				}
-				// Close every successfully constructed connection, including partial setup failures.
-				defer func() { _ = otlpExp.Shutdown(context.Background()) }()
-				// Wrap exporter to use fresh context with timeout for each export
-				otlpExporters[reg] = export.WithExportTimeoutContext(genCtx, otlpExp, 30*time.Second)
-			}
-			router := export.NewEndpointRouter(otlpExporters)
-			exp = multiExporter{buf, router}
+		exp, closers, err := buildRunTraceExporter(run, routes, buf, genCtx)
+		// Close every successfully constructed connection, including partial setup
+		// failures, when trace generation ends.
+		for _, closer := range closers {
+			defer closer()
+		}
+		if err != nil {
+			return err
 		}
 		exp = gatedTraceExporter{gate: gate, inner: exp}
 
@@ -913,7 +912,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				}
 			}
 		}
-		err := g.Run(genCtx, exp)
+		err = g.Run(genCtx, exp)
 		st := g.Stats()
 		run.mu.Lock()
 		run.GeneratorStats = &st
@@ -923,12 +922,12 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	if doTraces {
 		if correlate {
 			logExp, closers, err := buildRunLogExporter(run, routes, logBuf, genCtx)
+			for _, closer := range closers {
+				defer closer()
+			}
 			if err != nil {
 				recordFailure(err)
 			} else {
-				for _, closer := range closers {
-					defer closer()
-				}
 				logExp = &gatedLogExporter{gate: gate, inner: logExp}
 				lg := gen.NewLogGenerator(cfg.LogConfig)
 				lg.Regions = names
@@ -948,12 +947,13 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		}
 		if streaming {
 			if doMetrics {
-				if metricExp, closers, err := buildRunMetricExporter(run, routes, metricBuf, genCtx); err != nil {
+				metricExp, closers, err := buildRunMetricExporter(run, routes, metricBuf, genCtx)
+				for _, closer := range closers {
+					defer closer()
+				}
+				if err != nil {
 					recordFailure(err)
 				} else {
-					for _, closer := range closers {
-						defer closer()
-					}
 					metricExp = gatedMetricExporter{gate: gate, inner: metricExp}
 					mg := gen.NewMetricGenerator(cfg.MetricConfig)
 					mg.Regions = names
@@ -1027,39 +1027,29 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 		logging.Debugf("Starting metric generation. doMetrics=%v", doMetrics)
 		logging.Debugf("cfg.MetricConfig = %+v", cfg.MetricConfig)
 
-		metricExp := export.MetricExporter(metricBuf)
-		if run.Output == "otlp" {
-			otlpMetricExporters := make(map[region.Name]export.MetricExporter)
-			for _, route := range routes {
-				reg, ep := route.Name, route.Endpoint
-				otlpMetricExp, err := export.NewOTLPMetricExporter(ep, run.Insecure, nil)
-				if err != nil {
-					recordFailure(fmt.Errorf("create OTLP metric exporter for %s: %w", reg, err))
-					goto finalize
-				}
-				defer func() { _ = otlpMetricExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
-				// Wrap metric exporter to use fresh context with timeout for each export
-				otlpMetricExporters[reg] = export.WithMetricExportTimeoutContext(genCtx, otlpMetricExp, 30*time.Second)
-			}
-			router := export.NewMetricEndpointRouter(otlpMetricExporters)
-			metricExp = multiMetricExporter{metricBuf, router}
+		metricExp, closers, err := buildRunMetricExporter(run, routes, metricBuf, genCtx)
+		for _, closer := range closers {
+			defer closer()
 		}
-		metricExp = gatedMetricExporter{gate: gate, inner: metricExp}
+		if err != nil {
+			recordFailure(err)
+		} else {
+			metricExp = gatedMetricExporter{gate: gate, inner: metricExp}
 
-		mg := gen.NewMetricGenerator(cfg.MetricConfig)
-		mg.Regions = names
-		mg.OnProgress = func(completed, total int) {
-			run.mu.Lock()
-			run.MetricCountCompleted = completed
-			if run.MetricCount == 0 {
-				run.MetricCount = total
+			mg := gen.NewMetricGenerator(cfg.MetricConfig)
+			mg.Regions = names
+			mg.OnProgress = func(completed, total int) {
+				run.mu.Lock()
+				run.MetricCountCompleted = completed
+				if run.MetricCount == 0 {
+					run.MetricCount = total
+				}
+				run.mu.Unlock()
 			}
-			run.mu.Unlock()
+			recordFailure(mg.Run(genCtx, metricExp))
 		}
-		recordFailure(mg.Run(genCtx, metricExp))
 	}
 
-finalize:
 	if runFailure() != nil {
 		stopGeneration()
 	}

@@ -95,7 +95,7 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 		"service_name": def.ServiceName, "scenario_span_count": 0,
 		"output": "file", "format": "json",
 		"endpoints": endpoints, "insecure": true,
-		"signal_type": "traces",
+		"signals": gen.Signals{Traces: true},
 		"log_config": map[string]any{
 			"enabled":       logDef.Enabled,
 			"logs_per_span": logDef.LogsPerSpan,
