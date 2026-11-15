@@ -50,23 +50,19 @@ runtime_check_ancestors() {
     parent=$(dirname "$current")
     [ "$parent" = "$current" ] && break
     current=$parent
-    [ "$current" = "/" ] && break
     [ -e "$current" ] || continue
-    local mode owner
+    local mode
     mode=$(runtime_stat_mode "$current") || {
       echo "ERROR: cannot read permissions for $current" >&2
       return 1
     }
-    owner=$(runtime_stat_uid "$current") || {
-      echo "ERROR: cannot read owner for $current" >&2
-      return 1
-    }
     local numeric=$((8#$mode))
-    if [ "$owner" != "$(id -u)" ] && [ $((numeric & 8#022)) -ne 0 ] && [ $((numeric & 8#01000)) -eq 0 ]; then
+    if [ $((numeric & 8#022)) -ne 0 ] && [ $((numeric & 8#01000)) -eq 0 ]; then
       echo "ERROR: $current is group/other-writable and not sticky, so another user could replace the runtime directory." >&2
       echo "       Set O11Y_WORKBENCH_RUNTIME_DIR to a directory only you can write." >&2
       return 1
     fi
+    [ "$current" = "/" ] && break
   done
   return 0
 }
@@ -87,6 +83,15 @@ runtime_prepare() {
   else
     RUN_DIR="$project_dir/.run"
   fi
+  local parent name
+  parent=$(cd -P -- "$(dirname "$RUN_DIR")" && pwd -P) || {
+    echo "ERROR: runtime directory parent must exist and be accessible" >&2
+    return 1
+  }
+  name=$(basename "$RUN_DIR")
+  RUN_DIR="$parent/$name"
+  runtime_check_ancestors "$RUN_DIR" || return 1
+
 
   if [ -L "$RUN_DIR" ]; then
     echo "ERROR: $RUN_DIR is a symlink; refusing to use it as the runtime directory." >&2
@@ -99,24 +104,10 @@ runtime_prepare() {
   fi
 
   if [ ! -d "$RUN_DIR" ]; then
-    local parent tmp
-    parent=$(dirname "$RUN_DIR")
-    [ -d "$parent" ] || {
-      echo "ERROR: $parent does not exist; cannot create the runtime directory." >&2
+    # mkdir is atomic and never moves a losing initializer inside the winner.
+    if ! mkdir -m 700 "$RUN_DIR" 2>/dev/null && [ ! -d "$RUN_DIR" ]; then
+      echo "ERROR: cannot create runtime directory $RUN_DIR" >&2
       return 1
-    }
-    tmp=$(mktemp -d "$parent/.o11y-runtime.XXXXXX") || {
-      echo "ERROR: cannot create a temporary runtime directory under $parent" >&2
-      return 1
-    }
-    chmod 700 "$tmp" || return 1
-    if ! mv "$tmp" "$RUN_DIR" 2>/dev/null; then
-      # Another launcher created it first; keep theirs if it is valid.
-      rm -rf "$tmp"
-      [ -d "$RUN_DIR" ] || {
-        echo "ERROR: cannot create runtime directory $RUN_DIR" >&2
-        return 1
-      }
     fi
   fi
 
@@ -143,7 +134,6 @@ runtime_prepare() {
     return 1
   fi
 
-  runtime_check_ancestors "$RUN_DIR" || return 1
   export RUN_DIR
   return 0
 }
@@ -251,7 +241,7 @@ runtime_pidfd_available() {
   [ "$(runtime_platform)" = "Linux" ] || return 1
   [ -d /proc ] || return 1
   command -v python3 >/dev/null 2>&1 || return 1
-  python3 -c 'import os, signal, sys; sys.exit(0 if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal") else 1)'
+  python3 -c 'import os, signal; f = os.pidfd_open(os.getpid()); signal.pidfd_send_signal(f, 0); open("/proc/self/stat").read(); open("/proc/self/cmdline", "rb").read(); os.close(f)' >/dev/null 2>&1
 }
 
 # runtime_record_pid PIDFILE PID EXPECTED_ARGV...
@@ -360,3 +350,17 @@ runtime_stop() {
   rm -f "$pidfile"
   return 0
 }
+
+# Executed by Make only for Podman Compose commands; sourcing remains inert.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  set -euo pipefail
+  [ "${1:-}" = compose ] || exit 2
+  shift
+  project_dir=$(cd -P -- "$(dirname "$0")/.." && pwd -P)
+  runtime_prepare "$project_dir"
+  config_dir=$(mktemp -d "$RUN_DIR/docker-config.XXXXXX")
+  trap 'rm -rf -- "$config_dir"' EXIT
+  printf '{}\n' > "$config_dir/config.json"
+  export DOCKER_CONFIG="$config_dir"
+  "$@"
+fi

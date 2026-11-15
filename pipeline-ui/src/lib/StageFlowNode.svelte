@@ -127,6 +127,7 @@
 
   .card-actions {
     position: absolute;
+    z-index: 2;
     top: 6px;
     right: 6px;
     display: inline-flex;
@@ -137,7 +138,6 @@
     background: color-mix(in oklab, var(--color-surface) 88%, transparent);
     border: 1px solid transparent;
     opacity: 0;
-    pointer-events: none;
     transition: opacity var(--transition-fast, 120ms ease), border-color var(--transition-fast, 120ms ease);
   }
 
@@ -146,7 +146,6 @@
   .node-card[aria-pressed='true'] .card-actions,
   .card-actions:focus-within {
     opacity: 1;
-    pointer-events: auto;
     border-color: var(--color-border);
   }
 
