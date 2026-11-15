@@ -12,6 +12,7 @@
   import InfraNode from './InfraNode.svelte'
   import SwimlaneRow from './SwimlaneRow.svelte'
   import StagePalette from './StagePalette.svelte'
+  import { getSnippetForSignal } from './snippets'
   import type {
     PipelinesBySignal,
     Stage,
@@ -33,6 +34,14 @@
   } from './svg-utils'
 
   function packSwimlane(flowNodes: Node<StageNodeData>[], parentId: string) {
+    // Flow caches nodes by identity; publish resized lanes and moved children as
+    // new objects rather than mutating the currently rendered node instances.
+    for (let i = 0; i < flowNodes.length; i++) {
+      const node = flowNodes[i]
+      if (node.id === parentId || node.parentId === parentId) {
+        flowNodes[i] = { ...node }
+      }
+    }
     const stages = flowNodes
       .filter((n) => n.parentId === parentId && n.type === 'stage')
       .sort((a, b) => a.position.x - b.position.x)
@@ -115,6 +124,8 @@
   let edges = $state.raw<Edge[]>([])
   let nodeIdCounter = $state(1)
 
+  let targetSignal = $state<SignalType>('traces')
+  let dropError = $state('')
   let lastPipelinesHash = ''
   let lastTopologyHash = ''
   let lastFlowHash = ''
@@ -176,8 +187,18 @@
       }
       if (flowHash === lastFlowHash) return
 
+      // Graph nodes may lag the model after an inspector edit. Serialize model
+      // data for existing stages, using node data only for graph-only stages.
+      const modelNodes = flowNodes.map((node) => {
+        if (node.type !== 'stage' || !node.parentId) return node
+        const signal = node.parentId.replace('swimlane-', '') as SignalType
+        const pipeline = p[signal]
+        const stage = pipeline?.stages.find((item) => item.id === node.id)
+        if (!stage) return node
+        return { ...node, data: { ...node.data, stage, processor: pipeline.processors[stage.processor_ref] ?? {} } }
+      })
       const request = ++flowRequest
-      void flowToPipelines(flowNodes as any, flowEdges, p)
+      void flowToPipelines(modelNodes as any, flowEdges, p)
         .then((updated) => {
           if (request !== flowRequest ||
               pipelinesHash !== JSON.stringify(pipelines) ||
@@ -213,7 +234,7 @@
   })
 
   // ─── Snippet view (bridges StagePalette → SwimlaneRow snippet modal) ────
-  let snippetConfig = $state<SnippetTemplate | null>(null)
+  let snippetConfig = $state.raw<SnippetTemplate | null>(null)
   let snippetModal = $state(false)
 
   function handleSnippetView(snippet: SnippetTemplate) {
@@ -225,13 +246,20 @@
     type: StageType
     signal: import('./types').SignalType
     snippet?: SnippetTemplate
+    insertionIndex?: number
   }) {
+    const snippet = opts.snippet ? getSnippetForSignal(opts.snippet, opts.signal) : undefined
+    if (opts.snippet && !snippet) return false
     onResultClear?.()
     const type = opts.type
-    const id = `stage-${nodeIdCounter++}`
-    const procName = opts.snippet
-      ? `${type}/${opts.snippet.id}-${nodeIdCounter}`
-      : `${type}/${type}-${id}`
+    let id: string
+    let procName: string
+    do {
+      id = `stage-${nodeIdCounter++}`
+      procName = snippet ? `${type}/${snippet.id}-${nodeIdCounter}` : `${type}/${type}-${id}`
+    } while (nodes.some((node) => node.id === id) ||
+      (['traces', 'logs', 'metrics'] as const).some((signal) => pipelines[signal].stages.some((stage) => stage.id === id)) ||
+      procName in pipelines[opts.signal].processors)
     const parentId = `swimlane-${opts.signal}`
     let currentNodes = [...nodes]
     if (!currentNodes.some((n) => n.id === parentId)) {
@@ -242,20 +270,9 @@
     const siblings = currentNodes
       .filter((n) => n.parentId === parentId && n.type === 'stage')
       .sort((a, b) => a.position.x - b.position.x)
-    const receiverNodes = currentNodes.filter(
-      (n) => n.parentId === parentId && n.type === 'infra' && (n.data as any)?.type === 'receiver',
-    )
-    const receiverRight = receiverNodes.length > 0
-      ? receiverNodes[0].position.x + (receiverNodes[0].width || STAGE_WIDTH)
-      : 180
-    const firstStageX = receiverRight + MIN_GAP
-    const position = {
-      x: siblings.length > 0
-        ? siblings[siblings.length - 1].position.x + STAGE_WIDTH + MIN_GAP
-        : firstStageX,
-      y: NODE_Y,
-    }
-    const processor = (opts.snippet?.processor ?? {}) as ProcessorConfig
+    const insertionIndex = Math.max(0, Math.min(opts.insertionIndex ?? siblings.length, siblings.length))
+    const position = { x: FIRST_STAGE_X + insertionIndex * (STAGE_WIDTH + MIN_GAP), y: NODE_Y }
+    const processor = (snippet?.processor ?? {}) as ProcessorConfig
     const newNode: Node<StageNodeData> = {
       id,
       type: 'stage',
@@ -266,16 +283,37 @@
       data: {
         stage: { id, type, processor_ref: procName, error_mode: (processor.error_mode as any) || 'ignore' },
         processor,
-        stageIndex: siblings.length,
+        stageIndex: insertionIndex,
         signal: opts.signal,
       },
+    }
+    const ordered = [...siblings.slice(0, insertionIndex), newNode, ...siblings.slice(insertionIndex)]
+    for (let i = 0; i < ordered.length; i++) {
+      ordered[i].position = { x: FIRST_STAGE_X + i * (STAGE_WIDTH + MIN_GAP), y: NODE_Y }
     }
     const newNodes = [...currentNodes, newNode]
     packSwimlane(newNodes, parentId)
     nodes = newNodes
     edges = laneEdges(newNodes, edges, parentId, opts.signal)
+    // Make the new stage part of the authoritative model before exposing it
+    // to the inspector; graph serialization is asynchronous.
+    const pipeline = pipelines[opts.signal]
+    const updated = {
+      ...pipelines,
+      [opts.signal]: {
+        ...pipeline,
+        stages: ordered.map((node) => pipeline.stages.find((stage) => stage.id === node.id) ?? node.data.stage),
+        processors: { ...pipeline.processors, [procName]: processor },
+      },
+    }
+    flowRequest++
+    lastPipelinesHash = JSON.stringify(updated)
+    lastTopologyHash = getPipelinesTopologyHash(updated)
+    onPipelinesChange?.(updated)
+    targetSignal = opts.signal
     onNodeSelected?.(id)
     onNodeEdit?.({ stage: newNode.data.stage, processor, signal: opts.signal })
+    return true
   }
 
   // Highlight all shared receiver references when one is selected
@@ -344,32 +382,11 @@
       return event.clientX < rect.left + rect.width / 2
     })
     const insertionIndex = index < 0 ? siblings.length : index
-    const id = `stage-${nodeIdCounter++}`
-    const processor = (snippet?.processor ?? {}) as ProcessorConfig
-    const newNode: Node<StageNodeData> = {
-      id,
-      type: 'stage',
-      parentId: lane.id,
-      position: { x: FIRST_STAGE_X + insertionIndex * (STAGE_WIDTH + MIN_GAP), y: NODE_Y },
-      zIndex: 10,
-      draggable: false,
-      data: {
-        stage: { id, type, processor_ref: `${type}/${type}-${id}` },
-        processor,
-        stageIndex: insertionIndex,
-        signal,
-      },
+    if (!addStageToSignal({ type, signal, snippet, insertionIndex })) {
+      dropError = `${snippet?.name ?? 'This favorite'} is not available for ${signal}.`
+      return
     }
-
-    const ordered = [...siblings.slice(0, insertionIndex), newNode, ...siblings.slice(insertionIndex)]
-    for (let i = 0; i < ordered.length; i++) {
-      ordered[i].position = { x: FIRST_STAGE_X + i * (STAGE_WIDTH + MIN_GAP), y: NODE_Y }
-    }
-    const newNodes = [...nodes, newNode]
-    packSwimlane(newNodes, lane.id)
-    onResultClear?.()
-    nodes = newNodes
-    edges = laneEdges(newNodes, edges, lane.id, signal)
+    dropError = ''
   }
 </script>
 
@@ -395,7 +412,7 @@
   </div>
 
   <div class="graph-workspace flow-layout">
-    <StagePalette {onImport} {onExport} onSnippetView={handleSnippetView} onAddStage={addStageToSignal} />
+    <StagePalette {onImport} {onExport} bind:targetSignal onSnippetView={handleSnippetView} onAddStage={addStageToSignal} />
     <div class="graph-area">
       <p class="graph-help tiny muted">Drag cards to reorder · drop between nodes to insert · select to edit</p>
       <SwimlaneRow
@@ -403,6 +420,8 @@
         bind:edges
         bind:snippetConfig
         bind:snippetModal
+        bind:targetSignal
+        onSnippetApply={(snippet) => addStageToSignal({ type: snippet.type, signal: targetSignal, snippet })}
         nodeTypes={{ stage: StageFlowNode, swimlane: SwimlaneNode, infra: InfraNode }}
         {pipelineVersion}
         hasStages={nodes.some(n => n.type === 'stage')}
@@ -412,6 +431,7 @@
         ondragover={handleDragOver}
         ondrop={handleDrop}
       />
+      {#if dropError}<p class="graph-feedback tiny" role="alert">{dropError}</p>{/if}
       <p class="graph-feedback tiny muted" role="status" aria-live="polite">
         Animated connections show direction only. No telemetry is running until you execute.
       </p>

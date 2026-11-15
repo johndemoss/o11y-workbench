@@ -1,11 +1,12 @@
-import type { SnippetTemplate } from './types'
+import type { SignalType, SnippetTemplate } from './types'
 
-/** Library entries — transform uses trace_statements; filter uses Collector filterprocessor conditions. */
+/** Canonical trace-origin templates; signals lists the lanes each template supports. */
 export const SNIPPETS: SnippetTemplate[] = [
   {
     id: 'drop-internal-spans',
     name: 'Drop internal spans',
     type: 'filter',
+    signals: ['traces'],
     description: 'Drops spans where kind is SPAN_KIND_INTERNAL.',
     processor: {
       error_mode: 'ignore',
@@ -18,7 +19,8 @@ export const SNIPPETS: SnippetTemplate[] = [
     id: 'set-env-attribute',
     name: 'Set environment attribute',
     type: 'transform',
-    description: 'Sets span attribute env to prod.',
+    signals: ['traces', 'logs', 'metrics'],
+    description: 'Sets the env attribute to prod.',
     processor: {
       error_mode: 'ignore',
       trace_statements: [
@@ -33,6 +35,7 @@ export const SNIPPETS: SnippetTemplate[] = [
     id: 'drop-by-status',
     name: 'Drop spans with OK status',
     type: 'filter',
+    signals: ['traces'],
     description: 'Drops spans with STATUS_CODE_OK.',
     processor: {
       error_mode: 'ignore',
@@ -45,6 +48,7 @@ export const SNIPPETS: SnippetTemplate[] = [
     id: 'add-service-version',
     name: 'Add service version',
     type: 'transform',
+    signals: ['traces', 'logs', 'metrics'],
     description: 'Sets resource attribute service.version.',
     processor: {
       error_mode: 'silent',
@@ -60,7 +64,8 @@ export const SNIPPETS: SnippetTemplate[] = [
     id: 'rename-attribute',
     name: 'Rename attribute',
     type: 'transform',
-    description: 'Renames a span attribute (copy + delete).',
+    signals: ['traces', 'logs', 'metrics'],
+    description: 'Renames an attribute (copy + delete).',
     processor: {
       error_mode: 'ignore',
       trace_statements: [
@@ -78,7 +83,8 @@ export const SNIPPETS: SnippetTemplate[] = [
     id: 'filter-production-tags-lambda',
     name: 'Keep production tags (lambda)',
     type: 'transform',
-    description: 'Copies only prod values from a span tags array into prod_tags using an experimental OTTL lambda.',
+    signals: ['traces', 'logs', 'metrics'],
+    description: 'Copies only prod values from a tags attribute array into prod_tags using an experimental OTTL lambda.',
     processor: {
       error_mode: 'ignore',
       trace_statements: [
@@ -92,6 +98,31 @@ export const SNIPPETS: SnippetTemplate[] = [
     },
   },
 ]
+
+/** Return an independent, lane-specific copy, or null when the template is unsupported. */
+export function getSnippetForSignal(snippet: SnippetTemplate, signal: SignalType): SnippetTemplate | null {
+  if (!snippet.signals.includes(signal)) return null
+
+  const copy = structuredClone(snippet)
+  if (copy.type !== 'transform') return copy
+
+  const processor = copy.processor
+  const blocks = processor.trace_statements ?? processor.log_statements ?? processor.metric_statements
+  delete processor.trace_statements
+  delete processor.log_statements
+  delete processor.metric_statements
+
+  const key = signal === 'logs' ? 'log_statements' : signal === 'metrics' ? 'metric_statements' : 'trace_statements'
+  const context = signal === 'logs' ? 'log' : signal === 'metrics' ? 'datapoint' : 'span'
+  if (Array.isArray(blocks)) {
+    processor[key] = blocks.map((block: Record<string, unknown>) =>
+      block.context === 'span' || block.context === 'log' || block.context === 'datapoint'
+        ? { ...block, context }
+        : block,
+    )
+  }
+  return copy
+}
 
 /** Extract native OTTL lines from a processor config for the inspector textarea. */
 export function extractOttlLines(type: string, processor: Record<string, unknown>): string {

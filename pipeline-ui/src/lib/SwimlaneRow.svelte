@@ -16,22 +16,12 @@
   import { wouldCreateCycle, reorderStage } from './flow-sync'
   import type {
     Stage,
-    StageType,
     SignalType,
     ProcessorConfig,
-    PipelineResult,
     SnippetTemplate,
   } from './types'
   import { signalEdgeProps } from './types'
-  import {
-    STAGE_WIDTH,
-    MIN_GAP,
-    STAGE_GAP_TOTAL,
-    FIRST_STAGE_X,
-    NODE_Y,
-    swimlaneWidthForStageCount,
-    exporterXForStageCount,
-  } from './svg-utils'
+  import { getSnippetForSignal } from './snippets'
 
   // ─── Props (from SwimlaneFlowBuilder) ────────────────────────────────────
   let {
@@ -42,6 +32,8 @@
     hasStages = false,
     snippetModal = $bindable(false),
     snippetConfig = $bindable<SnippetTemplate | null>(null),
+    targetSignal = $bindable<SignalType>('traces'),
+    onSnippetApply,
     onNodeEdit,
     onNodeSelected,
     onResultClear,
@@ -55,6 +47,8 @@
     hasStages: boolean
     snippetModal: boolean
     snippetConfig: SnippetTemplate | null
+    targetSignal: SignalType
+    onSnippetApply: (snippet: SnippetTemplate) => boolean
     onNodeEdit?: (data: { stage: Stage; processor: ProcessorConfig; signal: SignalType }) => void
     onNodeSelected?: (nodeId: string | null) => void
     onResultClear?: () => void
@@ -147,12 +141,13 @@
 
   // ─── Node click → inspector (stage or shared receiver) ───────────────────
   function handleNodeClick({ node }: { node: Node<StageNodeData>; event: MouseEvent | TouchEvent }) {
+    const signal = (node.type === 'swimlane' ? node.id : node.parentId)?.replace('swimlane-', '')
+    if (signal === 'traces' || signal === 'logs' || signal === 'metrics') targetSignal = signal
     if (node.type === 'infra' && (node.data as any)?.type === 'receiver') {
       onNodeSelected?.(node.id)
       return
     }
     if (node.type !== 'stage') return
-    const signal = node.parentId?.replace('swimlane-', '')
     if (signal !== 'traces' && signal !== 'logs' && signal !== 'metrics') return
     onNodeSelected?.(node.id)
     onNodeEdit?.({ stage: node.data.stage, processor: node.data.processor, signal })
@@ -191,72 +186,10 @@
   }
 
   // ─── Snippet modal ─────────────────────────────────────────────────────────
-  function handleSnippetView(snippet: SnippetTemplate) {
-    snippetConfig = snippet
-    snippetModal = true
-  }
+  let resolvedSnippet = $derived(snippetConfig ? getSnippetForSignal(snippetConfig, targetSignal) : null)
 
   function handleSnippetApply() {
-    if (!snippetConfig) return
-    const snippet = snippetConfig
-    const id = `snippet-${Date.now()}`
-    const type = snippet.type
-    const procName = `${type}/${type}-${id}`
-
-    // Library entries use span/trace context → Traces lane.
-    const targetSwimlane =
-      nodes.find(n => n.id === 'swimlane-traces') || nodes.find(n => n.type === 'swimlane')
-    if (!targetSwimlane) return
-    const targetSwimlaneId = targetSwimlane.id
-    const processor = snippet.processor
-
-    const siblings = nodes.filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
-    const newNode: Node<StageNodeData> = {
-      id, type: 'stage', parentId: targetSwimlaneId,
-      position: {
-        x: siblings.length > 0 ? siblings[siblings.length - 1].position.x + STAGE_GAP_TOTAL : FIRST_STAGE_X,
-        y: NODE_Y,
-      },
-      width: STAGE_WIDTH,
-      draggable: false,
-      data: {
-        stage: { id, type: type as StageType, processor_ref: procName },
-        processor,
-        stageIndex: siblings.length,
-        signal: (targetSwimlaneId.replace('swimlane-', '') as any) || 'traces',
-      } as any,
-    }
-
-    let newNodes = [...nodes, newNode]
-    let newEdges = [...edges]
-    if (siblings.length > 0) {
-      const last = siblings[siblings.length - 1]
-      newEdges.push({
-        id: `e-${last.id}-${id}`, source: last.id, target: id,
-        type: 'straight',
-        ...signalEdgeProps((targetSwimlaneId.replace('swimlane-', '') as SignalType) || 'traces'),
-      })
-    }
-    const stages = newNodes
-      .filter(n => n.parentId === targetSwimlaneId && n.type === 'stage')
-      .sort((a, b) => a.position.x - b.position.x)
-    for (let i = 0; i < stages.length; i++) {
-      stages[i].position = { x: FIRST_STAGE_X + i * STAGE_GAP_TOTAL, y: NODE_Y }
-    }
-    const expX = exporterXForStageCount(stages.length)
-    for (const n of newNodes) {
-      if (n.parentId !== targetSwimlaneId || n.type !== 'infra') continue
-      const kind = (n.data as { type?: string })?.type
-      if (kind === 'exporter') n.position = { ...n.position, x: expX, y: NODE_Y }
-      if (kind === 'receiver') n.position = { ...n.position, y: NODE_Y }
-    }
-    const swimlaneNode = newNodes.find(n => n.id === targetSwimlaneId)
-    if (swimlaneNode) {
-      const w = swimlaneWidthForStageCount(stages.length)
-      swimlaneNode.width = w
-      swimlaneNode.style = `width: ${w}px`
-    }
-    nodes = newNodes; edges = newEdges
+    if (!snippetConfig || !resolvedSnippet || !onSnippetApply(snippetConfig)) return
     snippetModal = false
     snippetConfig = null
   }
@@ -332,11 +265,15 @@
         <h3>{snippetConfig.name}</h3>
         <p class="modal-hint">Library · <strong>{snippetConfig.type}</strong></p>
         <p class="modal-hint">{snippetConfig.description}</p>
-        <label class="modal-label" for="snippet-config-textarea">Configuration preview</label>
-        <pre id="snippet-config-textarea" class="modal-textarea preview-pre">{JSON.stringify(snippetConfig.processor, null, 2)}</pre>
+        {#if resolvedSnippet}
+          <label class="modal-label" for="snippet-config-textarea">Configuration preview for {targetSignal}</label>
+          <pre id="snippet-config-textarea" class="modal-textarea preview-pre">{JSON.stringify(resolvedSnippet.processor, null, 2)}</pre>
+        {:else}
+          <p role="status">This favorite is not available for {targetSignal}. Available for: {snippetConfig.signals.join(', ')}.</p>
+        {/if}
         <div class="modal-actions">
           <button class="confirm-btn confirm-btn-secondary" onclick={() => { snippetModal = false; snippetConfig = null }}>Cancel</button>
-          <button class="confirm-btn confirm-btn-primary" onclick={handleSnippetApply}>Add to lane</button>
+          <button class="confirm-btn confirm-btn-primary" disabled={!resolvedSnippet} title="Add to {targetSignal}" onclick={handleSnippetApply}>Add to lane</button>
         </div>
       </div>
     </div>

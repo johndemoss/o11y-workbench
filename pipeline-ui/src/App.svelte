@@ -32,7 +32,7 @@
   let pipelineYaml: string = $state('')
   let activeTab: 'quick' | 'pipeline' | 'graph' = $state('graph')
   /** Modal editor for Quick/Pipeline tabs only — Graph uses persistent StageInspector. */
-  let editingStage: { stage: Stage; processor: ProcessorConfig } | null = $state(null)
+  let editingStage: { stage: Stage; processor: ProcessorConfig; signal: SignalType } | null = $state(null)
   let selectedNodeId: string | null = $state(null)
   let yamlOpen = $state(true)
   let panelHeight = $state(320)
@@ -132,11 +132,7 @@
     // Keep inspector bound to current stage identity after graph sync
     if (inspectorSelection?.kind === 'stage') {
       const selected = inspectorSelection
-      const sig = getSignalForStage(selected.stage.id)
-      if (!sig) {
-        inspectorSelection = null
-        return
-      }
+      const sig = selected.signal
       const stage = pipelinesBySignal[sig].stages.find((s) => s.id === selected.stage.id)
       if (!stage) {
         inspectorSelection = null
@@ -231,17 +227,13 @@
   function handleNodeEdit(data: { stage: Stage; processor: ProcessorConfig; signal: SignalType }) {
     // Graph: persistent inspector. Other tabs: modal.
     if (activeTab === 'graph') {
-      inspectorSelection = { kind: 'stage', stage: data.stage, processor: data.processor, signal: data.signal }
+      const stage = pipelinesBySignal[data.signal].stages.find((item) => item.id === data.stage.id) ?? data.stage
+      const processor = pipelinesBySignal[data.signal].processors[stage.processor_ref] ?? data.processor
+      inspectorSelection = { kind: 'stage', stage, processor, signal: data.signal }
       selectedNodeId = data.stage.id
       return
     }
     editingStage = data
-  }
-  function getSignalForStage(stageId: string): SignalType | null {
-    for (const sig of SIGNALS) {
-      if (pipelinesBySignal[sig].stages.some(s => s.id === stageId)) return sig
-    }
-    return null
   }
   function handleInspectorStageUpdate(s: Stage) {
     if (inspectorSelection?.kind !== 'stage') return
@@ -310,18 +302,20 @@
     clearResults()
   }
   function handleStageUpdate(s: Stage) {
-    const sig = getSignalForStage(editingStage!.stage.id) || selectedSignal
+    const sig = editingStage!.signal
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: { ...pipelinesBySignal[sig], stages: pipelinesBySignal[sig].stages.map(st => st.id === editingStage!.stage.id ? s : st) }
     }
+    editingStage = { ...editingStage!, stage: s }
   }
   function handleStageProcessorUpdate(c: ProcessorConfig) {
-    const sig = getSignalForStage(editingStage!.stage.id) || selectedSignal
+    const sig = editingStage!.signal
     pipelinesBySignal = {
       ...pipelinesBySignal,
       [sig]: { ...pipelinesBySignal[sig], processors: { ...pipelinesBySignal[sig].processors, [editingStage!.stage.processor_ref]: c } }
     }
+    editingStage = { ...editingStage!, processor: c }
   }
   function yamlStringify(p: Pipeline): string {
     let out = 'stages:\n'
@@ -527,7 +521,7 @@
         <option value="metrics">metrics</option>
       </select>
     </div>
-    <PipelineBuilder {pipeline} onValidate={handleValidate} onImport={() => showImport = true} />
+    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={() => showImport = true} />
     <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={handleExecuteResult} onrunselect={handleRunSelect} /></section>
   {/if}
   {#if activeTab !== 'graph'}
@@ -555,7 +549,7 @@
       onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}
     >
       <div class="modal">
-        <StageEditor stage={editingStage.stage} processor={editingStage.processor} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
+        <StageEditor stage={editingStage.stage} processor={editingStage.processor} signal={editingStage.signal} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
         <button class="btn-close" onclick={() => editingStage = null}>Close</button>
       </div>
     </div>

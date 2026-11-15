@@ -107,6 +107,8 @@ export interface SnippetTemplate {
   id: string
   name: string
   type: StageType
+  /** Signals for which this template can produce a valid processor. */
+  signals: SignalType[]
   processor: ProcessorConfig
   description: string
 }
