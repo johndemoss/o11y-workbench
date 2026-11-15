@@ -1,6 +1,9 @@
 package engine
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestValidateStatements_Valid(t *testing.T) {
 	res := ValidateStatements([]string{`set(name, "x")`})
@@ -41,7 +44,7 @@ func TestTransformRunData_SetAttribute(t *testing.T) {
   }]
 }`)
 
-	out, count, err := TransformRunData(traceJSON, []string{`set(attributes["env"], "prod")`, `set(name, "renamed")`})
+	out, count, err := TransformRunData(context.Background(), traceJSON, []string{`set(attributes["env"], "prod")`, `set(name, "renamed")`})
 	if err != nil {
 		t.Fatalf("TransformRunData: %v", err)
 	}

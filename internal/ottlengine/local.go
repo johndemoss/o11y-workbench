@@ -1,6 +1,7 @@
 package ottlengine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -21,53 +22,62 @@ func (e *LocalEngine) Info() VersionInfo {
 	}
 }
 
-func (e *LocalEngine) ValidateStatements(statements []string) ottl.ValidateResult {
+func (e *LocalEngine) ValidateStatements(ctx context.Context, statements []string) ottl.ValidateResult {
+	if err := ctx.Err(); err != nil {
+		return ottl.ValidateResult{Errors: []string{err.Error()}}
+	}
 	return ottl.ValidateStatements(statements)
 }
 
-func (e *LocalEngine) ValidateFilterConditions(conditions []string, signals gen.Signals) ottl.ValidateResult {
+func (e *LocalEngine) ValidateFilterConditions(ctx context.Context, conditions []string, signals gen.Signals) ottl.ValidateResult {
+	if err := ctx.Err(); err != nil {
+		return ottl.ValidateResult{Errors: []string{err.Error()}}
+	}
 	return ottl.ValidateFilterConditionsParse(conditions, signals)
 }
 
-func (e *LocalEngine) TransformTraces(data json.RawMessage, statements []string) (json.RawMessage, int, error) {
-	return ottl.TransformRunData(data, statements)
+func (e *LocalEngine) TransformTraces(ctx context.Context, data json.RawMessage, statements []string) (json.RawMessage, int, error) {
+	return ottl.TransformRunData(ctx, data, statements)
 }
 
-func (e *LocalEngine) TransformLogs(data json.RawMessage, statements []string) (json.RawMessage, error) {
-	return ottl.TransformLogRunData(data, statements)
+func (e *LocalEngine) TransformLogs(ctx context.Context, data json.RawMessage, statements []string) (json.RawMessage, error) {
+	return ottl.TransformLogRunData(ctx, data, statements)
 }
 
-func (e *LocalEngine) TransformMetrics(data json.RawMessage, statements []string) (json.RawMessage, error) {
-	return ottl.TransformMetricRunData(data, statements)
+func (e *LocalEngine) TransformMetrics(ctx context.Context, data json.RawMessage, statements []string) (json.RawMessage, error) {
+	return ottl.TransformMetricRunData(ctx, data, statements)
 }
 
-func (e *LocalEngine) FilterTraces(data json.RawMessage, conditions []string, mode ottl.FilterMode) (json.RawMessage, int, int, error) {
-	return ottl.FilterRunData(data, conditions, mode)
+func (e *LocalEngine) FilterTraces(ctx context.Context, data json.RawMessage, conditions []string, mode ottl.FilterMode) (json.RawMessage, int, int, error) {
+	return ottl.FilterRunData(ctx, data, conditions, mode)
 }
 
-func (e *LocalEngine) FilterLogs(data json.RawMessage, conditions []string, mode ottl.FilterMode) (json.RawMessage, int, int, error) {
-	return ottl.FilterLogRunData(data, conditions, mode)
+func (e *LocalEngine) FilterLogs(ctx context.Context, data json.RawMessage, conditions []string, mode ottl.FilterMode) (json.RawMessage, int, int, error) {
+	return ottl.FilterLogRunData(ctx, data, conditions, mode)
 }
 
-func (e *LocalEngine) FilterMetrics(data json.RawMessage, conditions []string, mode ottl.FilterMode) (json.RawMessage, int, int, error) {
-	return ottl.FilterMetricRunData(data, conditions, mode)
+func (e *LocalEngine) FilterMetrics(ctx context.Context, data json.RawMessage, conditions []string, mode ottl.FilterMode) (json.RawMessage, int, int, error) {
+	return ottl.FilterMetricRunData(ctx, data, conditions, mode)
 }
 
-func (e *LocalEngine) ExecutePipeline(data json.RawMessage, pipeline ottl.Pipeline) (*ottl.PipelineResult, error) {
-	return ottl.ExecutePipeline(data, pipeline)
+func (e *LocalEngine) ExecutePipeline(ctx context.Context, data json.RawMessage, pipeline ottl.Pipeline) (*ottl.PipelineResult, error) {
+	return ottl.ExecutePipeline(ctx, data, pipeline)
 }
 
-func (e *LocalEngine) ExecutePipelineForSignal(data json.RawMessage, pipeline ottl.Pipeline, signal string) (*ottl.PipelineResult, error) {
-	return ottl.ExecutePipelineForSignal(data, pipeline, signal)
+func (e *LocalEngine) ExecutePipelineForSignal(ctx context.Context, data json.RawMessage, pipeline ottl.Pipeline, signal string) (*ottl.PipelineResult, error) {
+	return ottl.ExecutePipelineForSignal(ctx, data, pipeline, signal)
 }
 
-func (e *LocalEngine) ImportCollectorConfig(configYAML string) (ottl.PipelinesBySignal, error) {
+func (e *LocalEngine) ImportCollectorConfig(ctx context.Context, configYAML string) (ottl.PipelinesBySignal, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return ottl.ImportCollectorConfig(configYAML)
 }
 
 // ValidatePipelineOTTL walks processor configs and validates transform statements
 // and filter conditions against this train.
-func (e *LocalEngine) ValidatePipelineOTTL(pipeline ottl.Pipeline) ottl.ValidateResult {
+func (e *LocalEngine) ValidatePipelineOTTL(ctx context.Context, pipeline ottl.Pipeline) ottl.ValidateResult {
 	if len(pipeline.Processors) == 0 {
 		return ottl.ValidateResult{Valid: true, Parsed: 0}
 	}
@@ -78,35 +88,60 @@ func (e *LocalEngine) ValidatePipelineOTTL(pipeline ottl.Pipeline) ottl.Validate
 	)
 
 	for name, cfg := range pipeline.Processors {
+		if err := ctx.Err(); err != nil {
+			return ottl.ValidateResult{Errors: []string{err.Error()}}
+		}
 		kind := classifyProcessor(cfg)
 		switch kind {
 		case processorTransform:
-			stmts, err := extractTransformStatements(cfg)
+			cfgYAML, err := marshalProcessorYAML(cfg)
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
 				continue
 			}
-			if len(stmts) == 0 {
+			meta, err := ottl.ParseTransformConfigMeta(cfgYAML)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
 				continue
 			}
-			res := ottl.ValidateStatements(stmts)
-			parsed += res.Parsed
-			for _, msg := range res.Errors {
-				errors = append(errors, fmt.Sprintf("%s: %s", name, msg))
+			for _, groups := range [][]ottl.ContextStatements{meta.TraceGroups, meta.LogGroups, meta.MetricGroups} {
+				stmts := ottl.ExtractStatements(groups)
+				if len(stmts) == 0 {
+					continue
+				}
+				res := ottl.ValidateStatements(stmts)
+				parsed += res.Parsed
+				for _, msg := range res.Errors {
+					errors = append(errors, fmt.Sprintf("%s: %s", name, msg))
+				}
 			}
 		case processorFilter:
-			conds, signals, err := extractFilterConditions(cfg)
+			cfgYAML, err := marshalProcessorYAML(cfg)
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
 				continue
 			}
-			if len(conds) == 0 {
+			conds, _, err := ottl.ParseFilterConditionsBySignal(cfgYAML)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
 				continue
 			}
-			res := ottl.ValidateFilterConditionsParse(conds, signals)
-			parsed += res.Parsed
-			for _, msg := range res.Errors {
-				errors = append(errors, fmt.Sprintf("%s: %s", name, msg))
+			for _, section := range []struct {
+				conditions []string
+				signals    gen.Signals
+			}{
+				{conds.Traces, gen.Signals{Traces: true}},
+				{conds.Logs, gen.Signals{Logs: true}},
+				{conds.Metrics, gen.Signals{Metrics: true}},
+			} {
+				if len(section.conditions) == 0 {
+					continue
+				}
+				res := ottl.ValidateFilterConditionsParse(section.conditions, section.signals)
+				parsed += res.Parsed
+				for _, msg := range res.Errors {
+					errors = append(errors, fmt.Sprintf("%s: %s", name, msg))
+				}
 			}
 		}
 	}
@@ -143,46 +178,6 @@ func classifyProcessor(cfg ottl.ProcessorConfig) processorKind {
 		return processorFilter
 	}
 	return processorUnknown
-}
-
-func extractTransformStatements(cfg ottl.ProcessorConfig) ([]string, error) {
-	cfgYAML, err := marshalProcessorYAML(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return ottl.ParseTransformStatements(cfgYAML)
-}
-
-func extractFilterConditions(cfg ottl.ProcessorConfig) ([]string, gen.Signals, error) {
-	cfgYAML, err := marshalProcessorYAML(cfg)
-	if err != nil {
-		return nil, gen.Signals{}, err
-	}
-	conds, err := ottl.ParseFilterConditions(cfgYAML)
-	if err != nil {
-		return nil, gen.Signals{}, err
-	}
-	return conds, filterSignals(cfg), nil
-}
-
-func filterSignals(cfg ottl.ProcessorConfig) gen.Signals {
-	_, hasTraces := cfg["traces"]
-	_, hasLogs := cfg["logs"]
-	_, hasMetrics := cfg["metrics"]
-	n := 0
-	if hasTraces {
-		n++
-	}
-	if hasLogs {
-		n++
-	}
-	if hasMetrics {
-		n++
-	}
-	if n == 1 {
-		return gen.Signals{Traces: hasTraces, Logs: hasLogs, Metrics: hasMetrics}
-	}
-	return gen.Signals{Traces: true, Logs: true, Metrics: true}
 }
 
 func marshalProcessorYAML(cfg ottl.ProcessorConfig) (string, error) {

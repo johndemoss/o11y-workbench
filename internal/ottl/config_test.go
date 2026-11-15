@@ -417,3 +417,109 @@ traces:
 		t.Fatalf("expected ErrLooksLikeFilterConfig, got: %v", err)
 	}
 }
+
+func TestParseCombinedFilterConfig_Wrapped(t *testing.T) {
+	yamlStr := `
+filter:
+  traces:
+    span:
+      - kind == SPAN_KIND_INTERNAL
+  logs:
+    log_record:
+      - severity_text == "ERROR"
+`
+	traceConds, logConds, err := ParseCombinedFilterConfig(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(traceConds) != 1 {
+		t.Fatalf("trace conditions: got %d, want 1", len(traceConds))
+	}
+	if len(logConds) != 1 {
+		t.Fatalf("log conditions: got %d, want 1", len(logConds))
+	}
+}
+
+func TestParseFilterConditionsBySignal_MultiSignal(t *testing.T) {
+	yamlStr := `
+traces:
+  span:
+    - kind == SPAN_KIND_INTERNAL
+logs:
+  log_record:
+    - severity_text == "ERROR"
+metrics:
+  datapoint:
+    - value > 0
+`
+	bySig, structured, err := ParseFilterConditionsBySignal(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !structured {
+		t.Fatal("expected structured parse")
+	}
+	if len(bySig.Traces) != 1 || len(bySig.Logs) != 1 || len(bySig.Metrics) != 1 {
+		t.Fatalf("got traces=%d logs=%d metrics=%d", len(bySig.Traces), len(bySig.Logs), len(bySig.Metrics))
+	}
+}
+
+func TestParseTransformConfigMeta_PreservesGroups(t *testing.T) {
+	yamlStr := `
+trace_statements:
+  - context: span
+    conditions:
+      - attributes["keep"] == true
+    statements:
+      - set(attributes["x"], "1")
+`
+	meta, err := ParseTransformConfigMeta(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !meta.Structured || len(meta.TraceGroups) != 1 {
+		t.Fatalf("structured=%v groups=%d", meta.Structured, len(meta.TraceGroups))
+	}
+	if meta.TraceGroups[0].Context != "span" {
+		t.Fatalf("context=%q", meta.TraceGroups[0].Context)
+	}
+	if len(meta.TraceGroups[0].Conditions) != 1 {
+		t.Fatalf("conditions=%d", len(meta.TraceGroups[0].Conditions))
+	}
+}
+
+func TestParseTransformStatements_TraceOnlyFromMultiSignal(t *testing.T) {
+	yamlStr := `
+trace_statements:
+  - context: span
+    statements:
+      - set(attributes["trace"], "1")
+log_statements:
+  - context: log
+    statements:
+      - set(attributes["log"], "1")
+`
+	stmts, err := ParseTransformStatements(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stmts) != 1 || stmts[0] != `set(attributes["trace"], "1")` {
+		t.Fatalf("got %#v", stmts)
+	}
+}
+
+func TestParseCombinedTransformConfigAll_StructuredTraceOnly(t *testing.T) {
+	yamlStr := `
+trace_statements:
+  - context: span
+    statements:
+      - set(attributes["trace"], "1")
+`
+	trace, log, metric, err := ParseCombinedTransformConfigAll(yamlStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(trace) != 1 || len(log) != 0 || len(metric) != 0 {
+		t.Fatalf("trace=%d log=%d metric=%d", len(trace), len(log), len(metric))
+	}
+}

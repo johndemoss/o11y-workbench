@@ -1,51 +1,48 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
-
-	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // ExecutePipelineForSignal runs a pipeline against the given signal's OTLP JSON payload.
 // Traces use ExecutePipeline; logs and metrics reuse Transform*/Filter* run-data helpers.
-func ExecutePipelineForSignal(data json.RawMessage, pipeline Pipeline, signal string) (*PipelineResult, error) {
+func ExecutePipelineForSignal(ctx context.Context, data json.RawMessage, pipeline Pipeline, signal string) (*PipelineResult, error) {
 	switch signal {
 	case "", "traces":
-		return ExecutePipeline(data, pipeline)
+		return ExecutePipeline(ctx, data, pipeline)
 	case "logs":
-		return ExecuteLogPipeline(data, pipeline)
+		return ExecuteLogPipeline(ctx, data, pipeline)
 	case "metrics":
-		return ExecuteMetricPipeline(data, pipeline)
+		return ExecuteMetricPipeline(ctx, data, pipeline)
 	default:
 		return nil, fmt.Errorf("unsupported signal: %s", signal)
 	}
 }
 
 // ExecuteLogPipeline runs a pipeline of OTTL stages against log data.
-func ExecuteLogPipeline(logData json.RawMessage, pipeline Pipeline) (*PipelineResult, error) {
+func ExecuteLogPipeline(ctx context.Context, logData json.RawMessage, pipeline Pipeline) (*PipelineResult, error) {
 	if _, err := countLogRecordsJSON(logData); err != nil {
 		return nil, fmt.Errorf("unmarshal log data: %w", err)
 	}
-	return executeJSONPipeline(logData, pipeline, countLogRecordsJSON, executeLogTransformStage, executeLogFilterStage)
+	return executeJSONPipeline(ctx, logData, pipeline, countLogRecordsJSON, executeLogTransformStage, executeLogFilterStage)
 }
 
 // ExecuteMetricPipeline runs a pipeline of OTTL stages against metric data.
-func ExecuteMetricPipeline(metricData json.RawMessage, pipeline Pipeline) (*PipelineResult, error) {
+func ExecuteMetricPipeline(ctx context.Context, metricData json.RawMessage, pipeline Pipeline) (*PipelineResult, error) {
 	if _, err := countMetricDataPointsJSON(metricData); err != nil {
 		return nil, fmt.Errorf("unmarshal metric data: %w", err)
 	}
-	return executeJSONPipeline(metricData, pipeline, countMetricDataPointsJSON, executeMetricTransformStage, executeMetricFilterStage)
+	return executeJSONPipeline(ctx, metricData, pipeline, countMetricDataPointsJSON, executeMetricTransformStage, executeMetricFilterStage)
 }
 
 type countFn func(json.RawMessage) (int, error)
-type stageFn func(json.RawMessage, ProcessorConfig) (json.RawMessage, int, int, error)
+type stageFn func(context.Context, json.RawMessage, ProcessorConfig, ErrorMode) (json.RawMessage, int, int, error)
 
 func executeJSONPipeline(
+	ctx context.Context,
 	data json.RawMessage,
 	pipeline Pipeline,
 	count countFn,
@@ -65,6 +62,9 @@ func executeJSONPipeline(
 	current := data
 
 	for i, stage := range pipeline.Stages {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		startTime := time.Now()
 		errorMode := stage.ErrorMode
 		if errorMode == "" {
@@ -84,11 +84,14 @@ func executeJSONPipeline(
 
 		switch stage.Type {
 		case StageTypeTransform:
-			output, outputCount, statementsParsed, stageErr = transform(current, procCfg)
+			output, outputCount, statementsParsed, stageErr = transform(ctx, current, procCfg, errorMode)
 		case StageTypeFilter:
-			output, outputCount, statementsParsed, stageErr = filter(current, procCfg)
+			output, outputCount, statementsParsed, stageErr = filter(ctx, current, procCfg, errorMode)
 		default:
 			return nil, fmt.Errorf("stage %s: unknown stage type: %s", stage.ID, stage.Type)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 
 		intermediate := current
@@ -135,7 +138,7 @@ func executeJSONPipeline(
 	}, nil
 }
 
-func executeLogTransformStage(logData json.RawMessage, cfg ProcessorConfig) (json.RawMessage, int, int, error) {
+func executeLogTransformStage(ctx context.Context, logData json.RawMessage, cfg ProcessorConfig, errorMode ErrorMode) (json.RawMessage, int, int, error) {
 	if len(cfg) == 0 {
 		n, _ := countLogRecordsJSON(logData)
 		return logData, n, 0, nil
@@ -144,15 +147,16 @@ func executeLogTransformStage(logData json.RawMessage, cfg ProcessorConfig) (jso
 	if err != nil {
 		return logData, 0, 0, fmt.Errorf("marshal processor config: %w", err)
 	}
-	logStmts, err := extractSignalTransformStatements(cfgYAML, "logs")
+	groups, err := extractSignalTransformGroups(cfgYAML, "logs")
 	if err != nil {
 		return logData, 0, 0, err
 	}
+	logStmts := ExtractStatements(groups)
 	if len(logStmts) == 0 {
 		n, _ := countLogRecordsJSON(logData)
 		return logData, n, 0, nil
 	}
-	out, err := TransformLogRunData(logData, logStmts)
+	out, _, err := TransformLogRunDataWithGroups(ctx, logData, groups, errorMode)
 	if err != nil {
 		return logData, 0, len(logStmts), err
 	}
@@ -160,7 +164,7 @@ func executeLogTransformStage(logData json.RawMessage, cfg ProcessorConfig) (jso
 	return out, n, len(logStmts), nil
 }
 
-func executeLogFilterStage(logData json.RawMessage, cfg ProcessorConfig) (json.RawMessage, int, int, error) {
+func executeLogFilterStage(ctx context.Context, logData json.RawMessage, cfg ProcessorConfig, errorMode ErrorMode) (json.RawMessage, int, int, error) {
 	if len(cfg) == 0 {
 		n, _ := countLogRecordsJSON(logData)
 		return logData, n, 0, nil
@@ -177,14 +181,14 @@ func executeLogFilterStage(logData json.RawMessage, cfg ProcessorConfig) (json.R
 		n, _ := countLogRecordsJSON(logData)
 		return logData, n, 0, nil
 	}
-	out, _, kept, err := FilterLogRunData(logData, logConds, FilterModeInclude)
+	out, _, kept, err := FilterLogRunDataWithErrorMode(ctx, logData, logConds, FilterModeExclude, errorMode)
 	if err != nil {
 		return logData, 0, len(logConds), err
 	}
 	return out, kept, len(logConds), nil
 }
 
-func executeMetricTransformStage(metricData json.RawMessage, cfg ProcessorConfig) (json.RawMessage, int, int, error) {
+func executeMetricTransformStage(ctx context.Context, metricData json.RawMessage, cfg ProcessorConfig, errorMode ErrorMode) (json.RawMessage, int, int, error) {
 	if len(cfg) == 0 {
 		n, _ := countMetricDataPointsJSON(metricData)
 		return metricData, n, 0, nil
@@ -193,15 +197,16 @@ func executeMetricTransformStage(metricData json.RawMessage, cfg ProcessorConfig
 	if err != nil {
 		return metricData, 0, 0, fmt.Errorf("marshal processor config: %w", err)
 	}
-	metricStmts, err := extractSignalTransformStatements(cfgYAML, "metrics")
+	groups, err := extractSignalTransformGroups(cfgYAML, "metrics")
 	if err != nil {
 		return metricData, 0, 0, err
 	}
+	metricStmts := ExtractStatements(groups)
 	if len(metricStmts) == 0 {
 		n, _ := countMetricDataPointsJSON(metricData)
 		return metricData, n, 0, nil
 	}
-	out, err := TransformMetricRunData(metricData, metricStmts)
+	out, _, err := TransformMetricRunDataWithErrorMode(ctx, metricData, groups, errorMode)
 	if err != nil {
 		return metricData, 0, len(metricStmts), err
 	}
@@ -209,7 +214,7 @@ func executeMetricTransformStage(metricData json.RawMessage, cfg ProcessorConfig
 	return out, n, len(metricStmts), nil
 }
 
-func executeMetricFilterStage(metricData json.RawMessage, cfg ProcessorConfig) (json.RawMessage, int, int, error) {
+func executeMetricFilterStage(ctx context.Context, metricData json.RawMessage, cfg ProcessorConfig, errorMode ErrorMode) (json.RawMessage, int, int, error) {
 	if len(cfg) == 0 {
 		n, _ := countMetricDataPointsJSON(metricData)
 		return metricData, n, 0, nil
@@ -226,116 +231,53 @@ func executeMetricFilterStage(metricData json.RawMessage, cfg ProcessorConfig) (
 		n, _ := countMetricDataPointsJSON(metricData)
 		return metricData, n, 0, nil
 	}
-	out, _, kept, err := FilterMetricRunData(metricData, metricConds, FilterModeInclude)
+	out, _, kept, err := FilterMetricRunDataWithErrorMode(ctx, metricData, metricConds, FilterModeExclude, errorMode)
 	if err != nil {
 		return metricData, 0, len(metricConds), err
 	}
 	return out, kept, len(metricConds), nil
 }
 
-func extractSignalTransformStatements(cfgYAML, signal string) ([]string, error) {
-	traceStmts, logStmts, metricStmts, err := ParseCombinedTransformConfigAll(cfgYAML)
-	if err == nil && (len(traceStmts) > 0 || len(logStmts) > 0 || len(metricStmts) > 0) {
-		switch signal {
-		case "logs":
-			if len(logStmts) > 0 {
-				return logStmts, nil
-			}
-			return traceStmts, nil
-		case "metrics":
-			if len(metricStmts) > 0 {
-				return metricStmts, nil
-			}
-			return traceStmts, nil
-		default:
-			return traceStmts, nil
-		}
+func extractSignalTransformGroups(cfgYAML, signal string) ([]ContextStatements, error) {
+	meta, err := ParseTransformConfigMeta(cfgYAML)
+	if err != nil {
+		return nil, err
 	}
-	return ParseTransformStatements(cfgYAML)
+	if !meta.Structured {
+		return meta.TraceGroups, nil
+	}
+	switch signal {
+	case "logs":
+		return meta.LogGroups, nil
+	case "metrics":
+		return meta.MetricGroups, nil
+	default:
+		return meta.TraceGroups, nil
+	}
 }
 
 func extractSignalFilterConditions(cfgYAML, signal string) ([]string, error) {
-	traceConds, logConds, metricConds, err := ParseCombinedFilterConfigAll(cfgYAML)
-	if err == nil && (len(traceConds) > 0 || len(logConds) > 0 || len(metricConds) > 0) {
-		switch signal {
-		case "logs":
-			if len(logConds) > 0 {
-				return logConds, nil
-			}
-			return traceConds, nil
-		case "metrics":
-			if len(metricConds) > 0 {
-				return metricConds, nil
-			}
-			return traceConds, nil
-		default:
-			return traceConds, nil
-		}
-	}
-	return ParseFilterConditions(cfgYAML)
+	return SelectFilterConditions(cfgYAML, signal)
 }
 
 func countLogRecordsJSON(data json.RawMessage) (int, error) {
-	var req collectorlogsv1.ExportLogsServiceRequest
-	if err := protojson.Unmarshal(data, &req); err != nil {
+	logs, err := UnmarshalLogsFromJSON(data)
+	if err != nil {
 		return 0, err
 	}
 	count := 0
-	for _, rl := range req.ResourceLogs {
-		for _, sl := range rl.ScopeLogs {
-			count += len(sl.LogRecords)
+	for i := 0; i < logs.ResourceLogs().Len(); i++ {
+		for j := 0; j < logs.ResourceLogs().At(i).ScopeLogs().Len(); j++ {
+			count += logs.ResourceLogs().At(i).ScopeLogs().At(j).LogRecords().Len()
 		}
 	}
 	return count, nil
 }
 
 func countMetricDataPointsJSON(data json.RawMessage) (int, error) {
-	var req collectormetricsv1.ExportMetricsServiceRequest
-	if err := protojson.Unmarshal(data, &req); err != nil {
+	metrics, err := UnmarshalMetricsFromJSON(data)
+	if err != nil {
 		return 0, err
 	}
-	count := 0
-	for _, rm := range req.ResourceMetrics {
-		for _, sm := range rm.ScopeMetrics {
-			for _, m := range sm.Metrics {
-				count += countMetricProtoDataPoints(m)
-			}
-		}
-	}
-	return count, nil
-}
-
-func countMetricProtoDataPoints(m *metricspb.Metric) int {
-	if m == nil {
-		return 0
-	}
-	switch data := m.Data.(type) {
-	case *metricspb.Metric_Gauge:
-		if data.Gauge == nil {
-			return 0
-		}
-		return len(data.Gauge.DataPoints)
-	case *metricspb.Metric_Sum:
-		if data.Sum == nil {
-			return 0
-		}
-		return len(data.Sum.DataPoints)
-	case *metricspb.Metric_Histogram:
-		if data.Histogram == nil {
-			return 0
-		}
-		return len(data.Histogram.DataPoints)
-	case *metricspb.Metric_ExponentialHistogram:
-		if data.ExponentialHistogram == nil {
-			return 0
-		}
-		return len(data.ExponentialHistogram.DataPoints)
-	case *metricspb.Metric_Summary:
-		if data.Summary == nil {
-			return 0
-		}
-		return len(data.Summary.DataPoints)
-	default:
-		return 0
-	}
+	return countMetricDataPointsPdata(metrics), nil
 }

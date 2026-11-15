@@ -8,7 +8,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/johndemoss/o11y-workbench/workers/ottl-0.163/engine"
 )
@@ -20,7 +22,11 @@ const (
 
 func main() {
 	listen := flag.String("listen", "127.0.0.1:0", "listen address")
+	parentStdin := flag.Bool("parent-stdin", false, "exit when supervising parent closes stdin")
 	flag.Parse()
+	if *parentStdin {
+		go func() { _, _ = io.Copy(io.Discard, os.Stdin); os.Exit(0) }()
+	}
 
 	if err := engine.EnableOTTLLambdaGate(); err != nil {
 		log.Fatalf("enable OTTL lambda gate: %v", err)
@@ -43,9 +49,27 @@ func main() {
 
 	addr := ln.Addr().(*net.TCPAddr)
 	fmt.Printf("READY http://127.0.0.1:%d\n", addr.Port)
-	if err := http.Serve(ln, mux); err != nil {
+	server := &http.Server{Handler: workerHandler(mux), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	if err := server.Serve(ln); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+func workerHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		ip := net.ParseIP(host)
+		if err != nil || ip == nil || !ip.IsLoopback() || r.Header.Get("Origin") != "" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if r.Method == http.MethodPost && !strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]), "application/json") {
+			http.Error(w, "application/json required", http.StatusUnsupportedMediaType)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 128<<20)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -55,13 +79,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeErr(w http.ResponseWriter, status int, err error) {
+	if _, ok := err.(*http.MaxBytesError); ok {
+		status = http.StatusRequestEntityTooLarge
+	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
 func readJSON(r *http.Request, dst any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, 32<<20))
-	return dec.Decode(dst)
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -110,21 +147,21 @@ func handleTransform(w http.ResponseWriter, r *http.Request) {
 	}
 	switch signal {
 	case "traces":
-		out, count, err := engine.TransformRunData(req.Data, req.Statements)
+		out, count, err := engine.TransformRunData(r.Context(), req.Data, req.Statements)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"data": out, "count": count})
+		writeJSON(w, http.StatusOK, map[string]any{"data": out, "span_count": count})
 	case "logs":
-		out, err := engine.TransformLogRunData(req.Data, req.Statements)
+		out, err := engine.TransformLogRunData(r.Context(), req.Data, req.Statements)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": out})
 	case "metrics":
-		out, err := engine.TransformMetricRunData(req.Data, req.Statements)
+		out, err := engine.TransformMetricRunData(r.Context(), req.Data, req.Statements)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
@@ -161,11 +198,11 @@ func handleFilter(w http.ResponseWriter, r *http.Request) {
 	)
 	switch signal {
 	case "traces":
-		out, total, kept, err = engine.FilterRunData(req.Data, req.Conditions, mode)
+		out, total, kept, err = engine.FilterRunData(r.Context(), req.Data, req.Conditions, mode)
 	case "logs":
-		out, total, kept, err = engine.FilterLogRunData(req.Data, req.Conditions, mode)
+		out, total, kept, err = engine.FilterLogRunData(r.Context(), req.Data, req.Conditions, mode)
 	case "metrics":
-		out, total, kept, err = engine.FilterMetricRunData(req.Data, req.Conditions, mode)
+		out, total, kept, err = engine.FilterMetricRunData(r.Context(), req.Data, req.Conditions, mode)
 	default:
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("unknown signal: %s", signal))
 		return
@@ -189,7 +226,7 @@ func handlePipelineValidateOTTL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, engine.ValidatePipelineOTTL(req.Pipeline))
+	writeJSON(w, http.StatusOK, engine.ValidatePipelineOTTL(r.Context(), req.Pipeline))
 }
 
 func handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +239,7 @@ func handlePipelineExecute(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	result, err := engine.ExecutePipelineForSignal(req.Data, req.Pipeline, req.Signal)
+	result, err := engine.ExecutePipelineForSignal(r.Context(), req.Data, req.Pipeline, req.Signal)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
