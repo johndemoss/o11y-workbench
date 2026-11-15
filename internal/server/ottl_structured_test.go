@@ -55,53 +55,54 @@ func TestStructuredTransformHonorsGroupConditions(t *testing.T) {
 				t.Fatalf("status %d: %s", rr.Code, rr.Body)
 			}
 
-	var res struct {
-		Valid           bool            `json:"valid"`
-		TransformedData json.RawMessage `json:"transformed_data"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if !res.Valid || len(res.TransformedData) == 0 {
-		t.Fatalf("no transformed data: %s", rr.Body)
-	}
+			var res struct {
+				Valid           bool            `json:"valid"`
+				TransformedData json.RawMessage `json:"transformed_data"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if !res.Valid || len(res.TransformedData) == 0 {
+				t.Fatalf("no transformed data: %s", rr.Body)
+			}
 
-	var payload struct {
-		ResourceSpans []struct {
-			ScopeSpans []struct {
-				Spans []struct {
-					Name       string `json:"name"`
-					Attributes []struct {
-						Key   string `json:"key"`
-						Value struct {
-							StringValue string `json:"stringValue"`
-						} `json:"value"`
-					} `json:"attributes"`
-				} `json:"spans"`
-			} `json:"scopeSpans"`
-		} `json:"resourceSpans"`
-	}
-	if err := json.Unmarshal(res.TransformedData, &payload); err != nil {
-		t.Fatalf("decode transformed data: %v", err)
-	}
+			var payload struct {
+				ResourceSpans []struct {
+					ScopeSpans []struct {
+						Spans []struct {
+							Name       string `json:"name"`
+							Attributes []struct {
+								Key   string `json:"key"`
+								Value struct {
+									StringValue string `json:"stringValue"`
+								} `json:"value"`
+							} `json:"attributes"`
+						} `json:"spans"`
+					} `json:"scopeSpans"`
+				} `json:"resourceSpans"`
+			}
+			if err := json.Unmarshal(res.TransformedData, &payload); err != nil {
+				t.Fatalf("decode transformed data: %v", err)
+			}
 
-	seen := map[string]string{}
-	for _, rs := range payload.ResourceSpans {
-		for _, ss := range rs.ScopeSpans {
-			for _, sp := range ss.Spans {
-				for _, attr := range sp.Attributes {
-					if attr.Key == "matched" {
-						seen[sp.Name] = attr.Value.StringValue
+			seen := map[string]string{}
+			for _, rs := range payload.ResourceSpans {
+				for _, ss := range rs.ScopeSpans {
+					for _, sp := range ss.Spans {
+						for _, attr := range sp.Attributes {
+							if attr.Key == "matched" {
+								seen[sp.Name] = attr.Value.StringValue
+							}
+						}
 					}
 				}
 			}
-		}
-	}
-	if seen["hit"] != "yes" {
-		t.Errorf("condition-matching span was not transformed: %v", seen)
-	}
-	if _, ok := seen["miss"]; ok {
-		t.Errorf("non-matching span was transformed despite false condition: %v", seen)
+			if seen["hit"] != "yes" {
+				t.Errorf("condition-matching span was not transformed: %v", seen)
+			}
+			if _, ok := seen["miss"]; ok {
+				t.Errorf("non-matching span was transformed despite false condition: %v", seen)
+			}
 		})
 	}
 }
