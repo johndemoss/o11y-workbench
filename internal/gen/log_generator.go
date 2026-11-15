@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 	"strings"
 	"text/template"
@@ -57,6 +58,33 @@ func DefaultLogConfig() LogConfig {
 		},
 		BodyTemplate: `{"message":"{{.Message}}","service":"{{.ServiceName}}","severity":"{{.Severity}}","component":"{{.Component}}"}`,
 	}
+}
+
+// validate rejects severity weights that would make pickSeverity sample with an
+// invalid bound. An all-zero distribution keeps the existing default behavior.
+func (c LogConfig) validate() error {
+	dist := c.SeverityDist
+	for _, field := range []struct {
+		name  string
+		value int
+	}{
+		{"info", dist.Info},
+		{"warn", dist.Warn},
+		{"error", dist.Error},
+		{"fatal", dist.Fatal},
+	} {
+		if field.value < 0 {
+			return fmt.Errorf("severity_dist.%s must not be negative", field.name)
+		}
+	}
+	total := 0
+	for _, value := range []int{dist.Info, dist.Warn, dist.Error, dist.Fatal} {
+		if value > math.MaxInt-total {
+			return fmt.Errorf("severity_dist weights overflow")
+		}
+		total += value
+	}
+	return nil
 }
 
 // LogTemplateVars is the data available to the log body Go template.
@@ -255,6 +283,9 @@ func (e *logEmitter) appendRecord(ctx context.Context, exp export.LogExporter, r
 
 // Run generates LogCount independent log records and exports them via exp.
 func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter) error {
+	if err := g.Config.validate(); err != nil {
+		return err
+	}
 	logging.Debugf("LogGen: Starting uncorrelated. LogCount=%d", g.Config.LogCount)
 	total := g.Config.LogCount
 	if total <= 0 {
@@ -278,6 +309,9 @@ func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter) error {
 // until refs closes or ctx ends. The reported total grows as references arrive;
 // blocking in this consumer backpressures the trace producer.
 func (g *LogGenerator) RunCorrelated(ctx context.Context, refs <-chan []SpanRef, exp export.LogExporter) error {
+	if err := g.Config.validate(); err != nil {
+		return err
+	}
 	if g.Config.LogsPerSpan <= 0 {
 		return fmt.Errorf("log correlation requires logs_per_span > 0")
 	}

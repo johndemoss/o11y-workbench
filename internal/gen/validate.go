@@ -18,6 +18,9 @@ func ValidateConfig(c Config) error {
 	if c.LogConfig.LogCount < 0 || c.LogConfig.LogsPerSpan < 0 || c.MetricConfig.MetricCount < 0 {
 		return fmt.Errorf("invalid negative signal count")
 	}
+	if err := c.LogConfig.validate(); err != nil {
+		return err
+	}
 	if c.TraceCount == 0 && c.Rate > 0 && c.Duration > 0 && float64(c.Rate)*c.Duration.Seconds() >= float64(math.MaxInt) {
 		return fmt.Errorf("rate and duration exceed trace count limit")
 	}
