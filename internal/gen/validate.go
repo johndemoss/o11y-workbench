@@ -11,6 +11,12 @@ import (
 // Workload batches are limited to 100,000 items and an estimated 64 MiB,
 // including 512 bytes per item and 128 bytes per attribute plus its value.
 func ValidateConfig(c Config) error {
+	if len(c.Regions) == 0 {
+		return fmt.Errorf("no regions configured")
+	}
+	if c.Signals == (Signals{}) {
+		return fmt.Errorf("no signals selected")
+	}
 	p := c.Workload
 	if c.TraceCount < 0 || c.Rate < 0 || c.SpanCount < 0 || c.MaxDepth < 0 || c.ScenarioSpanCount < 0 || c.Duration < 0 || c.TraceDuration < 0 || c.ErrorPercent < 0 || c.ErrorPercent > 100 {
 		return fmt.Errorf("invalid negative generation dimension or error percentage")

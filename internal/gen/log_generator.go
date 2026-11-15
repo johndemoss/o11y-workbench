@@ -125,13 +125,18 @@ var defaultLogMessages = []string{
 type LogGenerator struct {
 	Config     LogConfig
 	OnProgress func(completed, total int)
-	// Regions is immutable while Run is active; nil uses CLI process defaults.
+	// Regions is required and immutable while Run is active.
 	Regions []region.Name
 }
 
 // NewLogGenerator creates a LogGenerator with the given config.
 func NewLogGenerator(config LogConfig) *LogGenerator {
 	return &LogGenerator{Config: config}
+}
+
+type logGroupKey struct {
+	region  region.Name
+	service string
 }
 
 // logEmitter carries per-run batching and RNG state for log generation.
@@ -141,8 +146,9 @@ type logEmitter struct {
 	rng       *rand.Rand
 	idRng     *SeededRNG
 	endpoints []region.Name
-	batch     []*logsv1.LogRecord
-	service   string
+	groups    map[logGroupKey][]*logsv1.LogRecord
+	keys      []logGroupKey
+	batchSize int
 	completed int
 }
 
@@ -153,10 +159,7 @@ func newLogEmitter(g *LogGenerator) (*logEmitter, error) {
 	}
 	endpoints := g.Regions
 	if len(endpoints) == 0 {
-		endpoints = region.All()
-	}
-	if len(endpoints) == 0 {
-		return nil, fmt.Errorf("no endpoints configured")
+		return nil, fmt.Errorf("no regions configured")
 	}
 	// Deterministic severity distribution, fresh timestamps and IDs.
 	seed := int64(g.Config.SeverityDist.Info + g.Config.SeverityDist.Warn + g.Config.SeverityDist.Error + g.Config.SeverityDist.Fatal)
@@ -166,33 +169,31 @@ func newLogEmitter(g *LogGenerator) (*logEmitter, error) {
 		rng:       rand.New(rand.NewSource(seed)),
 		idRng:     NewIDRng(),
 		endpoints: endpoints,
-		batch:     make([]*logsv1.LogRecord, 0, 100),
+		groups:    make(map[logGroupKey][]*logsv1.LogRecord),
 	}, nil
 }
 
 func (e *logEmitter) flush(ctx context.Context, exp export.LogExporter) error {
-	if len(e.batch) == 0 {
+	if e.batchSize == 0 {
 		return nil
 	}
-	ep := e.endpoints[0] // use the first endpoint resource for all logs
-	sl := &logsv1.ScopeLogs{
-		Scope: &commonv1.InstrumentationScope{
-			Name:    "o11y-workbench",
-			Version: "0.1.0",
-		},
-		LogRecords: e.batch,
+	resources := make([]*logsv1.ResourceLogs, 0, len(e.keys))
+	for _, key := range e.keys {
+		resources = append(resources, &logsv1.ResourceLogs{
+			Resource: &resourcev1.Resource{Attributes: region.ResourceAttributes(key.region, key.service)},
+			ScopeLogs: []*logsv1.ScopeLogs{{
+				Scope:      &commonv1.InstrumentationScope{Name: "o11y-workbench", Version: "0.1.0"},
+				LogRecords: e.groups[key],
+			}},
+			SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
+		})
 	}
-	rl := &logsv1.ResourceLogs{
-		Resource: &resourcev1.Resource{
-			Attributes: region.ResourceAttributes(ep, e.service),
-		},
-		ScopeLogs: []*logsv1.ScopeLogs{sl},
-		SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
-	}
-	if err := exp.Export(ctx, []*logsv1.ResourceLogs{rl}); err != nil {
+	if err := exp.Export(ctx, resources); err != nil {
 		return err
 	}
-	e.batch = make([]*logsv1.LogRecord, 0, 100)
+	clear(e.groups)
+	e.keys = e.keys[:0]
+	e.batchSize = 0
 	return nil
 }
 
@@ -264,18 +265,21 @@ func (e *logEmitter) appendRecord(ctx context.Context, exp export.LogExporter, r
 	if err != nil {
 		return err
 	}
-	if len(e.batch) > 0 && e.service != service {
-		if err := e.flush(ctx, exp); err != nil {
-			return err
-		}
+	ep := e.endpoints[e.completed%len(e.endpoints)]
+	if ref != nil {
+		ep = ref.Region
 	}
-	e.service = service
-	e.batch = append(e.batch, record)
+	key := logGroupKey{region: ep, service: service}
+	if _, ok := e.groups[key]; !ok {
+		e.keys = append(e.keys, key)
+	}
+	e.groups[key] = append(e.groups[key], record)
+	e.batchSize++
 	e.completed++
 	if e.gen.OnProgress != nil {
 		e.gen.OnProgress(e.completed, progressTotal)
 	}
-	if len(e.batch) >= 100 {
+	if e.batchSize >= 100 {
 		return e.flush(ctx, exp)
 	}
 	return nil
@@ -285,6 +289,9 @@ func (e *logEmitter) appendRecord(ctx context.Context, exp export.LogExporter, r
 func (g *LogGenerator) Run(ctx context.Context, exp export.LogExporter) error {
 	if err := g.Config.validate(); err != nil {
 		return err
+	}
+	if len(g.Regions) == 0 {
+		return fmt.Errorf("no regions configured")
 	}
 	logging.Debugf("LogGen: Starting uncorrelated. LogCount=%d", g.Config.LogCount)
 	total := g.Config.LogCount

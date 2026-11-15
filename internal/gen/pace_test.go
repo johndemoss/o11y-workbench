@@ -29,7 +29,7 @@ func TestFlatFinalExportDoesNotWait(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	exp := &timedExporter{cancel: cancel}
-	cfg := gen.Config{TraceCount: 1, Workload: gen.WorkloadProfile{Shape: "flat", RequestsPerSec: 0.1}}
+	cfg := gen.Config{Regions: testRegions, Signals: testSignals, TraceCount: 1, Workload: gen.WorkloadProfile{Shape: "flat", RequestsPerSec: 0.1}}
 	if err := gen.NewGenerator(cfg).Run(ctx, exp); err != nil {
 		t.Fatalf("final successful export must complete despite cancellation: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestFlatFinalExportDoesNotWait(t *testing.T) {
 
 func TestTopologyPacesEveryBatch(t *testing.T) {
 	exp := &timedExporter{}
-	cfg := gen.Config{TraceCount: 1, SpanCount: 4, MaxDepth: 1, Workload: gen.WorkloadProfile{
+	cfg := gen.Config{Regions: testRegions, Signals: testSignals, TraceCount: 1, SpanCount: 4, MaxDepth: 1, Workload: gen.WorkloadProfile{
 		SingleResource: true, ItemsPerRequest: 1, RequestsPerSec: 50,
 	}}
 	if err := gen.NewGenerator(cfg).Run(context.Background(), exp); err != nil {

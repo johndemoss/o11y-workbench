@@ -14,9 +14,7 @@
 //
 // # Signal Branching
 //
-// Signal branching (which generator to run for a given request) happens in
-// internal/server/run.go via the executeRun function, using Config.SignalType
-// as a string discriminant:
+// internal/server/run.go via the executeRun function, using Config.Signals:
 //
 //	if doTraces  { Generator.Run(ctx, exp) }
 //	if doLogs    { LogGenerator.Run(ctx, logExp) or LogGenerator.RunCorrelated(ctx, refs, logExp) }
@@ -25,8 +23,6 @@
 // Correlated logs stream from Generator.OnTraceSpans into RunCorrelated;
 // neither side reads exported or captured trace data.
 //
-// SignalType is never inspected inside any generator — each generator is
-// purely self-contained and signal-agnostic beyond its own typed Export call.
 //
 // # Strategy Pattern Evaluation (ADR)
 //
@@ -96,44 +92,31 @@ import (
 )
 
 // Signals represents which telemetry signal types to generate.
-// This replaces the magic string SignalType with explicit boolean flags.
 type Signals struct {
 	Traces  bool `json:"traces"`
 	Logs    bool `json:"logs"`
 	Metrics bool `json:"metrics"`
 }
 
-// NewSignalsFromType converts legacy signal type strings to the new Signals struct.
-// Used for backwards compatibility during migration.
-func NewSignalsFromType(signalType string) Signals {
-	if signalType == "" {
-		signalType = "traces"
-	}
-	return Signals{
-		Traces:  signalType == "traces" || signalType == "both" || signalType == "all" || signalType == "traces+metrics",
-		Logs:    signalType == "logs" || signalType == "both" || signalType == "all" || signalType == "logs+metrics",
-		Metrics: signalType == "metrics" || signalType == "all" || signalType == "traces+metrics" || signalType == "logs+metrics",
-	}
-}
 
 type Config struct {
-	Seed              int64
-	TraceCount        int
-	Rate              int // target traces/sec; 0 = unlimited
-	Topology          TopologyType
-	SpanCount         int
-	MaxDepth          int
-	ServiceName       string
-	BaseTime          time.Time
-	TraceDuration     time.Duration
-	Duration          time.Duration // max run duration; 0 = unlimited
-	Scenario          string        // named scenario; "" means use Topology
-	ScenarioSpanCount int           // per-service span budget for scenarios; 0 means use SpanCount
-	SignalType        string        `json:"signal_type,omitempty"` // DEPRECATED: use Signals instead
-	Signals           Signals       `json:"signals,omitempty"`
+	Seed              int64         `json:"seed"`
+	TraceCount        int           `json:"trace_count"`
+	Rate              int           `json:"rate"` // target traces/sec; 0 = unlimited
+	Topology          TopologyType  `json:"topology"`
+	SpanCount         int           `json:"span_count"`
+	MaxDepth          int           `json:"max_depth"`
+	ServiceName       string        `json:"service_name"`
+	BaseTime          time.Time     `json:"base_time"`
+	TraceDuration     time.Duration `json:"trace_duration"`
+	Duration          time.Duration `json:"duration"`
+	Scenario          string        `json:"scenario"`
+	ScenarioSpanCount int           `json:"scenario_span_count"`
+	Signals           Signals       `json:"signals"`
+	Regions           []region.Name `json:"regions"`
 	LogConfig         LogConfig     `json:"log_config,omitempty"`
 	MetricConfig      MetricConfig  `json:"metric_config,omitempty"`
-	ErrorPercent      int           // percentage of spans to mark as errors; 0 = none
+	ErrorPercent      int           `json:"error_percent"`
 	// Workload enables optional paced synthetic-ingress knobs.
 	// Zero value keeps topology/scenario generation unchanged.
 	Workload WorkloadProfile `json:"workload,omitempty"`
@@ -153,46 +136,21 @@ func DefaultConfig() Config {
 	}
 }
 
-// IncludesTraces returns true if traces should be generated.
-// Prefers the Signals field if set, falls back to SignalType for backwards compat.
-func (c Config) IncludesTraces() bool {
-	// Prefer Signals if set
-	if c.Signals != (Signals{}) {
-		return c.Signals.Traces
-	}
-	// Fall back to SignalType for backwards compat
-	st := c.SignalType
-	if st == "" {
-		st = "traces"
-	}
-	return st == "traces" || st == "both" || st == "all" || st == "traces+metrics"
-}
+// IncludesTraces reports whether traces are selected.
+func (c Config) IncludesTraces() bool { return c.Signals.Traces }
 
-// IncludesLogs returns true if logs should be generated.
-// Prefers the Signals field if set, falls back to SignalType for backwards compat.
-func (c Config) IncludesLogs() bool {
-	if c.Signals != (Signals{}) {
-		return c.Signals.Logs
-	}
-	st := c.SignalType
-	return st == "logs" || st == "both" || st == "all" || st == "logs+metrics"
-}
+// IncludesLogs reports whether logs are selected.
+func (c Config) IncludesLogs() bool { return c.Signals.Logs }
 
-// IncludesMetrics returns true if metrics should be generated.
-// Prefers the Signals field if set, falls back to SignalType for backwards compat.
-func (c Config) IncludesMetrics() bool {
-	if c.Signals != (Signals{}) {
-		return c.Signals.Metrics
-	}
-	st := c.SignalType
-	return st == "metrics" || st == "all" || st == "traces+metrics" || st == "logs+metrics"
-}
+// IncludesMetrics reports whether metrics are selected.
+func (c Config) IncludesMetrics() bool { return c.Signals.Metrics }
 
 // SpanRef identifies one exported span for trace/log correlation.
 type SpanRef struct {
 	TraceID [16]byte
 	SpanID  [8]byte
 	Service string
+	Region  region.Name
 }
 
 type Generator struct {
@@ -203,7 +161,7 @@ type Generator struct {
 	// before OnProgress and before pacing waits for the next trace. The slice
 	// is not reused by the generator. Blocking applies backpressure to Run.
 	OnTraceSpans func([]SpanRef)
-	// Regions pins routing labels for this instance. Nil uses CLI process defaults.
+	// Regions pins routing labels for this instance.
 	// Set before Run and do not mutate while generation is active.
 	Regions []region.Name
 }
@@ -219,7 +177,7 @@ func NewGenerator(config Config) *Generator {
 	if config.ServiceName == "" {
 		config.ServiceName = defaults.ServiceName
 	}
-	return &Generator{config: config}
+	return &Generator{config: config, Regions: config.Regions}
 }
 
 // Stats returns attempted/acked/failed export counters for this generator.
@@ -237,6 +195,9 @@ func (g *Generator) Stats() Stats {
 func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 	if err := ValidateConfig(g.config); err != nil {
 		return err
+	}
+	if len(g.Regions) == 0 {
+		return fmt.Errorf("no regions configured")
 	}
 	// Explicit flat evidence grammar: Workload.Shape=flat or Scenario=workload.
 	// WorkloadProfile knobs alone still compose onto topology/tree scenarios.
@@ -326,10 +287,7 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 
 		endpoints := g.Regions
 		if len(endpoints) == 0 {
-			endpoints = region.All()
-		}
-		if len(endpoints) == 0 {
-			continue
+			return fmt.Errorf("no regions configured")
 		}
 		if wl.SingleResource {
 			endpoints = endpoints[:1]
@@ -410,7 +368,7 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 					}
 				}
 				if g.OnTraceSpans != nil {
-					refs = appendSpanRefs(refs, svcName, exported)
+					refs = appendSpanRefs(refs, svcName, ep, exported)
 				}
 			}
 		}
@@ -426,9 +384,9 @@ func (g *Generator) Run(ctx context.Context, exp export.TraceExporter) error {
 	return nil
 }
 
-func appendSpanRefs(refs []SpanRef, service string, spans []*tracev1.Span) []SpanRef {
+func appendSpanRefs(refs []SpanRef, service string, ep region.Name, spans []*tracev1.Span) []SpanRef {
 	for _, sp := range spans {
-		ref := SpanRef{Service: service}
+		ref := SpanRef{Service: service, Region: ep}
 		copy(ref.TraceID[:], sp.TraceId)
 		copy(ref.SpanID[:], sp.SpanId)
 		refs = append(refs, ref)

@@ -43,6 +43,7 @@ func (p *plainExporter) Shutdown(context.Context) error { return nil }
 func TestPartialAcceptance_DoesNotRecordTenAcceptedOrRejected(t *testing.T) {
 	// Acceptance (a): rejecting two of ten items does not record ten accepted or ten rejected.
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:       1,
 		TraceCount: 1,
 		Rate:       1000,
@@ -81,6 +82,7 @@ func TestPartialAcceptance_DoesNotRecordTenAcceptedOrRejected(t *testing.T) {
 func TestPlainExporter_RemainsCompatible(t *testing.T) {
 	// Acceptance (b): existing file/mock exporters remain compatible.
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:       2,
 		TraceCount: 2,
 		Rate:       1000,

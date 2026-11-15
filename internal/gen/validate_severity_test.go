@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 func TestValidateConfigSeverityDistribution(t *testing.T) {
@@ -25,6 +27,8 @@ func TestValidateConfigSeverityDistribution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := DefaultConfig()
+			cfg.Regions = []region.Name{region.RegionLocal}
+			cfg.Signals = Signals{Traces: true}
 			cfg.LogConfig.SeverityDist = tt.dist
 			err := ValidateConfig(cfg)
 			if tt.wantErr == "" {

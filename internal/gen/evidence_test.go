@@ -35,6 +35,7 @@ func (m *failNExporter) Export(ctx context.Context, spans []*tracev1.ResourceSpa
 func (m *failNExporter) Shutdown(ctx context.Context) error { return nil }
 func TestWorkloadProfile_LedgerAndPayloadID(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:        7,
 		TraceCount:  3,
 		Rate:        1000,
@@ -113,6 +114,7 @@ func TestWorkloadProfile_LedgerAndPayloadID(t *testing.T) {
 
 func TestWorkloadProfile_ContinueOnExportErrCountsFailures(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:       1,
 		TraceCount: 4,
 		Rate:       1000,
@@ -139,6 +141,7 @@ func TestWorkloadProfile_ContinueOnExportErrCountsFailures(t *testing.T) {
 
 func TestWorkloadProfile_BurstOffWindowProducesNoExports(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:     1,
 		Duration: 35 * time.Millisecond,
 		Workload: gen.WorkloadProfile{
@@ -168,6 +171,7 @@ func TestWorkloadProfile_BurstOffWindowProducesNoExports(t *testing.T) {
 
 func TestTopologyMode_StillTracksStats(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    2,
 		Topology:      gen.TopologyFlat,
@@ -193,6 +197,7 @@ func TestTopologyMode_StillTracksStats(t *testing.T) {
 
 func TestWorkloadProfile_ComposesWithTopology(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    1,
 		Topology:      gen.TopologyFlat,
@@ -247,6 +252,7 @@ func TestWorkloadProfile_ComposesWithTopology(t *testing.T) {
 
 func TestWorkloadProfile_ChunksItemsPerRequest(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          7,
 		TraceCount:    1,
 		Topology:      gen.TopologyFlat,
@@ -278,6 +284,7 @@ func TestWorkloadProfile_ChunksItemsPerRequest(t *testing.T) {
 
 func TestWorkloadProfile_ActiveWithoutFlatKeepsTopology(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          1,
 		TraceCount:    1,
 		Topology:      gen.TopologyFlat,

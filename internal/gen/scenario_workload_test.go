@@ -60,6 +60,7 @@ func (c *captureExp) Shutdown(ctx context.Context) error { return nil }
 func TestGenerator_ScenarioWorkloadUsesFlatGrammar(t *testing.T) {
 	exp := &captureExp{}
 	g := gen.NewGenerator(gen.Config{
+		Regions:     testRegions,
 		Seed:        9,
 		TraceCount:  2,
 		Rate:        1000,
