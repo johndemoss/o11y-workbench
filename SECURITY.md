@@ -15,7 +15,10 @@ Only the current main branch is maintained; there is no supported-release SLA.
   restricting `Content-Security-Policy` (`script-src 'self'`, no inline
   scripts) with `X-Content-Type-Options: nosniff`, `Referrer-Policy:
   no-referrer`, and `X-Frame-Options: DENY`. `--allowed-hosts` widens which
-  names reach the workbench; it grants no authorization.
+  names reach the workbench; it grants no authorization. With a wildcard
+  `--addr` (`:port`, `0.0.0.0:port`, `[::]:port`, as in the container image) any
+  IP-literal `Host` is accepted, so reachability is limited only by which
+  interfaces and ports you publish.
 - Go's `http.CrossOriginProtection` rejects unsafe cross-origin browser requests.
   Host validation plus that check reduce DNS-rebinding exposure; neither is
   **authentication**, an SSRF defense, or a resource quota. Non-browser callers
@@ -43,8 +46,10 @@ Only the current main branch is maintained; there is no supported-release SLA.
   credentials or personal/customer data. Do not commit them.
 - Docker listens on all container interfaces intentionally. Compose examples
   and `make otel-start` publish host ports on `127.0.0.1` only. Workbench
-  images run as uid 65532 with a read-only root and a tmpfs `/tmp`. The
-  upstream collector keeps its own user and is memory-limited.
+  images run as uid 65532. The read-only root filesystem and tmpfs `/tmp` are
+  Compose runtime settings, not image properties; a plain `docker run` needs
+  `--read-only --tmpfs /tmp` to get the same protection. The upstream collector
+  keeps its own user and is memory-limited.
 - The optional upstream OTel Desktop Viewer image runs as root inside its
   container (its executable is under `/root`). Its Compose service uses a
   read-only root, tmpfs `/tmp`, no new privileges, resource limits, and
