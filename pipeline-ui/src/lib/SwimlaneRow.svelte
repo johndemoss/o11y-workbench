@@ -187,11 +187,45 @@
 
   // ─── Snippet modal ─────────────────────────────────────────────────────────
   let resolvedSnippet = $derived(snippetConfig ? getSnippetForSignal(snippetConfig, targetSignal) : null)
+  let snippetDialog = $state<HTMLDialogElement | null>(null)
+
+  $effect(() => {
+    if (!snippetModal || !snippetConfig) return
+    const dialog = snippetDialog
+    if (dialog && !dialog.open) dialog.showModal()
+  })
+
+  function closeSnippetDialog() {
+    if (snippetDialog?.open) snippetDialog.close()
+    else {
+      snippetModal = false
+      snippetConfig = null
+    }
+  }
+
+  function handleSnippetClose() {
+    snippetModal = false
+    snippetConfig = null
+  }
+
+  function handleSnippetBackdropClick(event: MouseEvent) {
+    const dialog = snippetDialog
+    if (!dialog || event.target !== dialog) return
+    const bounds = dialog.getBoundingClientRect()
+    if (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close()
+  }
+
+  function isolateSnippetKeys(dialog: HTMLDialogElement) {
+    const stopPropagation = (event: KeyboardEvent) => event.stopPropagation()
+    dialog.addEventListener('keydown', stopPropagation)
+    return { destroy: () => dialog.removeEventListener('keydown', stopPropagation) }
+  }
+
 
   function handleSnippetApply() {
     if (!snippetConfig || !resolvedSnippet || !onSnippetApply(snippetConfig)) return
-    snippetModal = false
-    snippetConfig = null
+    closeSnippetDialog()
   }
 
   // ─── Escape key handler ──────────────────────────────────────────────────
@@ -252,31 +286,33 @@
   {/if}
 
   {#if snippetModal && snippetConfig}
-    <div
-      class="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      tabindex="-1"
+    <dialog
+      class="snippet-dialog"
+      bind:this={snippetDialog}
+      use:isolateSnippetKeys
+      aria-labelledby="snippet-preview-heading"
       data-od-id="template-preview"
-      onclick={(e) => { if (e.target === e.currentTarget) { snippetModal = false; snippetConfig = null } }}
-      onkeydown={(e) => { if (e.key === 'Escape') { snippetModal = false; snippetConfig = null } }}
+      onclose={handleSnippetClose}
+      onclick={handleSnippetBackdropClick}
     >
       <div class="snippet-modal">
-        <h3>{snippetConfig.name}</h3>
-        <p class="modal-hint">Library · <strong>{snippetConfig.type}</strong></p>
-        <p class="modal-hint">{snippetConfig.description}</p>
-        {#if resolvedSnippet}
-          <label class="modal-label" for="snippet-config-textarea">Configuration preview for {targetSignal}</label>
-          <pre id="snippet-config-textarea" class="modal-textarea preview-pre">{JSON.stringify(resolvedSnippet.processor, null, 2)}</pre>
-        {:else}
-          <p role="status">This favorite is not available for {targetSignal}. Available for: {snippetConfig.signals.join(', ')}.</p>
-        {/if}
+        <h3 id="snippet-preview-heading">{snippetConfig.name}</h3>
+        <div class="snippet-body">
+          <p class="modal-hint">Library · <strong>{snippetConfig.type}</strong></p>
+          <p class="modal-hint">{snippetConfig.description}</p>
+          {#if resolvedSnippet}
+            <label class="modal-label" for="snippet-config-textarea">Configuration preview for {targetSignal}</label>
+            <pre id="snippet-config-textarea" class="modal-textarea preview-pre">{JSON.stringify(resolvedSnippet.processor, null, 2)}</pre>
+          {:else}
+            <p role="status">This favorite is not available for {targetSignal}. Available for: {snippetConfig.signals.join(', ')}.</p>
+          {/if}
+        </div>
         <div class="modal-actions">
-          <button class="confirm-btn confirm-btn-secondary" onclick={() => { snippetModal = false; snippetConfig = null }}>Cancel</button>
+          <button class="confirm-btn confirm-btn-secondary" onclick={closeSnippetDialog}>Cancel</button>
           <button class="confirm-btn confirm-btn-primary" disabled={!resolvedSnippet} title="Add to {targetSignal}" onclick={handleSnippetApply}>Add to lane</button>
         </div>
       </div>
-    </div>
+    </dialog>
   {/if}
 </div>
 
@@ -376,27 +412,40 @@
     color: #fff;
   }
 
-  .modal-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 200;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .snippet-modal {
+  .snippet-dialog {
+    width: min(500px, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100dvh - 2rem);
+    box-sizing: border-box;
+    padding: 0;
+    overflow: auto;
     background: #1e293b;
     border: 1px solid #334155;
     border-radius: 8px;
-    padding: 1.5rem;
-    max-width: 500px;
-    width: 90%;
     color: #f1f5f9;
   }
 
+  .snippet-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+  }
+
+  .snippet-modal {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 2rem - 2px);
+    box-sizing: border-box;
+    padding: 1.5rem;
+    overflow: auto;
+  }
+
+  .snippet-body {
+    min-height: 0;
+    overflow: auto;
+  }
+
   .snippet-modal h3 {
+    flex-shrink: 0;
+    overflow-wrap: anywhere;
     margin: 0 0 0.3rem;
     font-size: 1rem;
   }
@@ -429,6 +478,8 @@
 
   .modal-actions {
     display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.75rem;
     justify-content: flex-end;
