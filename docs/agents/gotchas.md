@@ -31,7 +31,7 @@ go run ./cmd/o11y-workbench-web --pipeline-prototyper
 cd pipeline-ui && npm run dev
 ```
 
-Vite proxies `/api/*` to `:18080` (default listen addr; override with `--addr` / `WEB_PORT`). Production-style: `./scripts/serve.sh`. Host port defaults to **18080** so it does not clash with other listeners on `:8080`.
+Vite proxies `/api/*` to the fixed target `http://127.0.0.1:18080` (`pipeline-ui/vite.config.ts`); run the Go server on that address for HMR. Production-style: `./scripts/serve.sh`. Host port defaults to **18080** so it does not clash with other listeners on `:8080`.
 
 ## Docker / compose / remotetap
 
