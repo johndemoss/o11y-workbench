@@ -178,3 +178,42 @@ func TestOnProgress_UsesBufferCount(t *testing.T) {
 		t.Fatalf("SpanCount = %d, TraceData recount = %d", snap.SpanCount, want)
 	}
 }
+
+func TestBufferCaptureLimitAndSnapshotSource(t *testing.T) {
+	buf := &bufferExporter{}
+	large := &tracev1.ResourceSpans{ScopeSpans: []*tracev1.ScopeSpans{{Spans: []*tracev1.Span{{Name: string(make([]byte, captureSignalLimit))}}}}}
+	if err := buf.Export(context.Background(), []*tracev1.ResourceSpans{large}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.dropped != 1 || len(buf.Snapshot()) != 0 {
+		t.Fatalf("dropped=%d retained=%d", buf.dropped, len(buf.Snapshot()))
+	}
+	run := &Run{Source: "remote-tap", CaptureTruncated: true, CaptureDropped: 1, CaptureLimitBytes: 3 * captureSignalLimit}
+	snap := run.snapshotSummary()
+	if snap.Source != run.Source || !snap.CaptureTruncated || snap.CaptureDropped != 1 || snap.CaptureLimitBytes != run.CaptureLimitBytes {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+}
+
+func TestStopIsNonterminalUntilFinalization(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	run := &Run{Status: RunStatusRunning, cancel: cancel}
+	run.Stop()
+	if run.Status != RunStatusStopping || isTerminalStatus(run.Status) || ctx.Err() != context.Canceled {
+		t.Fatalf("status=%s context=%v", run.Status, ctx.Err())
+	}
+}
+
+func TestPausedGateObservesDeadline(t *testing.T) {
+	run := &Run{Status: RunStatusRunning}
+	run.Pause()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { waitIfPaused(run, ctx); close(done) }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("paused gate ignored cancellation")
+	}
+}

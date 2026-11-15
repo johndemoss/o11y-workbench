@@ -41,8 +41,7 @@ func (s *Server) handleImportRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	req := &collectortracev1.ExportTraceServiceRequest{ResourceSpans: spans}
-	data, err := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}.Marshal(req)
+	data, err := marshalTraceJSON(spans)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "marshal error: " + err.Error()})
 		return

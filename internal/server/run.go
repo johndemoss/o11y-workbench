@@ -18,6 +18,7 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
@@ -31,6 +32,7 @@ const (
 	RunStatusPending   RunStatus = "pending"
 	RunStatusRunning   RunStatus = "running"
 	RunStatusPaused    RunStatus = "paused"
+	RunStatusStopping  RunStatus = "stopping"
 	RunStatusCompleted RunStatus = "completed"
 	RunStatusFailed    RunStatus = "failed"
 	RunStatusStopped   RunStatus = "stopped"
@@ -38,6 +40,8 @@ const (
 
 	// maxCompletedRuns caps how many terminal runs stay in memory.
 	maxCompletedRuns = 50
+	// Each signal retains at most 4 MiB of protobuf payload per run.
+	captureSignalLimit = 4 << 20
 )
 
 func isTerminalStatus(s RunStatus) bool {
@@ -80,16 +84,20 @@ type Run struct {
 	LogData           *json.RawMessage `json:"log_data,omitempty"`
 	// Has* flags are set from payload pointers so List can omit TraceData/LogData/MetricData
 	// while Jobs List signal filters and detail fetch still know payloads exist.
-	HasTraceData   bool               `json:"has_trace_data,omitempty"`
-	HasLogData     bool               `json:"has_log_data,omitempty"`
-	HasMetricData  bool               `json:"has_metric_data,omitempty"`
-	Endpoints      []string           `json:"endpoints"`
-	Insecure       bool               `json:"insecure"`
-	Output         string             `json:"output"`
-	GeneratorStats *gen.Stats         `json:"generator_stats,omitempty"`
-	cancel         context.CancelFunc // not exported, not json
-	pauseCh        chan struct{}      // nil when running; non-nil live channel when paused; not exported
-	routes         []region.Region    // immutable per-run destinations, never process-global
+	HasTraceData      bool               `json:"has_trace_data,omitempty"`
+	HasLogData        bool               `json:"has_log_data,omitempty"`
+	HasMetricData     bool               `json:"has_metric_data,omitempty"`
+	Endpoints         []string           `json:"endpoints"`
+	Insecure          bool               `json:"insecure"`
+	Output            string             `json:"output"`
+	Format            string             `json:"format,omitempty"`
+	CaptureTruncated  bool               `json:"capture_truncated"`
+	CaptureDropped    int64              `json:"capture_dropped"`
+	CaptureLimitBytes int64              `json:"capture_limit_bytes"`
+	GeneratorStats    *gen.Stats         `json:"generator_stats,omitempty"`
+	cancel            context.CancelFunc // not exported, not json
+	pauseCh           chan struct{}      // nil when running; non-nil live channel when paused; not exported
+	routes            []region.Region    // immutable per-run destinations, never process-global
 }
 
 func (r *Run) Pause() {
@@ -121,10 +129,8 @@ func (r *Run) Stop() {
 		r.cancel = nil
 	}
 	if r.Status == RunStatusPending || r.Status == RunStatusRunning || r.Status == RunStatusPaused {
-		r.Status = RunStatusStopped
+		r.Status = RunStatusStopping
 		r.Error = "stopped"
-		now := time.Now()
-		r.CompletedAt = &now
 	}
 }
 
@@ -161,7 +167,9 @@ func (r *Run) snapshotWithPayloads(includePayloads bool) *Run {
 		}(),
 		MetricRecordCount: r.MetricRecordCount,
 		MetricTypes:       append([]string(nil), r.MetricTypes...),
-		Scenario:          r.Scenario, Error: r.Error,
+		Scenario:          r.Scenario, Source: r.Source, Error: r.Error,
+		Format: r.Format, CaptureTruncated: r.CaptureTruncated,
+		CaptureDropped: r.CaptureDropped, CaptureLimitBytes: r.CaptureLimitBytes,
 		HasTraceData:  r.TraceData != nil,
 		HasLogData:    r.LogData != nil,
 		HasMetricData: r.MetricData != nil,
@@ -202,17 +210,23 @@ type bufferExporter struct {
 	mu        sync.Mutex
 	spans     []*tracev1.ResourceSpans
 	spanCount int
+	bytes     int
+	dropped   int64
 }
 
 func (e *bufferExporter) Export(_ context.Context, spans []*tracev1.ResourceSpans) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, rs := range spans {
-		for _, ss := range rs.ScopeSpans {
-			e.spanCount += len(ss.Spans)
+		size := proto.Size(rs) + 256
+		if size > captureSignalLimit-e.bytes {
+			e.dropped += int64(export.CountSpans([]*tracev1.ResourceSpans{rs}))
+			continue
 		}
+		e.bytes += size
+		e.spanCount += export.CountSpans([]*tracev1.ResourceSpans{rs})
+		e.spans = append(e.spans, rs)
 	}
-	e.spans = append(e.spans, spans...)
 	return nil
 }
 
@@ -235,14 +249,24 @@ func (e *bufferExporter) Shutdown(_ context.Context) error {
 }
 
 type bufferLogExporter struct {
-	mu   sync.Mutex
-	logs []*logsv1.ResourceLogs
+	mu      sync.Mutex
+	logs    []*logsv1.ResourceLogs
+	bytes   int
+	dropped int64
 }
 
 func (e *bufferLogExporter) Export(_ context.Context, logs []*logsv1.ResourceLogs) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.logs = append(e.logs, logs...)
+	for _, rl := range logs {
+		size := proto.Size(rl) + 256
+		if size > captureSignalLimit-e.bytes {
+			e.dropped += int64(export.CountLogRecords([]*logsv1.ResourceLogs{rl}))
+			continue
+		}
+		e.bytes += size
+		e.logs = append(e.logs, rl)
+	}
 	return nil
 }
 
@@ -253,12 +277,22 @@ func (e *bufferLogExporter) Shutdown(_ context.Context) error {
 type bufferMetricExporter struct {
 	mu      sync.Mutex
 	metrics []*metricspb.ResourceMetrics
+	bytes   int
+	dropped int64
 }
 
 func (e *bufferMetricExporter) Export(_ context.Context, metrics []*metricspb.ResourceMetrics) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.metrics = append(e.metrics, metrics...)
+	for _, rm := range metrics {
+		size := proto.Size(rm) + 256
+		if size > captureSignalLimit-e.bytes {
+			e.dropped += int64(export.CountDataPoints([]*metricspb.ResourceMetrics{rm}))
+			continue
+		}
+		e.bytes += size
+		e.metrics = append(e.metrics, rm)
+	}
 	return nil
 }
 
@@ -267,12 +301,27 @@ func (e *bufferMetricExporter) Shutdown(_ context.Context) error { return nil }
 type multiExporter []export.TraceExporter
 
 func (e multiExporter) Export(ctx context.Context, spans []*tracev1.ResourceSpans) error {
+	_, err := e.ExportWithReceipt(ctx, spans)
+	return err
+}
+
+func (e multiExporter) ExportWithReceipt(ctx context.Context, spans []*tracev1.ResourceSpans) (export.ExportReceipt, error) {
+	count := export.CountSpans(spans)
+	receipt := export.ReceiptFullSuccess(count)
 	for _, exp := range e {
-		if err := exp.Export(ctx, spans); err != nil {
-			return err
+		if re, ok := exp.(interface {
+			ExportWithReceipt(context.Context, []*tracev1.ResourceSpans) (export.ExportReceipt, error)
+		}); ok {
+			var err error
+			receipt, err = re.ExportWithReceipt(ctx, spans)
+			if err != nil {
+				return receipt, err
+			}
+		} else if err := exp.Export(ctx, spans); err != nil {
+			return export.ReceiptRPCFailure(count, err), err
 		}
 	}
-	return nil
+	return receipt, nil
 }
 
 func (e multiExporter) Shutdown(ctx context.Context) error {
@@ -364,24 +413,47 @@ func marshalTraceJSON(spans []*tracev1.ResourceSpans) ([]byte, error) {
 func marshalLogJSON(logs []*logsv1.ResourceLogs) ([]byte, error) {
 	req := &collectorlogsv1.ExportLogsServiceRequest{ResourceLogs: logs}
 	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
-	return opts.Marshal(req)
+	data, err := opts.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return export.FixTraceSpanIDsForMarshal(data)
 }
 
 func marshalMetricJSON(metrics []*metricspb.ResourceMetrics) ([]byte, error) {
 	req := &collectormetricsv1.ExportMetricsServiceRequest{ResourceMetrics: metrics}
 	opts := protojson.MarshalOptions{UseProtoNames: false, Indent: ""}
-	return opts.Marshal(req)
+	data, err := opts.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return export.FixTraceSpanIDsForMarshal(data)
 }
 
 type multiLogExporter []export.LogExporter
 
 func (e multiLogExporter) Export(ctx context.Context, logs []*logsv1.ResourceLogs) error {
+	_, err := e.ExportWithReceipt(ctx, logs)
+	return err
+}
+
+func (e multiLogExporter) ExportWithReceipt(ctx context.Context, logs []*logsv1.ResourceLogs) (export.ExportReceipt, error) {
+	count := export.CountLogRecords(logs)
+	receipt := export.ReceiptFullSuccess(count)
 	for _, exp := range e {
-		if err := exp.Export(ctx, logs); err != nil {
-			return err
+		if re, ok := exp.(interface {
+			ExportWithReceipt(context.Context, []*logsv1.ResourceLogs) (export.ExportReceipt, error)
+		}); ok {
+			var err error
+			receipt, err = re.ExportWithReceipt(ctx, logs)
+			if err != nil {
+				return receipt, err
+			}
+		} else if err := exp.Export(ctx, logs); err != nil {
+			return export.ReceiptRPCFailure(count, err), err
 		}
 	}
-	return nil
+	return receipt, nil
 }
 
 func (e multiLogExporter) Shutdown(ctx context.Context) error {
@@ -396,12 +468,27 @@ func (e multiLogExporter) Shutdown(ctx context.Context) error {
 type multiMetricExporter []export.MetricExporter
 
 func (e multiMetricExporter) Export(ctx context.Context, metrics []*metricspb.ResourceMetrics) error {
+	_, err := e.ExportWithReceipt(ctx, metrics)
+	return err
+}
+
+func (e multiMetricExporter) ExportWithReceipt(ctx context.Context, metrics []*metricspb.ResourceMetrics) (export.ExportReceipt, error) {
+	count := export.CountDataPoints(metrics)
+	receipt := export.ReceiptFullSuccess(count)
 	for _, exp := range e {
-		if err := exp.Export(ctx, metrics); err != nil {
-			return err
+		if re, ok := exp.(interface {
+			ExportWithReceipt(context.Context, []*metricspb.ResourceMetrics) (export.ExportReceipt, error)
+		}); ok {
+			var err error
+			receipt, err = re.ExportWithReceipt(ctx, metrics)
+			if err != nil {
+				return receipt, err
+			}
+		} else if err := exp.Export(ctx, metrics); err != nil {
+			return export.ReceiptRPCFailure(count, err), err
 		}
 	}
-	return nil
+	return receipt, nil
 }
 func (e multiMetricExporter) Shutdown(ctx context.Context) error {
 	for _, exp := range e {
@@ -414,6 +501,12 @@ func (e multiMetricExporter) Shutdown(ctx context.Context) error {
 
 // StartRun detaches accepted jobs from HTTP request cancellation, not from their store.
 func StartRun(_ context.Context, store *RunStore, cfg gen.Config, endpoints []string, insecure bool, output string) (*Run, error) {
+	if err := gen.ValidateConfig(cfg); err != nil {
+		return nil, fmt.Errorf("invalid run configuration: %w", err)
+	}
+	if (cfg.Workload.Active() || gen.IsWorkloadScenario(cfg.Scenario)) && (cfg.IncludesLogs() || cfg.IncludesMetrics()) {
+		return nil, errors.New("workload profiles support traces only")
+	}
 	id := fmt.Sprintf("run-%d", runIDCounter.Add(1))
 	scenario := ""
 	if cfg.Scenario != "" {
@@ -428,6 +521,7 @@ func StartRun(_ context.Context, store *RunStore, cfg gen.Config, endpoints []st
 		ID: id, Status: RunStatusPending, Config: cfg,
 		Scenario: scenario, StartedAt: time.Now(), TraceCount: cfg.TraceCount,
 		Endpoints: epCopy, Insecure: insecure, Output: output, routes: routes,
+		Format: "json", CaptureLimitBytes: 3 * captureSignalLimit,
 	}
 	if cfg.IncludesLogs() {
 		run.LogCount = cfg.LogConfig.LogCount
@@ -655,14 +749,19 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	}()
 
 	run.mu.Lock()
-	if genCtx.Err() != nil || run.Status == RunStatusStopped {
-		run.mu.Unlock()
-		return
+	if run.Status != RunStatusStopping {
+		run.Status = RunStatusRunning
 	}
-	run.Status = RunStatusRunning
 	run.mu.Unlock()
 
 	start := time.Now()
+	genCtx, stopGeneration := context.WithCancel(genCtx)
+	defer stopGeneration()
+	if cfg.Duration > 0 {
+		var cancel context.CancelFunc
+		genCtx, cancel = context.WithTimeout(genCtx, cfg.Duration)
+		defer cancel()
+	}
 	buf := &bufferExporter{}
 	logBuf := &bufferLogExporter{}
 	metricBuf := &bufferMetricExporter{}
@@ -681,8 +780,34 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	doLogs := cfg.IncludesLogs()
 	doMetrics := cfg.IncludesMetrics()
 
-	// --- TRACE GENERATION ---
-	if doTraces {
+	// Streaming correlation: traces publish their generated span references so
+	// logs can consume them while generation runs, instead of reading a
+	// mutable capture buffer after the fact.
+	correlate := doTraces && doLogs && cfg.LogConfig.LogsPerSpan > 0
+	var (
+		refs       chan []gen.SpanRef
+		logDone    chan struct{}
+		logStopped chan struct{}
+		metricDone chan struct{}
+		collected  []gen.SpanRef
+	)
+	if correlate {
+		refs = make(chan []gen.SpanRef, 64)
+	}
+	closeRefs := func() {
+		if refs != nil {
+			close(refs)
+			refs = nil
+		}
+	}
+
+	// Indefinite traces run concurrently; logs correlate to a bounded snapshot
+	// after the first completed trace rather than reading a mutable buffer.
+	streaming := doTraces && cfg.TraceCount == 0 && (doLogs || doMetrics)
+	var traceDone chan error
+	firstTrace := make(chan struct{})
+	var firstTraceOnce sync.Once
+	generateTraces := func() error {
 		exp := export.TraceExporter(buf)
 		if run.Output == "otlp" {
 			otlpExporters := make(map[region.Name]export.TraceExporter)
@@ -690,19 +815,12 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				reg, ep := route.Name, route.Endpoint
 				otlpExp, err := export.NewOTLPExporter(ep, run.Insecure, nil)
 				if err != nil {
-					run.mu.Lock()
-					run.Status = RunStatusFailed
-					run.Error = fmt.Sprintf("create OTLP exporter for %s: %v", reg, err)
-					run.DurationNs = time.Since(start).Nanoseconds()
-					now := time.Now()
-					run.CompletedAt = &now
-					run.mu.Unlock()
-					return
+					return fmt.Errorf("create OTLP exporter for %s: %w", reg, err)
 				}
 				// Close every successfully constructed connection, including partial setup failures.
 				defer func() { _ = otlpExp.Shutdown(context.Background()) }()
 				// Wrap exporter to use fresh context with timeout for each export
-				otlpExporters[reg] = export.WithExportTimeoutContext(store.ctx, otlpExp, 30*time.Second)
+				otlpExporters[reg] = export.WithExportTimeoutContext(genCtx, otlpExp, 30*time.Second)
 			}
 			router := export.NewEndpointRouter(otlpExporters)
 			exp = multiExporter{buf, router}
@@ -715,6 +833,7 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 			run.TraceCountCompleted = completed
 			run.SpanCount = buf.SpanCount()
 			run.mu.Unlock()
+			firstTraceOnce.Do(func() { close(firstTrace) })
 
 			run.mu.Lock()
 			ch := run.pauseCh
@@ -726,41 +845,105 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				}
 			}
 		}
-		traceErr = g.Run(genCtx, exp)
+		if correlate {
+			if streaming {
+				g.OnTraceSpans = func(batch []gen.SpanRef) {
+					select {
+					case refs <- batch:
+					case <-genCtx.Done():
+					case <-logStopped:
+					}
+				}
+			} else {
+				g.OnTraceSpans = func(batch []gen.SpanRef) {
+					collected = append(collected, batch...)
+				}
+			}
+		}
+		err := g.Run(genCtx, exp)
 		st := g.Stats()
 		run.mu.Lock()
 		run.GeneratorStats = &st
 		run.mu.Unlock()
+		return err
+	}
+	if doTraces {
+		if streaming {
+			if correlate {
+				logStopped = make(chan struct{})
+				logExp, closers, err := buildRunLogExporter(run, routes, logBuf, genCtx)
+				if err != nil {
+					logErr = err
+					close(logStopped)
+				} else {
+					for _, closer := range closers {
+						defer closer()
+					}
+					lg := gen.NewLogGenerator(cfg.LogConfig)
+					lg.Regions = names
+					lg.OnProgress = func(completed, total int) {
+						run.mu.Lock()
+						run.LogCountCompleted = completed
+						run.LogCount = total
+						run.mu.Unlock()
+						waitIfPaused(run, genCtx)
+					}
+					logDone = make(chan struct{})
+					go func() {
+						defer close(logDone)
+						logErr = lg.RunCorrelated(genCtx, refs, logExp)
+						close(logStopped)
+					}()
+				}
+			}
+			if doMetrics {
+				if metricExp, closers, err := buildRunMetricExporter(run, routes, metricBuf, genCtx); err != nil {
+					metricErr = err
+				} else {
+					for _, closer := range closers {
+						defer closer()
+					}
+					mg := gen.NewMetricGenerator(cfg.MetricConfig)
+					mg.Regions = names
+					mg.OnProgress = func(completed, total int) {
+						run.mu.Lock()
+						run.MetricCountCompleted = completed
+						run.MetricCount = total
+						run.mu.Unlock()
+						waitIfPaused(run, genCtx)
+					}
+					metricDone = make(chan struct{})
+					go func() {
+						defer close(metricDone)
+						metricErr = mg.Run(genCtx, metricExp)
+					}()
+				}
+			}
+			traceDone = make(chan error, 1)
+			go func() { traceDone <- generateTraces() }()
+			select {
+			case <-firstTrace:
+			case traceErr = <-traceDone:
+				traceDone = nil
+			case <-genCtx.Done():
+			}
+		} else {
+			traceErr = generateTraces()
+		}
 	}
 
 	// --- LOG GENERATION ---
-	if doLogs && traceErr == nil {
-		logging.Debugf("Starting log generation. doLogs=%v, traceErr=%v", doLogs, traceErr)
-		logging.Debugf("cfg.LogConfig = %+v", cfg.LogConfig)
-		logging.Debugf("len(buf.spans) = %d", len(buf.spans))
+	// Streaming correlation already consumed references while traces were running.
+	if doLogs && !(streaming && correlate) && traceErr == nil {
+		logging.Debugf("Starting log generation. doLogs=%v, correlate=%v", doLogs, correlate)
 
-		logExp := export.LogExporter(logBuf)
-		if run.Output == "otlp" {
-			otlpLogExporters := make(map[region.Name]export.LogExporter)
-			for _, route := range routes {
-				reg, ep := route.Name, route.Endpoint
-				otlpLogExp, err := export.NewOTLPLogExporter(ep, run.Insecure, nil)
-				if err != nil {
-					run.mu.Lock()
-					run.Status = RunStatusFailed
-					run.Error = fmt.Sprintf("create OTLP log exporter for %s: %v", reg, err)
-					run.DurationNs = time.Since(start).Nanoseconds()
-					now := time.Now()
-					run.CompletedAt = &now
-					run.mu.Unlock()
-					return
-				}
-				defer func() { _ = otlpLogExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
-				// Wrap log exporter to use fresh context with timeout for each export
-				otlpLogExporters[reg] = export.WithLogExportTimeoutContext(store.ctx, otlpLogExp, 30*time.Second)
-			}
-			router := export.NewLogEndpointRouter(otlpLogExporters)
-			logExp = multiLogExporter{logBuf, router}
+		logExp, closers, err := buildRunLogExporter(run, routes, logBuf, genCtx)
+		for _, closer := range closers {
+			defer closer()
+		}
+		if err != nil {
+			logErr = err
+			goto finalize
 		}
 
 		lg := gen.NewLogGenerator(cfg.LogConfig)
@@ -772,21 +955,19 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				run.LogCount = total
 			}
 			run.mu.Unlock()
+			waitIfPaused(run, genCtx)
 		}
 
-		var traceSpans []*tracev1.ResourceSpans
-		if cfg.IncludesTraces() && cfg.IncludesLogs() {
-			traceSpans = buf.spans
-			logging.Debugf("Passing %d ResourceSpans to log generator for correlation", len(traceSpans))
+		if correlate {
+			logErr = lg.RunCorrelated(genCtx, closedRefChannel(collected), logExp)
 		} else {
-			logging.Debugf("No trace correlation - generating standalone logs")
+			logErr = lg.Run(genCtx, logExp)
 		}
-		logErr = lg.Run(genCtx, logExp, traceSpans)
 		logging.Debugf("Log generation completed. logErr=%v", logErr)
 	}
 
 	// --- METRIC GENERATION ---
-	if doMetrics && traceErr == nil && logErr == nil {
+	if doMetrics && !streaming && traceErr == nil && logErr == nil {
 		logging.Debugf("Starting metric generation. doMetrics=%v, traceErr=%v, logErr=%v", doMetrics, traceErr, logErr)
 		logging.Debugf("cfg.MetricConfig = %+v", cfg.MetricConfig)
 
@@ -797,18 +978,12 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				reg, ep := route.Name, route.Endpoint
 				otlpMetricExp, err := export.NewOTLPMetricExporter(ep, run.Insecure, nil)
 				if err != nil {
-					run.mu.Lock()
-					run.Status = RunStatusFailed
-					run.Error = fmt.Sprintf("create OTLP metric exporter for %s: %v", reg, err)
-					run.DurationNs = time.Since(start).Nanoseconds()
-					now := time.Now()
-					run.CompletedAt = &now
-					run.mu.Unlock()
-					return
+					metricErr = fmt.Errorf("create OTLP metric exporter for %s: %w", reg, err)
+					goto finalize
 				}
 				defer func() { _ = otlpMetricExp.Shutdown(context.Background()) }() // Best-effort connection cleanup.
 				// Wrap metric exporter to use fresh context with timeout for each export
-				otlpMetricExporters[reg] = export.WithMetricExportTimeoutContext(store.ctx, otlpMetricExp, 30*time.Second)
+				otlpMetricExporters[reg] = export.WithMetricExportTimeoutContext(genCtx, otlpMetricExp, 30*time.Second)
 			}
 			router := export.NewMetricEndpointRouter(otlpMetricExporters)
 			metricExp = multiMetricExporter{metricBuf, router}
@@ -823,10 +998,29 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 				run.MetricCount = total
 			}
 			run.mu.Unlock()
+			waitIfPaused(run, genCtx)
 		}
 		metricErr = mg.Run(genCtx, metricExp)
 	}
 
+finalize:
+	if traceDone != nil {
+		traceErr = <-traceDone
+		traceDone = nil
+	}
+	if traceErr != nil {
+		stopGeneration()
+	}
+	closeRefs()
+	if logDone != nil {
+		<-logDone
+	}
+	if metricDone != nil {
+		<-metricDone
+	}
+	if traceErr != nil || logErr != nil || metricErr != nil {
+		stopGeneration()
+	}
 	elapsed := time.Since(start).Nanoseconds()
 
 	// Snapshot buffers once; generation is finished so exporters are idle.
@@ -843,75 +1037,44 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 
 	run.mu.Lock()
 	run.DurationNs = elapsed
-	if logTotal > 0 {
-		run.LogCountCompleted = logTotal
-		if run.LogCount == 0 {
-			run.LogCount = logTotal
-		}
-	}
 	run.LogRecordCount = logTotal
 	if sevCounts != nil {
 		run.LogSeverityCounts = sevCounts
 	}
 	run.MetricSeriesCount = metricSeries
-	if metricTotal > 0 {
-		run.MetricCountCompleted = metricTotal
-		if run.MetricCount == 0 {
-			run.MetricCount = metricTotal
-		}
-	}
 	run.MetricRecordCount = metricTotal
 	if metricTypes != nil {
 		run.MetricTypes = metricTypes
 	}
-	stopped := run.Status == RunStatusStopped
+	run.CaptureDropped = buf.dropped + logBuf.dropped + metricBuf.dropped
+	run.CaptureTruncated = run.CaptureDropped > 0
 	run.mu.Unlock()
 
-	// Preserve a stop even if cancellation races the last successful export.
-	if stopped {
-		traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
-		run.mu.Lock()
-		run.SpanCount = spanTotal
-		run.ResourceSpanCount = len(spans)
-		run.TraceData = traceData
-		run.LogData = logData
-		run.MetricData = metricData
-		run.mu.Unlock()
-		return
-	}
-
 	// Duration expired — clean completion, not failure.
-	if (traceErr == context.DeadlineExceeded || logErr == context.DeadlineExceeded || metricErr == context.DeadlineExceeded) && cfg.Duration > 0 {
-		traceErr = nil
-		logErr = nil
-		metricErr = nil
+	if cfg.Duration > 0 {
+		if errors.Is(traceErr, context.DeadlineExceeded) {
+			traceErr = nil
+		}
+		if errors.Is(logErr, context.DeadlineExceeded) {
+			logErr = nil
+		}
+		if errors.Is(metricErr, context.DeadlineExceeded) {
+			metricErr = nil
+		}
 	}
 
 	// Determine the primary error.
-	err := traceErr
-	if err == nil {
-		err = logErr
-	}
+	err := logErr
 	if err == nil {
 		err = metricErr
 	}
-
-	if err != nil {
-		run.mu.Lock()
-		if err == context.Canceled {
-			run.Error = "cancelled"
-		} else {
-			run.Error = err.Error()
-		}
-		run.Status = RunStatusFailed
-		now := time.Now()
-		run.CompletedAt = &now
-		run.mu.Unlock()
-		return
+	if err == nil {
+		err = traceErr
 	}
 
-	// Marshal OTLP JSON outside run.mu so List/Get stay responsive.
 	traceData, logData, metricData := buildRunPayloads(spans, logs, metrics)
+
+	// Publish payloads and the terminal transition together.
 
 	run.mu.Lock()
 	run.SpanCount = spanTotal
@@ -919,10 +1082,39 @@ func executeRun(run *Run, store *RunStore, cfg gen.Config, genCtx context.Contex
 	run.TraceData = traceData
 	run.LogData = logData
 	run.MetricData = metricData
-	if run.Status != RunStatusStopped {
+	switch {
+	case run.Status == RunStatusStopping:
+		run.Status = RunStatusStopped
+		run.Error = "stopped"
+	case err != nil:
+		run.Status = RunStatusFailed
+		run.Error = err.Error()
+	default:
 		run.Status = RunStatusCompleted
-		now := time.Now()
-		run.CompletedAt = &now
 	}
+	now := time.Now()
+	run.CompletedAt = &now
 	run.mu.Unlock()
+}
+
+// closedRefChannel delivers a finite reference batch and closes immediately.
+func closedRefChannel(batch []gen.SpanRef) <-chan []gen.SpanRef {
+	ch := make(chan []gen.SpanRef, 1)
+	if len(batch) > 0 {
+		ch <- batch
+	}
+	close(ch)
+	return ch
+}
+
+func waitIfPaused(run *Run, ctx context.Context) {
+	run.mu.Lock()
+	ch := run.pauseCh
+	run.mu.Unlock()
+	if ch != nil {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+		}
+	}
 }
