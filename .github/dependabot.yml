@@ -55,6 +55,10 @@ updates:
       # installed until svelte-check widens that range.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # @playwright/experimental-ct-svelte is the newest published release at
+      # 1.58.2 and owns the shared `playwright` CLI. A newer @playwright/test
+      # runner cannot load these specs; revisit when the CT package advances.
+      - dependency-name: "@playwright/test"
 
   - package-ecosystem: github-actions
     directory: /
