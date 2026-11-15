@@ -23,7 +23,6 @@
 // Correlated logs stream from Generator.OnTraceSpans into RunCorrelated;
 // neither side reads exported or captured trace data.
 //
-//
 // # Strategy Pattern Evaluation (ADR)
 //
 // Evaluating whether a SignalGenerator interface + strategy pattern would improve
@@ -97,7 +96,6 @@ type Signals struct {
 	Logs    bool `json:"logs"`
 	Metrics bool `json:"metrics"`
 }
-
 
 type Config struct {
 	Seed              int64         `json:"seed"`

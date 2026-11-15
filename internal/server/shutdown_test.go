@@ -27,7 +27,7 @@ func TestServerCloseStopsDetachedAndDeletedRuns(t *testing.T) {
 	collector, endpoint := startRoutingCollector(t)
 	store := NewRunStore()
 	srv := &Server{store: store}
-	cfg := gen.Config{Seed: 42, Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat}
+	cfg := gen.Config{Seed: 42, Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}
 	var live []*Run
 	for range 2 {
 		requestCtx, cancel := context.WithCancel(context.Background())
