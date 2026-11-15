@@ -55,7 +55,7 @@ var defaultMetricNames = []string{
 type MetricGenerator struct {
 	Config     MetricConfig
 	OnProgress func(completed, total int)
-	// Regions is immutable while Run is active; nil uses CLI process defaults.
+	// Regions is required and immutable while Run is active.
 	Regions []region.Name
 }
 
@@ -66,6 +66,9 @@ func NewMetricGenerator(config MetricConfig) *MetricGenerator {
 
 // Run generates metric data points and exports them via exp.
 func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) error {
+	if len(g.Regions) == 0 {
+		return fmt.Errorf("no regions configured")
+	}
 	if !g.Config.Enabled || g.Config.MetricCount == 0 {
 		return nil
 	}
@@ -76,41 +79,35 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 	_ = idRng // available for future ID generation needs
 
 	metricsGenerated := 0
-	exportBatch := make([]*metricspb.Metric, 0, 100)
-
+	exportBatches := make([][]*metricspb.Metric, len(g.Regions))
+	batchSize := 0
 	endpoints := g.Regions
-	if len(endpoints) == 0 {
-		endpoints = region.All()
-	}
-	if len(endpoints) == 0 {
-		return fmt.Errorf("no endpoints configured")
-	}
 
 	flush := func() error {
-		if len(exportBatch) == 0 {
+		if batchSize == 0 {
 			return nil
 		}
-		ep := endpoints[0] // use the first endpoint resource for all metrics
-		svcName := "mock-service"
-
-		sm := &metricspb.ScopeMetrics{
-			Scope: &commonv1.InstrumentationScope{
-				Name:    "o11y-workbench",
-				Version: "0.1.0",
-			},
-			Metrics: exportBatch,
+		resources := make([]*metricspb.ResourceMetrics, 0, len(endpoints))
+		for i, batch := range exportBatches {
+			if len(batch) == 0 {
+				continue
+			}
+			resources = append(resources, &metricspb.ResourceMetrics{
+				Resource: &resourcev1.Resource{Attributes: region.ResourceAttributes(endpoints[i], "mock-service")},
+				ScopeMetrics: []*metricspb.ScopeMetrics{{
+					Scope:   &commonv1.InstrumentationScope{Name: "o11y-workbench", Version: "0.1.0"},
+					Metrics: batch,
+				}},
+				SchemaUrl: "https://opentelemetry.io/schemas/1.30.0",
+			})
 		}
-		rm := &metricspb.ResourceMetrics{
-			Resource: &resourcev1.Resource{
-				Attributes: region.ResourceAttributes(ep, svcName),
-			},
-			ScopeMetrics: []*metricspb.ScopeMetrics{sm},
-			SchemaUrl:    "https://opentelemetry.io/schemas/1.30.0",
-		}
-		if err := exp.Export(ctx, []*metricspb.ResourceMetrics{rm}); err != nil {
+		if err := exp.Export(ctx, resources); err != nil {
 			return err
 		}
-		exportBatch = make([]*metricspb.Metric, 0, 100)
+		for i := range exportBatches {
+			exportBatches[i] = nil
+		}
+		batchSize = 0
 		return nil
 	}
 
@@ -239,7 +236,9 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 			}
 		}
 
-		exportBatch = append(exportBatch, metric)
+		idx := metricsGenerated % len(endpoints)
+		exportBatches[idx] = append(exportBatches[idx], metric)
+		batchSize++
 		metricsGenerated++
 
 		if g.OnProgress != nil {
@@ -247,7 +246,7 @@ func (g *MetricGenerator) Run(ctx context.Context, exp export.MetricExporter) er
 		}
 
 		// Flush every 100 data points to avoid huge batches.
-		if len(exportBatch) >= 100 {
+		if batchSize >= 100 {
 			if err := flush(); err != nil {
 				return err
 			}

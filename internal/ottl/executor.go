@@ -189,13 +189,6 @@ func parseTraceGroupContext(contextName string) (traceGroupKind, error) {
 	}
 }
 
-func traceSpanPathContextNamesEnabled(contextName string) bool {
-	_ = contextName
-	// Group statements execute inside their declared span context, so implicit
-	// paths (attributes[...], name, ...) must resolve normally.
-	return false
-}
-
 type traceGroupKind int
 
 const (
@@ -229,7 +222,7 @@ func executeTraceStatementGroup(
 	case traceGroupScope:
 		return executeTraceScopeGroup(ctx, traces, group, settings, mode, errorMode)
 	default:
-		return executeTraceSpanGroup(ctx, traces, group, settings, mode, errorMode, traceSpanPathContextNamesEnabled(group.Context))
+		return executeTraceSpanGroup(ctx, traces, group, settings, mode, errorMode)
 	}
 }
 
@@ -240,25 +233,43 @@ func executeTraceSpanGroup(
 	settings component.TelemetrySettings,
 	mode collectorottl.ErrorMode,
 	errorMode ErrorMode,
-	enablePathContextNames bool,
 ) error {
-	var parserOpts []collectorottl.Option[*ottlspan.TransformContext]
-	if enablePathContextNames {
-		parserOpts = append(parserOpts, ottlspan.EnablePathContextNames())
-	}
-
 	parser, err := ottlspan.NewParser(
 		parserFuncs[*ottlspan.TransformContext](),
 		settings,
-		parserOpts...,
 	)
 	if err != nil {
 		return fmt.Errorf("create OTTL span parser: %w", err)
 	}
 
 	parsedStmts, err := parser.ParseStatements(group.Statements)
+	var parsedConds []*collectorottl.Condition[*ottlspan.TransformContext]
+	if err == nil && len(group.Conditions) > 0 {
+		parsedConds, err = parser.ParseConditions(group.Conditions)
+	}
 	if err != nil {
-		return fmt.Errorf("parse OTTL statements: %w", err)
+		// Collector group statements normally use implicit paths, but a fully
+		// qualified `span.attributes[...]` group needs path context names.
+		qualified, qerr := ottlspan.NewParser(
+			parserFuncs[*ottlspan.TransformContext](),
+			settings,
+			ottlspan.EnablePathContextNames(),
+		)
+		if qerr != nil {
+			return fmt.Errorf("create OTTL span parser: %w", qerr)
+		}
+		qualifiedStmts, qerr := qualified.ParseStatements(group.Statements)
+		if qerr != nil {
+			return fmt.Errorf("parse OTTL statements: %w", err)
+		}
+		parsedStmts = qualifiedStmts
+		parsedConds = nil
+		if len(group.Conditions) > 0 {
+			parsedConds, qerr = qualified.ParseConditions(group.Conditions)
+			if qerr != nil {
+				return fmt.Errorf("parse OTTL conditions: %w", err)
+			}
+		}
 	}
 
 	stmtSeq := ottlspan.NewStatementSequence(parsedStmts, settings, ottlspan.WithStatementSequenceErrorMode(mode))
@@ -266,10 +277,6 @@ func executeTraceSpanGroup(
 	var condSeq collectorottl.ConditionSequence[*ottlspan.TransformContext]
 	hasConds := len(group.Conditions) > 0
 	if hasConds {
-		parsedConds, err := parser.ParseConditions(group.Conditions)
-		if err != nil {
-			return fmt.Errorf("parse OTTL conditions: %w", err)
-		}
 		condSeq = newTraceSpanConditionSequence(parsedConds, settings, mode)
 	}
 

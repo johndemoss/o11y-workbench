@@ -12,6 +12,7 @@ import (
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
 
 // BurstConfig schedules on/off peak ingress for evidence runs.
@@ -160,7 +161,7 @@ func (g *Generator) runWorkloadProfile(ctx context.Context, exp export.TraceExpo
 			return err
 		}
 		if ok && g.OnTraceSpans != nil {
-			g.OnTraceSpans(appendSpanRefs(make([]SpanRef, 0, items), svc, rs.ScopeSpans[0].Spans))
+			g.OnTraceSpans(appendSpanRefs(make([]SpanRef, 0, items), svc, g.Regions[0], rs.ScopeSpans[0].Spans))
 		}
 
 		if g.OnProgress != nil {
@@ -208,7 +209,7 @@ func (g *Generator) workloadResourceSpans(expID, svc string, seq uint64, items i
 	}
 	return &tracev1.ResourceSpans{
 		Resource: &resourcev1.Resource{
-			Attributes: []*commonv1.KeyValue{stringAttr("service.name", svc)},
+			Attributes: region.ResourceAttributes(g.Regions[0], svc),
 		},
 		ScopeSpans: []*tracev1.ScopeSpans{{
 			Scope: &commonv1.InstrumentationScope{Name: "o11y-workbench", Version: "0.1.0"},

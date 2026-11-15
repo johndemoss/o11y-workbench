@@ -136,8 +136,14 @@ async function handleCheck() {
   validating = true
   diagnostic = 'Validating with Collector…'
   diagnosticKind = 'idle'
+  const laneDraft = pipelineYaml.trimStart().startsWith('stages:')
+  const url = withCollectorVersion(
+    laneDraft
+      ? `/api/ottl/pipeline/validate?signal=${encodeURIComponent(signal)}`
+      : '/api/ottl/pipeline/validate',
+  )
   try {
-    const res = await fetch(withCollectorVersion('/api/ottl/pipeline/validate'), {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-yaml' },
       body: pipelineYaml,

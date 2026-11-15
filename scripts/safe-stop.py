@@ -63,7 +63,10 @@ def read_cmdline(pid):
             data = handle.read()
     except OSError as exc:
         fail(f"cannot read /proc/{pid}/cmdline: {exc}")
-    return [part.decode("utf-8", "surrogateescape") for part in data.split(b"\0") if part]
+    parts = data.split(b"\0")
+    if parts and parts[-1] == b"":
+        parts = parts[:-1]
+    return [part.decode("utf-8", "surrogateescape") for part in parts]
 
 
 def stop_child(pid, parent, expected):

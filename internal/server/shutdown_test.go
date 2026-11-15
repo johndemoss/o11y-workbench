@@ -27,7 +27,7 @@ func TestServerCloseStopsDetachedAndDeletedRuns(t *testing.T) {
 	collector, endpoint := startRoutingCollector(t)
 	store := NewRunStore()
 	srv := &Server{store: store}
-	cfg := gen.Config{Seed: 42, Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat}
+	cfg := gen.Config{Seed: 42, Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}
 	var live []*Run
 	for range 2 {
 		requestCtx, cancel := context.WithCancel(context.Background())
@@ -43,7 +43,7 @@ func TestServerCloseStopsDetachedAndDeletedRuns(t *testing.T) {
 		t.Cleanup(raw.Stop)
 	}
 	waitShutdownCondition(t, func() bool { return collector.traces.Load() >= 4 }, "request cancellation stopped a detached run")
-	store.PauseRun(live[0].ID)
+	store.PauseRun(context.Background(), live[0].ID)
 	store.Delete(live[1].ID) // Removing UI history must not orphan an executing job.
 	if err := srv.Close(); err != nil {
 		t.Fatal(err)

@@ -22,6 +22,11 @@ func structuredProcessorConfig(config string) (map[string]interface{}, bool) {
 	if err := yaml.Unmarshal([]byte(config), &raw); err != nil {
 		return nil, false // flat line/statement configs keep the existing paths
 	}
+	// A single `transform:` wrapper is the Collector processor body; unwrap it
+	// before looking for statement groups.
+	if wrapped, ok := raw["transform"].(map[string]interface{}); ok && len(raw) == 1 {
+		raw = wrapped
+	}
 	for _, key := range []string{"trace_statements", "log_statements", "metric_statements"} {
 		if _, ok := raw[key]; ok {
 			return raw, true
@@ -31,8 +36,9 @@ func structuredProcessorConfig(config string) (map[string]interface{}, bool) {
 }
 
 func singleTransformPipeline(proc map[string]interface{}) *ottl.Pipeline {
+	errorMode, _ := proc["error_mode"].(string)
 	return &ottl.Pipeline{
-		Stages:     []ottl.Stage{{ID: "transform", Type: ottl.StageTypeTransform, ProcessorRef: "transform"}},
+		Stages:     []ottl.Stage{{ID: "transform", Type: ottl.StageTypeTransform, ProcessorRef: "transform", ErrorMode: ottl.ErrorMode(errorMode)}},
 		Processors: map[string]ottl.ProcessorConfig{"transform": proc},
 	}
 }
@@ -129,7 +135,7 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 		if signalType == "" {
 			signalType = "traces"
 		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(signalType)
 		signals = &s
 	}
 	if !signals.Traces && !signals.Logs && !signals.Metrics {
@@ -233,9 +239,9 @@ func (s *Server) handleOTTLTransform(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			writeJSON(w, http.StatusOK, ottl.TransformResult{
-				Valid:               true,
-				LogTransformedData:  &res.FinalData,
-				LogStatementsParsed: pipelineStatementsParsed(res),
+				Valid:            true,
+				TransformedData:  &res.FinalData,
+				StatementsParsed: pipelineStatementsParsed(res),
 			})
 			return
 		}
@@ -400,7 +406,7 @@ func (s *Server) handleOTTLFilter(w http.ResponseWriter, r *http.Request) {
 		if signalType == "" {
 			signalType = "traces"
 		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(signalType)
 		signals = &s
 	}
 	if !signals.Traces && !signals.Logs && !signals.Metrics {
@@ -591,7 +597,7 @@ func (s *Server) handleOTTLFilterValidate(w http.ResponseWriter, r *http.Request
 		if signalType == "" {
 			signalType = "traces"
 		}
-		s := gen.NewSignalsFromType(signalType)
+		s := signalsFromLegacyType(signalType)
 		signals = &s
 	}
 

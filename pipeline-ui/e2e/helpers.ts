@@ -1,6 +1,11 @@
 import { expect, type Page } from '@playwright/test'
 
-export const E2E_PORT = 5199
+const rawPort = process.env.O11Y_E2E_PORT ?? '5199'
+const parsedPort = Number(rawPort)
+if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+  throw new Error(`O11Y_E2E_PORT must be a port number, got ${JSON.stringify(rawPort)}`)
+}
+export const E2E_PORT = parsedPort
 
 function topologicalSortLocal(body: {
   nodes: { id: string }[]

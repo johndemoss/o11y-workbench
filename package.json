@@ -5,7 +5,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test scripts/check-ui-assets.test.mjs",
+    "test": "node --test scripts/check-ui-assets.test.mjs scripts/runtime-json.test.mjs",
     "test:browser": "playwright test --config playwright.config.js"
   },
   "devDependencies": {

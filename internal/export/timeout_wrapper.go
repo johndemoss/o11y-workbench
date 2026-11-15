@@ -2,11 +2,15 @@ package export
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // WithExportTimeout wraps a TraceExporter to use a fresh context with timeout for each export,
@@ -41,12 +45,13 @@ func (w *traceExporterWithTimeout) ExportWithReceipt(ctx context.Context, spans 
 	exportCtx, cancel := context.WithTimeout(w.owner, w.timeout)
 	defer cancel()
 	if re, ok := w.inner.(traceReceiptExporter); ok {
-		return re.ExportWithReceipt(exportCtx, spans)
+		receipt, err := re.ExportWithReceipt(exportCtx, spans)
+		return receipt, ownerExportError(w.owner, err)
 	}
 	err := w.inner.Export(exportCtx, spans)
 	attempted := CountSpans(spans)
 	if err != nil {
-		return ReceiptRPCFailure(attempted, err), err
+		return ReceiptRPCFailure(attempted, err), ownerExportError(w.owner, err)
 	}
 	// Non-receipt exporters only prove response success, not destination delivery.
 	return ReceiptFullSuccess(attempted), nil
@@ -85,12 +90,13 @@ func (w *logExporterWithTimeout) ExportWithReceipt(ctx context.Context, logs []*
 	exportCtx, cancel := context.WithTimeout(w.owner, w.timeout)
 	defer cancel()
 	if re, ok := w.inner.(logReceiptExporter); ok {
-		return re.ExportWithReceipt(exportCtx, logs)
+		receipt, err := re.ExportWithReceipt(exportCtx, logs)
+		return receipt, ownerExportError(w.owner, err)
 	}
 	err := w.inner.Export(exportCtx, logs)
 	attempted := CountLogRecords(logs)
 	if err != nil {
-		return ReceiptRPCFailure(attempted, err), err
+		return ReceiptRPCFailure(attempted, err), ownerExportError(w.owner, err)
 	}
 	return ReceiptFullSuccess(attempted), nil
 }
@@ -128,16 +134,30 @@ func (w *metricExporterWithTimeout) ExportWithReceipt(ctx context.Context, metri
 	exportCtx, cancel := context.WithTimeout(w.owner, w.timeout)
 	defer cancel()
 	if re, ok := w.inner.(metricReceiptExporter); ok {
-		return re.ExportWithReceipt(exportCtx, metrics)
+		receipt, err := re.ExportWithReceipt(exportCtx, metrics)
+		return receipt, ownerExportError(w.owner, err)
 	}
 	err := w.inner.Export(exportCtx, metrics)
 	attempted := CountDataPoints(metrics)
 	if err != nil {
-		return ReceiptRPCFailure(attempted, err), err
+		return ReceiptRPCFailure(attempted, err), ownerExportError(w.owner, err)
 	}
 	return ReceiptFullSuccess(attempted), nil
 }
 
 func (w *metricExporterWithTimeout) Shutdown(ctx context.Context) error {
 	return w.inner.Shutdown(ctx)
+}
+
+func ownerExportError(owner context.Context, err error) error {
+	if err == nil || owner.Err() == nil {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("export failed: %v: %w", err, owner.Err())
+	}
+	if s, ok := status.FromError(err); ok && (s.Code() == codes.DeadlineExceeded || s.Code() == codes.Canceled) {
+		return fmt.Errorf("export failed: %v: %w", err, owner.Err())
+	}
+	return err
 }

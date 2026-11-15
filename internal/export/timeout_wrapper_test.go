@@ -9,14 +9,20 @@ import (
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type timeoutProbe struct {
 	started chan struct{}
 	block   bool
+	err     error
 }
 
 func (p *timeoutProbe) observe(ctx context.Context) error {
+	if p.err != nil {
+		return p.err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -92,6 +98,58 @@ func TestExportTimeoutOwnerLifetime(t *testing.T) {
 				}
 			case <-time.After(time.Second):
 				t.Fatal("owner shutdown did not cancel an in-flight export")
+			}
+		})
+	}
+}
+
+func TestExportTimeoutOwnerErrorClassification(t *testing.T) {
+	rpcErr := errors.New("rpc failure")
+	for name, wrap := range map[string]func(context.Context, *timeoutProbe) error{
+		"traces": func(owner context.Context, p *timeoutProbe) error {
+			return WithExportTimeoutContext(owner, timeoutTraces{p}, time.Minute).Export(context.Background(), nil)
+		},
+		"logs": func(owner context.Context, p *timeoutProbe) error {
+			return WithLogExportTimeoutContext(owner, timeoutLogs{p}, time.Minute).Export(context.Background(), nil)
+		},
+		"metrics": func(owner context.Context, p *timeoutProbe) error {
+			return WithMetricExportTimeoutContext(owner, timeoutMetrics{p}, time.Minute).Export(context.Background(), nil)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			defer cancelDeadline()
+			canceled, cancel := context.WithCancel(context.Background())
+			cancel()
+			for _, tt := range []struct {
+				name    string
+				owner   context.Context
+				inner   error
+				want    error
+				notWant error
+			}{
+				{"alive", context.Background(), rpcErr, rpcErr, nil},
+				{"deadline rpc failure", deadline, rpcErr, rpcErr, context.DeadlineExceeded},
+				{"canceled rpc failure", canceled, rpcErr, rpcErr, context.Canceled},
+				{"deadline grpc invalid argument", deadline, status.Error(codes.InvalidArgument, "invalid"), nil, context.DeadlineExceeded},
+				{"deadline grpc", deadline, status.Error(codes.DeadlineExceeded, "deadline"), context.DeadlineExceeded, nil},
+				{"canceled grpc", canceled, status.Error(codes.Canceled, "canceled"), context.Canceled, nil},
+				{"deadline context", deadline, context.DeadlineExceeded, context.DeadlineExceeded, nil},
+				{"canceled context", canceled, context.Canceled, context.Canceled, nil},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					err := wrap(tt.owner, &timeoutProbe{err: tt.inner})
+					want := tt.want
+					if want == nil {
+						want = tt.inner
+					}
+					if !errors.Is(err, want) {
+						t.Fatalf("error = %v, want %v", err, want)
+					}
+					if tt.notWant != nil && errors.Is(err, tt.notWant) {
+						t.Fatalf("error = %v, unexpectedly matches %v", err, tt.notWant)
+					}
+				})
 			}
 		})
 	}

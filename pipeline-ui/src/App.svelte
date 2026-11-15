@@ -13,22 +13,16 @@
   import QuickTab from './lib/QuickTab.svelte'
   import { exportPipelinesToYaml, exportPipelinesToYamlLocal, downloadYaml } from './lib/export-yaml'
   import { withCollectorVersion } from './lib/collector-version'
+  import { defaultPipeline, normalizePipelines } from './lib/pipeline-defaults'
   import { dump } from 'js-yaml'
 
-  function initialPipeline(): Pipeline {
-    return {
-      stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'],
-      receiver_configs: { otlp: { protocols: { grpc: {} } } },
-      exporter_configs: { debug: {} },
-    }
-  }
   let pipelinesBySignal: PipelinesBySignal = $state({
-    traces: initialPipeline(),
-    logs: initialPipeline(),
-    metrics: initialPipeline()
+    traces: defaultPipeline(),
+    logs: defaultPipeline(),
+    metrics: defaultPipeline()
   })
   let selectedSignal: SignalType = $state('traces')
-  let pipeline = $derived(pipelinesBySignal[selectedSignal] || { stages: [], processors: {}, receivers: ['otlp'], exporters: ['debug'] })
+  let pipeline = $derived(pipelinesBySignal[selectedSignal] || defaultPipeline())
   let result: PipelineResult | null = $state(null)
   let resultError: string | undefined = $state(undefined)
   let originalData: unknown = $state(null)
@@ -65,6 +59,14 @@
   let viewportOpen = $state(false)
   /** YAML fingerprint captured at last successful execute — config edits mark results stale. */
   let executedYaml = $state<string | null>(null)
+  /** Run/signal identity captured at last successful execute. */
+  let executedRunId = $state<string | null>(null)
+  let executedSignal = $state<SignalType | null>(null)
+  let selections = $state<Record<'quick' | 'pipeline' | 'graph', { runId: string; signal: SignalType }>>({
+    quick: { runId: '', signal: 'traces' },
+    graph: { runId: '', signal: 'traces' },
+    pipeline: { runId: '', signal: 'traces' },
+  })
 
   type InspectorSelection =
     | { kind: 'stage'; stage: Stage; processor: ProcessorConfig; signal: SignalType }
@@ -76,7 +78,11 @@
     const sel = inspectorSelection
     return sel?.kind === 'receiver' ? sel.name : null
   })
-  let resultsStale = $derived(!!result && executedYaml !== null && (executedSource === 'quick' ? quickYaml : executedSource === 'graph' ? authoredYaml ?? graphYaml : yamlStringify(pipelinesBySignal[resultSignal])) !== executedYaml)
+  let resultsStale = $derived(!!result && (
+    selections[activeTab].runId !== executedRunId ||
+    selections[activeTab].signal !== executedSignal ||
+    (executedYaml !== null && (executedSource === 'quick' ? quickYaml : executedSource === 'graph' ? authoredYaml ?? graphYaml : yamlStringify(pipelinesBySignal[resultSignal])) !== executedYaml)
+  ))
   let selectedResultStageId = $derived.by(() => {
     const sel = inspectorSelection
     return sel?.kind === 'stage' ? sel.stage.id : null
@@ -150,14 +156,9 @@
     }
   }
 
-  function normalizePipelines(p: PipelinesBySignal): PipelinesBySignal {
-    const empty = (): Pipeline => ({ stages: [], processors: {}, receivers: [], exporters: [] })
-    return { traces: p.traces ?? empty(), logs: p.logs ?? empty(), metrics: p.metrics ?? empty() }
-  }
-
   function handlePipelinesChange(p: PipelinesBySignal, fromEditor = false) {
     if (!fromEditor) authoredYaml = null
-    pipelinesBySignal = normalizePipelines(p)
+    pipelinesBySignal = normalizePipelines(p, pipelinesBySignal)
     // Keep inspector bound to current stage identity after graph sync
     if (inspectorSelection?.kind === 'stage') {
       const selected = inspectorSelection
@@ -251,9 +252,10 @@
       .then(r => r.json()).then(d => alert(d.valid ? 'Pipeline is valid!' : 'Validation errors:\n' + (d.errors || []).join('\n')))
       .catch(e => alert('Validation failed: ' + e.message))
   }
-  function handleRunSelect(_runId: string, payload: unknown, sig?: SignalType) {
+  function handleRunSelect(source: 'quick' | 'pipeline' | 'graph', runId: string, payload: unknown, sig: SignalType) {
+    selections[source] = { runId, signal: sig }
     selectedRunPayload = payload
-    if (sig) selectedSignal = sig
+    if (source !== 'quick') selectedSignal = sig
   }
   function handleExecuteResult(r: PipelineResult | null, err?: string, _runId?: string, originalPayload?: unknown, submittedYaml?: string, submittedSignal?: SignalType, source: 'quick' | 'pipeline' | 'graph' = activeTab) {
     result = r
@@ -266,6 +268,8 @@
     executedYaml = submittedYaml ?? null
     executedSource = source
     resultSignal = submittedSignal ?? selectedSignal
+    executedRunId = _runId ?? null
+    executedSignal = submittedSignal ?? selectedSignal
   }
   function handleImport(p: PipelinesBySignal, yaml: string) {
     handlePipelinesChange(p, true)
@@ -411,7 +415,7 @@
 
 <Layout {activeTab} onTabChange={(t) => { if (draftReady) activeTab = t; else alert('Synchronize or resync the YAML draft before switching tabs.') }}>
   {#if activeTab === 'quick'}
-    <QuickTab ondraft={(yaml) => quickYaml = yaml} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'quick')} />
+    <QuickTab ondraft={(yaml) => quickYaml = yaml} onrunselect={(id, payload, signal) => handleRunSelect('quick', id, payload, signal)} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'quick')} />
   {:else if activeTab === 'graph'}
     <div class="graph-shell">
       <div class="layout" class:yaml-closed={!yamlOpen} id="layout">
@@ -458,7 +462,7 @@
         <div class="bottom-content" id="bottom-content">
           <section class="execute" data-od-id="execution-panel" aria-label="Execute">
             <h3 title="Captured run → current YAML">Execute</h3>
-            <RunSelector pipelineYaml={executableYaml} disabled={!draftReady} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'graph')} onrunselect={handleRunSelect} />
+            <RunSelector pipelineYaml={executableYaml} disabled={!draftReady} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'graph')} onrunselect={(id, payload, signal) => handleRunSelect('graph', id, payload, signal)} />
           </section>
           <section class="results" data-od-id="stage-results">
             <ResultsView
@@ -543,8 +547,8 @@
         <option value="metrics">metrics</option>
       </select>
     </div>
-    <PipelineBuilder {pipeline} signal={selectedSignal} onValidate={handleValidate} onImport={openImport} onchange={handlePipelineChange} />
-    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'pipeline')} onrunselect={handleRunSelect} /></section>
+    <PipelineBuilder {pipeline} signal={selectedSignal} pipelineYaml={pipelineYaml} onValidate={handleValidate} onImport={openImport} onchange={handlePipelineChange} />
+    <section class="execution-section"><h2>Execute</h2><RunSelector {pipelineYaml} bind:signal={selectedSignal} onresult={(r, e, id, payload, yaml, signal) => handleExecuteResult(r, e, id, payload, yaml, signal, 'pipeline')} onrunselect={(id, payload, signal) => handleRunSelect('pipeline', id, payload, signal)} /></section>
   {/if}
   {#if activeTab !== 'graph'}
     <section class="results-section"><h2>Results</h2><ResultsView {result} error={resultError} {originalData} stale={resultsStale} signal={resultSignal} /></section>
@@ -571,7 +575,7 @@
       onkeydown={(e) => e.key === 'Escape' && (editingStage = null)}
     >
       <div class="modal">
-        <StageEditor stage={editingStage.stage} processor={editingStage.processor} signal={editingStage.signal} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
+        <StageEditor stage={editingStage.stage} processor={editingStage.processor} signal={editingStage.signal} pipelineYaml={yamlStringify(pipelinesBySignal[editingStage.signal])} onupdate={handleStageUpdate} onupdateProcessor={handleStageProcessorUpdate} />
         <button class="btn-close" onclick={() => editingStage = null}>Close</button>
       </div>
     </div>

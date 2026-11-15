@@ -37,7 +37,7 @@ func TestServerCloseCancelsBlockedOTLPExport(t *testing.T) {
 	defer grpcServer.Stop()
 	store := NewRunStore()
 	srv := &Server{store: store}
-	run, err := StartRun(context.Background(), store, gen.Config{Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat}, []string{listener.Addr().String()}, true, "otlp")
+	run, err := StartRun(context.Background(), store, gen.Config{Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}, []string{listener.Addr().String()}, true, "otlp")
 	if err != nil {
 		t.Fatal(err)
 	}

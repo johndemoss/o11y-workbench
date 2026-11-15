@@ -44,7 +44,7 @@ func TestStreamingLogCorrelationDoesNotStarve(t *testing.T) {
 		if snap == nil {
 			t.Fatal("run disappeared")
 		}
-		if snap.LogCountCompleted > 0 {
+		if snap.LogCountCompleted > 4 {
 			break
 		}
 		if snap.Status != RunStatusPending && snap.Status != RunStatusRunning {

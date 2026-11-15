@@ -992,7 +992,7 @@ function getRunSignals(r) {
   if (r.source === 'remotetap') {
     return { traces: true, logs: true, metrics: true };
   }
-  // Prefer signals object if available, fall back to signal_type for backwards compat
+  // Signal selection is always the config's signals object.
   if (r.config?.signals) {
     return r.config.signals;
   }
@@ -1034,13 +1034,14 @@ function buildRunCard(r) {
   card.setAttribute('role', 'button');
   card.setAttribute('aria-label', 'Open job ' + r.id);
 
-  appendTrustedHtml(card, getSignalBadge(getRunSignals(r)));
+  const signals = getRunSignals(r);
+  appendTrustedHtml(card, getSignalBadge(signals));
 
   const statusDot = document.createElement('div');
   statusDot.className = 'status ' + statusClass(r.status);
   card.appendChild(statusDot);
 
-  const scenario = r.scenario || r.config?.Scenario || '';
+  const scenario = r.scenario || r.config?.scenario || '';
   const isImported = r.source === 'import' || r.output === 'import';
   const metaParts = [formatTime(r.started_at), r.status];
   if (isImported) {
@@ -1048,8 +1049,8 @@ function buildRunCard(r) {
   } else if (r.source === 'remotetap') {
     metaParts.push('live collector');
   } else {
-    if (r.config?.SpanCount) metaParts.push(r.config.SpanCount + ' span budget');
-    var tc = r.config?.TraceCount;
+    if (r.config?.span_count) metaParts.push(r.config.span_count + ' span budget');
+    var tc = r.config?.trace_count;
     if (tc !== undefined) metaParts.push((tc === 0 ? '\u221e' : tc) + ' traces');
   }
 
@@ -1069,14 +1070,17 @@ function buildRunCard(r) {
   const spanStat = document.createElement('span');
   spanStat.textContent = (r.span_count || 0) + ' spans';
   stats.appendChild(spanStat);
-  if (r.log_count || r.log_count_completed) {
+  const terminal = r.status === 'completed' || r.status === 'failed' || r.status === 'stopped';
+  const logCount = terminal ? (r.log_record_count ?? 0) : (r.log_count_completed ?? 0);
+  const metricCount = terminal ? (r.metric_record_count ?? 0) : (r.metric_count_completed ?? 0);
+  if (signals.logs) {
     const s = document.createElement('span');
-    s.textContent = (r.log_count || r.log_count_completed) + ' logs';
+    s.textContent = logCount + (terminal ? ' log records' : ' logs (progress)');
     stats.appendChild(s);
   }
-  if (r.metric_count || r.metric_count_completed) {
+  if (signals.metrics) {
     const s = document.createElement('span');
-    s.textContent = (r.metric_count || r.metric_count_completed) + ' metrics';
+    s.textContent = metricCount + (terminal ? ' metric records' : ' metrics (progress)');
     stats.appendChild(s);
   }
   const durSpan = document.createElement('span');
@@ -1324,7 +1328,7 @@ function renderDetail(r) {
     summaryHtml += '<div class="stat"><div class="value">' + metricRecordCount + '</div><div class="label">Data points (retained)</div></div>';
   }
   summaryHtml += '<div class="stat"><div class="value">' + formatDuration(r.duration_ns) + '</div><div class="label">Duration</div></div>';
-  summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.Seed ?? '-')) + '</div><div class="label">Seed</div></div>';
+  summaryHtml += '<div class="stat"><div class="value">' + (isImported ? '-' : (r.config?.seed ?? '-')) + '</div><div class="label">Seed</div></div>';
   summaryHtml += '</div>';
   if (r.generator_stats) {
     var gs = r.generator_stats;
@@ -1369,13 +1373,16 @@ function renderDetail(r) {
 
   el.innerHTML = summaryHtml + tabHtml;
   if (availableTabs.length) {
+    const actions = document.createElement('div');
+    actions.className = 'detail-actions';
     const download = document.createElement('a');
     const format = r.format === 'protobuf' ? 'protobuf' : 'json';
     download.href = '/api/runs/' + encodeURIComponent(r.id) + '/download?signal=' + encodeURIComponent(detailTab) + '&format=' + format;
     download.textContent = 'Download ' + detailTab + ' (' + format.toUpperCase() + ')';
     download.className = 'btn btn-secondary';
     download.setAttribute('download', '');
-    el.appendChild(download);
+    actions.appendChild(download);
+    el.appendChild(actions);
   }
 
   if (detailTab === 'logs' && hasLogData) {

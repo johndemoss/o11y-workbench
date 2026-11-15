@@ -170,7 +170,7 @@ func TestRunRoutesMultipleDestinationsAndFlatFallback(t *testing.T) {
 			a, epA := startRoutingCollector(t)
 			b, epB := startRoutingCollector(t)
 			store := NewRunStore()
-			cfg := gen.Config{Seed: 42, TraceCount: 20, Rate: 1000, SpanCount: 1, Topology: gen.TopologyFlat}
+			cfg := gen.Config{Seed: 42, TraceCount: 20, Rate: 1000, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}
 			if flat {
 				cfg.Workload = gen.WorkloadProfile{Shape: "flat", ItemsPerRequest: 1}
 			}
@@ -204,7 +204,7 @@ func TestRunRoutesMultipleDestinationsAndFlatFallback(t *testing.T) {
 func TestCanceledRunClosesOTLPConnections(t *testing.T) {
 	c, endpoint := startRoutingCollector(t)
 	store := NewRunStore()
-	cfg := gen.Config{Seed: 42, Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat}
+	cfg := gen.Config{Seed: 42, Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}
 	run, err := StartRun(context.Background(), store, cfg, []string{endpoint}, true, "otlp")
 	if err != nil {
 		t.Fatal(err)

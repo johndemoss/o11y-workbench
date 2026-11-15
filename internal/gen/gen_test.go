@@ -11,7 +11,11 @@ import (
 
 	"github.com/johndemoss/o11y-workbench/internal/export"
 	"github.com/johndemoss/o11y-workbench/internal/gen"
+	"github.com/johndemoss/o11y-workbench/internal/region"
 )
+
+var testRegions = []region.Name{region.RegionLocal, region.RegionUSEU, region.RegionEUCent}
+var testSignals = gen.Signals{Traces: true, Logs: true, Metrics: true}
 
 // mockExporter captures ResourceSpans for testing (no network).
 type mockExporter struct {
@@ -463,6 +467,7 @@ func TestGenerator_Determinism(t *testing.T) {
 	for _, tp := range topos {
 		t.Run(tp.String(), func(t *testing.T) {
 			configA := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    2,
 				Topology:      tp,
@@ -473,6 +478,7 @@ func TestGenerator_Determinism(t *testing.T) {
 				TraceDuration: 5 * time.Second,
 			}
 			configB := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    2,
 				Topology:      tp,
@@ -595,6 +601,7 @@ func TestGenerator_Determinism(t *testing.T) {
 
 func TestGenerator_UniqueIDs(t *testing.T) {
 	config := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    3,
 		Topology:      gen.TopologyFlat,
@@ -660,6 +667,7 @@ func TestGenerator_UniqueIDs(t *testing.T) {
 func TestGenerator_Rate_LimitsThroughput(t *testing.T) {
 	t.Run("rate=0 runs at full speed", func(t *testing.T) {
 		c := gen.Config{
+			Regions: testRegions, Signals: testSignals,
 			Seed:          42,
 			TraceCount:    10,
 			Rate:          0,
@@ -689,6 +697,7 @@ func TestGenerator_Rate_LimitsThroughput(t *testing.T) {
 
 	t.Run("rate=100 paces start times", func(t *testing.T) {
 		c := gen.Config{
+			Regions: testRegions, Signals: testSignals,
 			Seed:          42,
 			TraceCount:    5,
 			Rate:          100, // 10ms per trace
@@ -720,6 +729,7 @@ func TestGenerator_Rate_LimitsThroughput(t *testing.T) {
 
 	t.Run("context cancellation during tick wait", func(t *testing.T) {
 		c := gen.Config{
+			Regions: testRegions, Signals: testSignals,
 			Seed:          42,
 			TraceCount:    100,
 			Rate:          1, // 1s per trace — easy to cancel
@@ -752,6 +762,7 @@ func TestGenerator_RootTiming(t *testing.T) {
 		for _, topo := range []gen.TopologyType{gen.TopologyFlat, gen.TopologyBranching, gen.TopologySplit} {
 			t.Run(topo.String(), func(t *testing.T) {
 				c := gen.Config{
+					Regions: testRegions, Signals: testSignals,
 					Seed:          42,
 					TraceCount:    1,
 					Topology:      topo,
@@ -812,6 +823,7 @@ func TestGenerator_RootTiming(t *testing.T) {
 		// With a 10-span branching topology at max depth, there should be
 		// at least one nesting chain where parent timestamps contain child timestamps.
 		c := gen.Config{
+			Regions: testRegions, Signals: testSignals,
 			Seed:          42,
 			TraceCount:    1,
 			Topology:      gen.TopologyBranching,
@@ -860,6 +872,7 @@ func TestGenerator_RootTiming(t *testing.T) {
 
 func TestGenerator_SpanCount(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    1,
 		Topology:      gen.TopologyFlat,
@@ -886,6 +899,7 @@ func TestGenerator_SpanCount(t *testing.T) {
 
 func TestGenerator_SpanCountBranching(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    1,
 		Topology:      gen.TopologyBranching,
@@ -928,6 +942,7 @@ func TestSpanCount_Exact100(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			cfg := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    c.traceCount,
 				Topology:      c.topology,
@@ -954,6 +969,7 @@ func TestSpanCount_Exact100(t *testing.T) {
 
 func newRateDurCfg(rate, spanCount int, dur time.Duration) gen.Config {
 	return gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    0,
 		Rate:          rate,
@@ -1028,6 +1044,7 @@ func TestSpanCount_RateDurationExactAndDeterministic(t *testing.T) {
 
 func TestGenerator_ContextCancellation(t *testing.T) {
 	c := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    3,
 		Topology:      gen.TopologyFlat,
@@ -1058,6 +1075,7 @@ func TestGenerator_ContextCancellation(t *testing.T) {
 
 	// Now test with TraceCount=0 — infinite loop until context cancellation
 	cZero := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:          42,
 		TraceCount:    0,
 		Topology:      gen.TopologyFlat,
@@ -1086,6 +1104,7 @@ func TestGenerator_TopologyExported(t *testing.T) {
 	for _, tp := range topos {
 		t.Run(tp.String(), func(t *testing.T) {
 			c := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    1,
 				Topology:      tp,
@@ -1181,6 +1200,7 @@ func TestGenerator_Scenario_ServiceNameAttribute(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s, func(t *testing.T) {
 			c := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    2,
 				Scenario:      s,
@@ -1236,6 +1256,7 @@ func TestGenerator_Scenario_SpanKinds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.scenario, func(t *testing.T) {
 			c := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    1,
 				Scenario:      tt.scenario,
@@ -1266,6 +1287,7 @@ func TestGenerator_Scenario_Determinism(t *testing.T) {
 	for _, s := range []string{"microservice", "monolith", "3-tier-web-app", "event-driven"} {
 		t.Run(s, func(t *testing.T) {
 			base := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    2,
 				Scenario:      s,
@@ -1309,6 +1331,7 @@ func TestGenerator_Scenario_RootTiming(t *testing.T) {
 	for _, s := range []string{"microservice", "monolith"} {
 		t.Run(s, func(t *testing.T) {
 			c := gen.Config{
+				Regions: testRegions, Signals: testSignals,
 				Seed:          42,
 				TraceCount:    1,
 				Scenario:      s,
@@ -1345,6 +1368,7 @@ func TestGenerator_Scenario_RootTiming(t *testing.T) {
 
 func TestGenerator_RunDuration(t *testing.T) {
 	cfg := gen.Config{
+		Regions: testRegions, Signals: testSignals,
 		Seed:       42,
 		TraceCount: 0, // infinite
 		Rate:       1000,

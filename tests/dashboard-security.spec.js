@@ -70,6 +70,26 @@ test.describe('Dashboard HTML injection + CSP', () => {
     await expect(page.locator('#run-btn')).toBeVisible();
   });
 
+  test('job cards distinguish retained records from progress, including zero', async ({ page }) => {
+    const stats = await page.evaluate(() => {
+      const config = { signals: { traces: true, logs: true, metrics: true } };
+      return [
+        { id: 'completed', status: 'completed', config, log_count: 1, log_record_count: 36, metric_record_count: 0 },
+        { id: 'failed', status: 'failed', config },
+        { id: 'stopped', status: 'stopped', config, log_record_count: 0, metric_record_count: 7 },
+        { id: 'running', status: 'running', config, log_count: 90, metric_count: 80, log_count_completed: 2 },
+      ].map(run => Array.from(buildRunCard(run).querySelectorAll('.stats span'), el => el.textContent));
+    });
+    expect(stats[0]).toContain('36 log records');
+    expect(stats[0]).toContain('0 metric records');
+    expect(stats[1]).toContain('0 log records');
+    expect(stats[1]).toContain('0 metric records');
+    expect(stats[2]).toContain('0 log records');
+    expect(stats[2]).toContain('7 metric records');
+    expect(stats[3]).toContain('2 logs (progress)');
+    expect(stats[3]).toContain('0 metrics (progress)');
+  });
+
   test('scenario upload, run list, failed detail, and attrs resist injection', async ({ page, request }) => {
     const apiRes = await request.post('/api/scenarios', {
       headers: { 'Content-Type': 'application/json' },

@@ -45,7 +45,7 @@ func TestRunStoreCloseConcurrentAdmission(t *testing.T) {
 	var callers sync.WaitGroup
 	for range 64 {
 		callers.Go(func() {
-			_, err := StartRun(context.Background(), store, gen.Config{Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat}, nil, true, "file")
+			_, err := StartRun(context.Background(), store, gen.Config{Rate: 100, SpanCount: 1, Topology: gen.TopologyFlat, Signals: gen.Signals{Traces: true}}, nil, true, "file")
 			if err != nil && !errors.Is(err, ErrRunStoreClosed) {
 				t.Errorf("start: %v", err)
 			}

@@ -78,6 +78,55 @@ processors:
 	}
 }
 
+func TestNativePipelineWithReceivers(t *testing.T) {
+	data := json.RawMessage(`{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"00000000000000000000000000000001","spanId":"0000000000000001","name":"hit"}]}]}]}`)
+	store := NewRunStore()
+	store.Add(&Run{ID: "native", TraceData: &data})
+	s := &Server{store: store, pipelineEnabled: true}
+	const pipeline = `stages:
+  - id: transform
+    type: transform
+    processor_ref: transform
+receivers: [otlp]
+processors:
+  transform:
+    trace_statements:
+      - context: span
+        statements: ['set(attributes["native"], "yes")']
+`
+	for _, tt := range []struct {
+		name string
+		path string
+	}{
+		{"validate", "/api/ottl/pipeline/validate?signal=traces"},
+		{"execute", "/api/ottl/pipeline/execute?signal=traces&run_id=native"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(pipeline))
+			req.Header.Set("Content-Type", "application/x-yaml")
+			rr := httptest.NewRecorder()
+			if tt.name == "validate" {
+				s.handlePipelineValidate(rr, req)
+			} else {
+				s.handlePipelineExecute(rr, req)
+			}
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rr.Code, rr.Body)
+			}
+			var result map[string]any
+			if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if tt.name == "validate" && result["valid"] != true {
+				t.Fatalf("validation failed: %s", rr.Body)
+			}
+			if tt.name == "execute" && !strings.Contains(rr.Body.String(), `"native"`) {
+				t.Fatalf("missing transformed attribute: %s", rr.Body)
+			}
+		})
+	}
+}
+
 func TestParsePipelineFromYAML_InvalidYAMLReturnsError(t *testing.T) {
 	invalidYAML := `not: valid: yaml: []['`
 
