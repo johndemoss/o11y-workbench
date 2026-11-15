@@ -2,16 +2,21 @@
   import type { Pipeline, Stage, StageType, ProcessorConfig, SignalType } from './types'
   import StageEditor from './StageEditor.svelte'
 
-  let { pipeline = { stages: [], processors: {} }, signal, onValidate, onImport }: {
+  let { pipeline = { stages: [], processors: {} }, signal, onValidate, onImport, onchange }: {
     pipeline: Pipeline
     signal: SignalType
     onValidate?: (p: Pipeline) => void
     onImport?: () => void
+    onchange?: (p: Pipeline) => void
   } = $props()
 
   let dragIdx: number | null = $state(null)
   let dropIdx: number | null = $state(null)
   let deleteConfirmIdx: number | null = $state(null)
+
+  function commit(next: Pipeline): void {
+    if (onchange) onchange(next)
+  }
 
   function addStage(): void {
     let next = 1
@@ -20,61 +25,67 @@
       pipeline.stages.some((stage) => stage.processor_ref === `transform/stage-${next}`)) next++
     const id = `stage-${next}`
     const procName = `transform/${id}`
-    pipeline.stages = [...pipeline.stages, {
-      id,
-      type: 'transform' as StageType,
-      processor_ref: procName,
-    }]
-    pipeline.processors = { ...pipeline.processors, [procName]: {} }
+    commit({
+      ...pipeline,
+      stages: [...pipeline.stages, {
+        id,
+        type: 'transform' as StageType,
+        processor_ref: procName,
+      }],
+      processors: { ...pipeline.processors, [procName]: {} },
+    })
   }
 
   function removeStage(idx: number): void {
     const removed = pipeline.stages[idx]
-    pipeline.stages = pipeline.stages.filter((_, i) => i !== idx)
-    if (!pipeline.stages.some((stage) => stage.processor_ref === removed.processor_ref)) {
-      const { [removed.processor_ref]: _, ...rest } = pipeline.processors
-      pipeline.processors = rest
+    const stages = pipeline.stages.filter((_, i) => i !== idx)
+    let processors = pipeline.processors
+    if (!stages.some((stage) => stage.processor_ref === removed.processor_ref)) {
+      const { [removed.processor_ref]: _, ...rest } = processors
+      processors = rest
     }
     deleteConfirmIdx = null
+    commit({ ...pipeline, stages, processors })
   }
 
   function updateStage(idx: number, stage: Stage): void {
     const prev = pipeline.stages[idx]
     let next = stage
+    let processors = pipeline.processors
     const refType = prev.processor_ref.split('/')[0]
     if (refType !== stage.type) {
       const suffix = prev.processor_ref.split('/').slice(1).join('/') || prev.processor_ref
       let ref = `${stage.type}/${suffix}`
-      if (ref !== prev.processor_ref && ref in pipeline.processors) ref = `${ref}-${idx + 1}`
-      const config = pipeline.processors[prev.processor_ref] ?? {}
-      const { [prev.processor_ref]: _, ...rest } = pipeline.processors
-      pipeline.processors = { ...rest, [ref]: config }
+      if (ref !== prev.processor_ref && ref in processors) ref = `${ref}-${idx + 1}`
+      const config = processors[prev.processor_ref] ?? {}
+      const { [prev.processor_ref]: _, ...rest } = processors
+      processors = { ...rest, [ref]: config }
       next = { ...stage, processor_ref: ref }
     }
-    pipeline.stages = pipeline.stages.map((s, i) => i === idx ? next : s)
+    commit({ ...pipeline, processors, stages: pipeline.stages.map((s, i) => i === idx ? next : s) })
   }
 
   function updateProcessor(idx: number, config: ProcessorConfig): void {
     const stage = pipeline.stages[idx]
-    pipeline.processors = { ...pipeline.processors, [stage.processor_ref]: config }
+    commit({ ...pipeline, processors: { ...pipeline.processors, [stage.processor_ref]: config } })
+  }
+
+  function swapStages(a: number, b: number): void {
+    const stages = [...pipeline.stages]
+    const tmp = stages[a]
+    stages[a] = stages[b]
+    stages[b] = tmp
+    commit({ ...pipeline, stages })
   }
 
   function moveUp(idx: number): void {
     if (idx === 0) return
-    const stages = [...pipeline.stages]
-    const tmp = stages[idx]
-    stages[idx] = stages[idx - 1]
-    stages[idx - 1] = tmp
-    pipeline.stages = stages
+    swapStages(idx, idx - 1)
   }
 
   function moveDown(idx: number): void {
     if (idx === pipeline.stages.length - 1) return
-    const stages = [...pipeline.stages]
-    const tmp = stages[idx]
-    stages[idx] = stages[idx + 1]
-    stages[idx + 1] = tmp
-    pipeline.stages = stages
+    swapStages(idx, idx + 1)
   }
 
   function onDragStart(e: DragEvent, idx: number): void {
@@ -94,7 +105,7 @@
     const stages = [...pipeline.stages]
     const [moved] = stages.splice(dragIdx, 1)
     stages.splice(dropIdx, 0, moved)
-    pipeline.stages = stages
+    commit({ ...pipeline, stages })
     dragIdx = null; dropIdx = null
   }
 </script>
