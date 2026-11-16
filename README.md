@@ -13,6 +13,10 @@ This is an **unauthenticated, trusted single-user development tool**, not a publ
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for verified build/check commands and [AGENTS.md](AGENTS.md) for architecture rules. Project-owned code is [MIT licensed](LICENSE); third-party material retains its own terms.
 
+## Product walkthrough
+
+https://github.com/user-attachments/assets/11daae8b-9264-45f4-b803-7adb1b2e6ab2
+
 ## Features
 
 - **Seeded generation** — reproduce topology and workload choices; normal runs retain fresh IDs and timestamps rather than byte-identical output.
